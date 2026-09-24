@@ -1,0 +1,775 @@
+"""The terminal experience. `cairn` alone does the right thing: set up, or show status."""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import time
+import webbrowser
+from pathlib import Path
+from typing import Optional
+
+import typer
+from rich.console import Console, Group
+from rich.live import Live
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from . import __version__
+
+AMBER, MOSS, ROSE, SLATE, INK = "#d9a441", "#8fb39a", "#d08c8c", "#7d8b96", "#e6ecef"
+console = Console(highlight=False)
+err = Console(stderr=True, highlight=False)
+app = typer.Typer(add_completion=False, no_args_is_help=False, rich_markup_mode="rich",
+                  help="Cairn — institutional memory for coding agents. Run [bold]cairn[/] in any repo.")
+trace_app = typer.Typer(help="Explore the code map.")
+spec_app = typer.Typer(help="Spec workflow helpers.")
+agents_app = typer.Typer(help="Agent integrations.")
+app.add_typer(trace_app, name="trace")
+app.add_typer(spec_app, name="spec")
+app.add_typer(agents_app, name="agents")
+
+LAYERS = [("map", "Map", "what the code is"), ("specs", "Specs", "what we intended"),
+          ("timeline", "Timeline", "what happened"), ("memory", "Memory", "what we learned"),
+          ("sessions", "Sessions", "what agents did")]
+
+
+# ---- helpers -----------------------------------------------------------------------------------------
+def _cairn():
+    from .core import Cairn
+    from .project import Project
+    proj = Project.discover()
+    if proj is None:
+        err.print("[bold red]Not inside a project folder.[/]")
+        raise typer.Exit(3)
+    return Cairn(proj)
+
+
+def _need_init(c) -> None:
+    if not c.brain.get_kv("sync.last"):
+        err.print(f"[{AMBER}]This repo isn't set up yet.[/] Run [bold]cairn[/] first.")
+        raise typer.Exit(1)
+
+
+def _emit_json(obj) -> None:
+    sys.stdout.write(json.dumps(obj, indent=2, default=str) + "\n")
+
+
+def brand(sub: str = "") -> Text:
+    t = Text()
+    t.append("▲ ", style=f"bold {AMBER}")
+    t.append("cairn", style=f"bold {INK}")
+    if sub:
+        t.append(f"  {sub}", style=SLATE)
+    return t
+
+
+def render_pack(md: str) -> None:
+    """Render a context pack with hierarchy: title, risk badge, sections, dimmed citations."""
+    for line in md.splitlines():
+        if line.startswith("## "):
+            console.print(Text(line[3:], style=f"bold {INK}"))
+        elif line.startswith("### "):
+            console.print(Text("\n" + line[4:], style=f"bold {AMBER}"))
+        elif line.startswith("**Risk:"):
+            m = re.match(r"\*\*Risk: (\w+)\*\*(.*)", line)
+            if m:
+                lvl = m.group(1)
+                col = {"HIGH": ROSE, "MEDIUM": AMBER, "LOW": MOSS}.get(lvl, SLATE)
+                t = Text()
+                t.append(f" {lvl} ", style=f"bold black on {col}")
+                t.append(m.group(2), style=INK)
+                console.print(t)
+        elif line.startswith("- "):
+            m = re.match(r"- (.*?)(?: \[([^\]]+)\])?$", line)
+            t = Text("  • ", style=SLATE)
+            body = m.group(1) if m else line[2:]
+            for part in re.split(r"(EXTRACTED|INFERRED)", body):
+                t.append(part, style=MOSS if part == "EXTRACTED" else AMBER if part == "INFERRED" else INK)
+            if m and m.group(2):
+                t.append(f"  {m.group(2)}", style=f"dim {SLATE}")
+            console.print(t)
+        elif line.startswith("(budget used"):
+            console.print(Text(line, style=f"dim {SLATE}"))
+        elif line.strip():
+            console.print(Text(line.replace("**", ""), style=SLATE))
+
+
+def stones(ov: dict) -> Table:
+    """The five layers as a stacked cairn: filled stones are connected, sized by volume."""
+    L = ov["layers"]
+    rows = {
+        "map": (L["map"]["nodes"], f"{L['map']['files']:,} files · {L['map']['nodes']:,} nodes · {L['map']['areas']} areas"),
+        "specs": (L["specs"]["tasks"], f"{L['specs']['features']} features · {L['specs']['done']}/{L['specs']['tasks']} tasks"
+                  if L["specs"]["connected"] else "not set up — cairn init"),
+        "timeline": (L["timeline"]["commits"], f"{L['timeline']['commits']:,} commits · {L['timeline']['warnings']} warnings"
+                     + (f" · {L['timeline']['facts']} facts" if L["timeline"]["deep"] else "")),
+        "memory": (L["memory"]["memories"], f"{L['memory']['memories']} memories"
+                   + (" · semantic" if L["memory"]["semantic"] else "")),
+        "sessions": (L["sessions"]["observations"], f"{L['sessions']['observations']} observations"
+                     if L["sessions"]["connected"] else "capture not connected — cairn doctor"),
+    }
+    t = Table.grid(padding=(0, 2))
+    t.add_column(width=10)
+    t.add_column(width=14)
+    t.add_column()
+    for key, name, _ in LAYERS:
+        n, desc = rows[key]
+        on = L[key]["connected"] and n > 0
+        width = 0 if not on else max(2, min(12, len(str(n)) * 2 + 2))
+        bar = Text("█" * width, style=AMBER if key != "sessions" else MOSS) + Text("░" * (12 - width), style="grey23")
+        t.add_row(Text(name, style=INK if on else SLATE), bar, Text(desc, style=INK if on else f"dim {SLATE}"))
+    return t
+
+
+# ---- default -----------------------------------------------------------------------------------------
+@app.callback(invoke_without_command=True)
+def main_cb(ctx: typer.Context,
+            version: bool = typer.Option(False, "--version", "-V", help="Show version and exit.")):
+    if version:
+        console.print(f"cairn {__version__}")
+        raise typer.Exit()
+    if ctx.invoked_subcommand is None:
+        from .project import Project
+        proj = Project.discover()
+        if proj is not None and proj.initialized and (proj.dir / "brain.db").exists():
+            from .core import Cairn
+            if Cairn(proj).brain.get_kv("sync.last"):
+                return status(as_json=False)
+        return run_init()
+
+
+# ---- init --------------------------------------------------------------------------------------------
+@app.command()
+def init(yes: bool = typer.Option(True, "--yes/--ask", help="Zero prompts (default)."),
+         agents: Optional[str] = typer.Option(None, help="Comma list: claude,codex,cursor,gemini,vscode. Default: detected."),
+         no_hooks: bool = typer.Option(False, "--no-hooks", help="Skip git hooks."),
+         no_ui: bool = typer.Option(False, "--no-ui", help="Don't start the local UI."),
+         no_capture: bool = typer.Option(False, "--no-capture", help="Don't install agent session capture."),
+         no_specs: bool = typer.Option(False, "--no-specs", help="Don't add the spec workflow.")):
+    """One-command setup for a new or existing repository. Idempotent."""
+    run_init(agents=agents, no_hooks=no_hooks, no_ui=no_ui, no_capture=no_capture, no_specs=no_specs)
+
+
+def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = False, no_capture: bool = False,
+             no_specs: bool = False) -> None:
+    from . import agents as agents_mod, daemon, hooks, sync
+    from .core import Cairn
+    from .engines import journal, specs
+    from .project import Project
+
+    proj = Project.discover()
+    if proj is None:
+        err.print("[bold red]Run this inside a project folder.[/]")
+        raise typer.Exit(3)
+    if not proj.is_git:
+        console.print(f"[{AMBER}]No git repository here.[/] History and hooks need one: [bold]git init[/]. "
+                      "Continuing with map, specs and memory.")
+    proj.ensure_dir()
+    proj.reload()
+    c = Cairn(proj)
+    steps: list[list] = []  # [label, state, detail]
+
+    def view():
+        t = Table.grid(padding=(0, 1))
+        t.add_column(width=2)
+        t.add_column(width=22)
+        t.add_column()
+        icons = {"run": (f"[{AMBER}]◌[/]"), "ok": f"[{MOSS}]✓[/]", "skip": f"[{SLATE}]–[/]", "fail": f"[{ROSE}]✗[/]"}
+        for label, st, detail in steps:
+            t.add_row(icons[st], Text(label, style=INK if st != "skip" else SLATE),
+                      Text(detail, style=SLATE if st != "fail" else ROSE))
+        return Group(brand(f"setting up {proj.name}"), Text(""), t)
+
+    with Live(view(), console=console, refresh_per_second=12, transient=False) as live:
+        def mark(label, st, detail=""):
+            for s in steps:
+                if s[0] == label:
+                    s[1], s[2] = st, detail
+                    break
+            else:
+                steps.append([label, st, detail])
+            live.update(view())
+
+        # spec workflow
+        if no_specs:
+            mark("Spec workflow", "skip", "skipped")
+        else:
+            mark("Spec workflow", "run", "adding templates and commands…")
+            integ = "claude"
+            det = agents_mod.detect(proj)
+            for cand in ("claude", "codex", "cursor", "gemini", "vscode"):
+                if cand in det:
+                    integ = {"vscode": "copilot", "cursor": "cursor-agent"}.get(cand, cand)
+                    break
+            ok, msg = specs.bootstrap(proj, integ)
+            if ok:
+                ok2, msg2 = specs.install_extension(proj)
+                mark("Spec workflow", "ok" if ok2 else "fail", f"{msg}; {msg2}")
+            else:
+                mark("Spec workflow", "skip", msg)
+        # session capture
+        if no_capture:
+            mark("Session capture", "skip", "skipped")
+        elif journal.available():
+            mark("Session capture", "ok", "already capturing")
+        elif journal.can_install():
+            mark("Session capture", "run", "installing agent hooks (one time, user-level)…")
+            ok, msg = journal.install(proj.dir)
+            mark("Session capture", "ok" if ok else "fail", msg)
+        else:
+            mark("Session capture", "skip", "needs Node.js 18+ — install Node, then `cairn init`")
+        # agents
+        chosen = agents.split(",") if agents else agents_mod.detect(proj)
+        changed = agents_mod.install(proj, chosen)
+        names = [agents_mod.AGENTS[a] for a in chosen if a in agents_mod.AGENTS]
+        mark("Agents", "ok", ", ".join(names) + " + AGENTS.md" if names else "AGENTS.md (no agents detected)")
+        # hooks
+        if no_hooks or not proj.is_git:
+            mark("Git hooks", "skip", "skipped")
+        else:
+            added = hooks.install_git_hooks(proj)
+            mark("Git hooks", "ok", "sync after commit, merge, checkout" + ("" if added else " (already set)"))
+        # sync (fan-out)
+        labels = {"map": "Map", "history": "Timeline", "specs": "Specs", "sessions": "Sessions",
+                  "links": "Linking", "drift": "Drift check", "timeline": "Timeline facts"}
+
+        def prog(step, st, detail):
+            label = labels.get(step, step)
+            mark(label, {"start": "run", "done": "ok", "skip": "skip", "fail": "fail"}[st], detail or "working…")
+        sync.run(c, progress=prog)
+        # UI
+        if no_ui:
+            mark("Local UI", "skip", "skipped")
+        else:
+            mark("Local UI", "run", "starting…")
+            d = daemon.start(proj)
+            mark("Local UI", "ok", d["url"])
+
+    ov = c.overview()
+    console.print()
+    console.print(Panel(stones(ov), border_style="grey30", padding=(1, 2), title=brand(proj.name), title_align="left"))
+    nxt = Table.grid(padding=(0, 2))
+    nxt.add_column(style=f"bold {AMBER}")
+    nxt.add_column(style=INK)
+    hub = ov["hubs"][0]["label"] if ov["hubs"] else "<file or symbol>"
+    nxt.add_row("cairn impact " + hub.strip("().") , "what breaks if it changes")
+    nxt.add_row("cairn ui", "see everything on one page")
+    nxt.add_row("cairn remember \"…\"", "teach every agent a convention")
+    if not ov["layers"]["specs"]["features"]:
+        nxt.add_row("/speckit-specify", "start spec-driven work in your agent")
+    console.print(nxt)
+    if not c.router.available:
+        console.print(Text("\nDeep tier (temporal facts, semantic memory, narrated answers) turns on when "
+                           "ANTHROPIC_API_KEY is set.", style=f"dim {SLATE}"))
+
+
+# ---- status & doctor ---------------------------------------------------------------------------------
+@app.command()
+def status(as_json: bool = typer.Option(False, "--json", help="Machine-readable output.")):
+    """Health of every layer, active spec, drift and the UI address."""
+    from . import daemon
+    c = _cairn()
+    ov = c.overview()
+    srv = daemon.info(c.project)
+    if as_json:
+        _emit_json({**ov, "server": srv})
+        return
+    sub = f"synced {_ago(ov['last_sync'])}" if ov["last_sync"] else "not synced"
+    console.print(Panel(stones(ov), border_style="grey30", padding=(1, 2), title=brand(f"{ov['project']}  {sub}"),
+                        title_align="left"))
+    bits = []
+    if ov["active_spec"]:
+        a = ov["active_spec"]
+        bits.append(f"[{INK}]Active spec[/] [{AMBER}]{a['id'][5:]}[/] {a['done']}/{a['total']} tasks")
+    if ov["drift"]:
+        bits.append(f"[{ROSE}]{ov['drift']} drift findings[/] → cairn drift")
+    bits.append(f"UI [{AMBER}]{srv['url']}[/]" if srv else f"UI [dim]stopped[/] → cairn ui")
+    console.print("   ".join(bits))
+
+
+def _ago(ts: float) -> str:
+    from .core import ago
+    return ago(ts)
+
+
+@app.command()
+def doctor():
+    """Every capability, its state, and the exact command to enable it."""
+    import shutil
+    from . import daemon
+    from .engines import journal, specs
+    c = _cairn()
+    t = Table(box=None, padding=(0, 2), show_header=True, header_style=f"bold {SLATE}")
+    t.add_column("")
+    t.add_column("Capability", style=INK)
+    t.add_column("State")
+    t.add_column("Fix", style=AMBER)
+    ok, no = f"[{MOSS}]●[/]", f"[{ROSE}]○[/]"
+
+    def row(good, name, state, fix=""):
+        t.add_row(ok if good else no, name, state, "" if good else fix)
+    idx = c.map
+    row(len(idx) > 0, "Map", f"{len(idx):,} nodes" if len(idx) else "empty", "cairn sync")
+    row(c.project.is_git, "Git history", "ok" if c.project.is_git else "not a git repo", "git init")
+    row(specs.initialized(c.project.root), "Spec workflow", "ok" if specs.initialized(c.project.root) else "missing",
+        "cairn init" if specs.cli() else "install uv, then cairn init")
+    ext = (c.project.root / ".specify" / "extensions" / "cairn").exists()
+    row(ext, "Spec hooks", "installed" if ext else "missing", "cairn init")
+    row(journal.available(), "Session capture", "ok" if journal.available() else "not connected",
+        "cairn init" if journal.can_install() else "install Node.js 18+, then cairn init")
+    row(c.router.available, "Model key", f"{c.router.provider}" if c.router.available else "none (deep tier off)",
+        "export ANTHROPIC_API_KEY=…")
+    try:
+        import graphiti_core  # noqa: F401
+        import mem0  # noqa: F401
+        deep_ok = True
+    except ImportError:
+        deep_ok = False
+    row(deep_ok, "Deep tier packages", "installed" if deep_ok else "not installed", "uv tool install 'cairn-brain[deep]'")
+    graph_url = c.project.cfg("deep.graph_url", "")
+    row(True, "Timeline store", graph_url or "embedded (local)")
+    srv = daemon.info(c.project)
+    row(bool(srv), "Local UI", srv["url"] if srv else "stopped", "cairn ui")
+    row(bool(shutil.which("cairn")), "cairn on PATH", "yes" if shutil.which("cairn") else "no",
+        "uv tool install cairn-brain")
+    from . import agents as agents_mod
+    det = agents_mod.detect(c.project)
+    row(bool(det), "Agents", ", ".join(agents_mod.AGENTS[a] for a in det) or "none detected", "cairn agents install --agents claude")
+    console.print(brand("doctor"))
+    console.print(t)
+
+
+# ---- sync --------------------------------------------------------------------------------------------
+@app.command("sync")
+def sync_cmd(deep: Optional[bool] = typer.Option(None, "--deep/--no-deep", help="Force the deep tier on/off."),
+             budget: Optional[int] = typer.Option(None, help="Token budget for the deep tier."),
+             no_map_rebuild: bool = typer.Option(False, "--no-map-rebuild", help="Reuse the current map."),
+             quiet: bool = typer.Option(False, "--quiet", "-q"),
+             as_json: bool = typer.Option(False, "--json")):
+    """Refresh every layer in parallel (incremental), link, check drift."""
+    from . import sync
+    c = _cairn()
+
+    def prog(step, st, detail):
+        if quiet or as_json or st == "start":
+            return
+        icon = {"done": f"[{MOSS}]✓[/]", "skip": f"[{SLATE}]–[/]", "fail": f"[{ROSE}]✗[/]"}[st]
+        console.print(f" {icon} [{INK}]{step:<10}[/] [{SLATE}]{detail}[/]")
+    if not quiet and not as_json:
+        console.print(brand("sync"))
+    res = sync.run(c, deep=deep, budget=budget, rebuild_map=not no_map_rebuild, progress=prog)
+    if as_json:
+        _emit_json(res)
+    elif not quiet:
+        console.print(Text(f"   done in {res.get('seconds', 0)}s", style=f"dim {SLATE}"))
+
+
+# ---- questions ---------------------------------------------------------------------------------------
+@app.command()
+def impact(target: str = typer.Argument(..., help="File path, symbol, Class.method, or an id like task:001/T004"),
+           depth: int = typer.Option(2, help="Dependency depth."),
+           budget: int = typer.Option(1800, help="Token budget."),
+           explain: bool = typer.Option(False, "--explain", help="Add a deep-tier summary (needs a key)."),
+           as_json: bool = typer.Option(False, "--json")):
+    """What breaks if this changes."""
+    c = _cairn()
+    _need_init(c)
+    p = c.impact(target, depth, budget)
+    if as_json:
+        _emit_json({"title": p.title, "sections": p.sections(), **p.data})
+        return
+    render_pack(p.render())
+    if explain:
+        _narrate(c, p, "impact")
+
+
+@app.command()
+def why(target: str = typer.Argument(...), budget: int = typer.Option(1800),
+        explain: bool = typer.Option(False, "--explain"), as_json: bool = typer.Option(False, "--json")):
+    """Why this code is the way it is."""
+    c = _cairn()
+    _need_init(c)
+    p = c.why(target, budget)
+    if as_json:
+        _emit_json({"title": p.title, "sections": p.sections(), **p.data})
+        return
+    render_pack(p.render())
+    if explain:
+        _narrate(c, p, "why")
+
+
+def _narrate(c, pack, task):
+    if not c.router.available:
+        console.print(Text("\n--explain needs a model key (ANTHROPIC_API_KEY).", style=f"dim {SLATE}"))
+        return
+    with console.status(f"[{AMBER}]thinking with {c.router.model(c.router.tier_for(task))}…"):
+        text = c.narrate(pack, task)
+    if text:
+        console.print(Panel(text, border_style=AMBER, title="summary", title_align="left"))
+
+
+@app.command()
+def ask(question: str = typer.Argument(...), budget: int = typer.Option(1800),
+        no_llm: bool = typer.Option(False, "--no-llm", help="Only the evidence pack."),
+        as_json: bool = typer.Option(False, "--json")):
+    """Ask the project memory anything. Evidence first; a narrated answer when a key is set."""
+    c = _cairn()
+    _need_init(c)
+    if as_json:
+        _emit_json(c.ask(question, budget, llm=not no_llm))
+        return
+    with console.status(f"[{AMBER}]gathering…"):
+        res = c.ask(question, budget, llm=not no_llm)
+    if res.get("answer"):
+        console.print(Panel(res["answer"], border_style=AMBER, title=f"answer · {res['model']}", title_align="left"))
+        console.print(Text("evidence", style=f"bold {SLATE}"))
+    render_pack(res["pack"])
+
+
+@app.command()
+def search(query: str, kinds: Optional[str] = typer.Option(None, help="symbol,file,spec,task,req,commit,memory,obs,fact"),
+           limit: int = 20, as_json: bool = typer.Option(False, "--json")):
+    """Search every layer."""
+    c = _cairn()
+    hits = c.search(query, kinds.split(",") if kinds else None, limit)
+    if as_json:
+        _emit_json(hits)
+        return
+    for h in hits:
+        console.print(f" [{SLATE}]{h['kind']:<8}[/] [{INK}]{h['title']}[/]  [dim]{h.get('path') or h['id']}[/]")
+
+
+@app.command()
+def brief():
+    """The compact project briefing agents receive at session start."""
+    console.print(_cairn().brief())
+
+
+# ---- map ---------------------------------------------------------------------------------------------
+@trace_app.command("path")
+def trace_path(a: str, b: str):
+    """Shortest path between two things in the map."""
+    from .engines import mapper
+    console.print(mapper.engine_text(_cairn().project.root, "path", a, b))
+
+
+@trace_app.command("explain")
+def trace_explain(x: str):
+    """A node and its neighbourhood."""
+    from .engines import mapper
+    console.print(mapper.engine_text(_cairn().project.root, "explain", x))
+
+
+@trace_app.command("query")
+def trace_query(question: str, budget: int = 1500):
+    """Scoped subgraph for a plain-language question."""
+    from .engines import mapper
+    console.print(mapper.engine_text(_cairn().project.root, "query", question, "--budget", str(budget)))
+
+
+@app.command()
+def hubs(top: int = 12):
+    """The most-connected code: what everything flows through."""
+    c = _cairn()
+    for i, h in enumerate(c.map.hubs(top), 1):
+        console.print(f" [{AMBER}]{i:>2}[/] [{INK}]{h['label']:<40}[/] [{SLATE}]{h['degree']:>4} links  {h['file']}[/]")
+
+
+@app.command()
+def areas(top: int = 20):
+    """Subsystems detected in the map."""
+    for a in _cairn().map.areas()[:top]:
+        console.print(f" [{INK}]{a['name']:<40}[/] [{SLATE}]{a['size']:>4} nodes  {', '.join(a['top'][:3])}[/]")
+
+
+@app.command()
+def prs(args: list[str] = typer.Argument(None)):
+    """Open pull requests with their map impact (needs the GitHub CLI)."""
+    import subprocess
+    c = _cairn()
+    subprocess.run([sys.executable, "-m", "graphify", "prs", *(args or [])], cwd=c.project.root)
+
+
+# ---- specs -------------------------------------------------------------------------------------------
+@app.command()
+def specs(spec_id: Optional[str] = typer.Argument(None), as_json: bool = typer.Option(False, "--json")):
+    """The spec board: features, stories, task progress and file trace."""
+    from .engines import specs as se
+    c = _cairn()
+    feats = [f for f in se.features(c.project.root) if not spec_id or f["id"].startswith(spec_id)]
+    if as_json:
+        _emit_json(feats)
+        return
+    if not feats:
+        console.print(f"[{SLATE}]No specs yet.[/] In your agent run [bold]/speckit-constitution[/], then "
+                      "[bold]/speckit-specify[/] <what to build>.")
+        return
+    for f in feats:
+        p = f["progress"]
+        pct = int(100 * p["done"] / p["total"]) if p["total"] else 0
+        bar = Text("█" * (pct // 8), style=AMBER) + Text("░" * (12 - pct // 8), style="grey23")
+        console.print(Text.assemble((f["id"], f"bold {AMBER}"), "  ", (f["title"], f"bold {INK}"), "  ", bar,
+                                    (f"  {p['done']}/{p['total']}", SLATE)))
+        if spec_id:
+            for s in f["stories"]:
+                ts = [t for t in f["tasks"] if t["story"] == s["id"]]
+                d = sum(t["done"] for t in ts)
+                console.print(f"   [{SLATE}]{s['priority']}[/] [{INK}]{s['id']} {s['title']}[/] [{SLATE}]{d}/{len(ts)}[/]")
+            for t in f["tasks"]:
+                mark = f"[{MOSS}]✓[/]" if t["done"] else f"[{SLATE}]○[/]"
+                files = ", ".join(p for p, _ in t["files"][:2])
+                console.print(f"     {mark} [{INK}]{t['id']}[/] {t['text'][:70]} [dim]{files}[/]")
+
+
+@spec_app.command("new")
+def spec_new(description: str):
+    """Create a new feature folder (then run /speckit-specify in your agent)."""
+    from .engines import specs as se
+    res = se.new_feature(_cairn().project, description)
+    console.print(f"[{MOSS}]✓[/] {res.get('BRANCH_NAME', '')} → [{AMBER}]{res.get('SPEC_FILE', '')}[/]")
+    console.print(f"[{SLATE}]Next: in your agent, run /speckit-specify {description}[/]")
+
+
+@app.command()
+def drift(spec_id: Optional[str] = typer.Argument(None), deep: bool = typer.Option(False, "--deep"),
+          as_json: bool = typer.Option(False, "--json")):
+    """Where the code disagrees with its specs."""
+    from . import drift as d
+    c = _cairn()
+    found = d.check(c, spec_id)
+    if deep:
+        with console.status(f"[{AMBER}]judging requirements with {c.router.model('deep')}…"):
+            found += d.semantic(c, spec_id)
+    d.record(c, found)
+    if as_json:
+        _emit_json(found)
+        return
+    if not found:
+        console.print(f"[{MOSS}]✓[/] No drift. Code and specs agree.")
+        return
+    for f in found:
+        col = {"high": ROSE, "medium": AMBER, "low": SLATE}[f["severity"]]
+        console.print(f" [{col}]{f['severity']:<6}[/] [{INK}]{f['title']}[/]  [dim]{f['cite']}[/]")
+        for e in f["evidence"][:2]:
+            console.print(f"        [{SLATE}]{e}[/]")
+
+
+# ---- memory ------------------------------------------------------------------------------------------
+@app.command()
+def remember(text: str, kind: str = typer.Option("fact", help="convention|decision|gotcha|preference|fact"),
+             supersedes: Optional[str] = typer.Option(None, help="Memory id this replaces.")):
+    """Teach every agent something durable."""
+    c = _cairn()
+    try:
+        res = c.remember(text, kind, supersedes)
+    except ValueError as exc:
+        err.print(f"[{ROSE}]{exc}[/]")
+        raise typer.Exit(2)
+    console.print(f"[{MOSS}]✓[/] {res['status']} [{AMBER}]memory:{res['id']}[/]")
+
+
+@app.command()
+def recall(query: str, limit: int = 10, as_json: bool = typer.Option(False, "--json")):
+    """Find what the team knows about a topic."""
+    c = _cairn()
+    mems = c.memory.recall(query, limit)
+    if as_json:
+        _emit_json(mems)
+        return
+    for m in mems:
+        console.print(f" [{AMBER}]{m['kind']:<10}[/] [{INK}]{m['text']}[/]  [dim]memory:{m['id']}[/]")
+    if not mems:
+        console.print(f"[{SLATE}]Nothing yet. Add one: cairn remember \"…\" --kind convention[/]")
+
+
+@app.command()
+def memories(all: bool = typer.Option(False, "--all", help="Include superseded and forgotten.")):
+    """List memories."""
+    for m in _cairn().brain.memories(include_inactive=all):
+        state = " (superseded)" if m["superseded_by"] else " (forgotten)" if m["forgotten"] else ""
+        console.print(f" [{AMBER}]{m['kind']:<10}[/] [{INK}]{m['text']}[/][{SLATE}]{state}[/]  [dim]memory:{m['id']}[/]")
+
+
+@app.command()
+def forget(memory_id: str):
+    """Forget a memory (soft delete)."""
+    ok = _cairn().brain.forget(memory_id.removeprefix("memory:"))
+    console.print(f"[{MOSS}]✓[/] forgotten" if ok else f"[{ROSE}]no such memory[/]")
+
+
+# ---- timeline & sessions -----------------------------------------------------------------------------
+@app.command()
+def timeline(target: Optional[str] = typer.Option(None, help="file:<path>, spec:<id>, …"),
+             days: int = typer.Option(30, help="How far back."), limit: int = 40):
+    """What happened: commits, spec progress, sessions, decisions, facts, drift."""
+    from .core import day
+    c = _cairn()
+    evs = c.brain.events(since=time.time() - days * 86400, ref=target, limit=limit)
+    col = {"commit": INK, "spec": AMBER, "session": MOSS, "memory": AMBER, "fact": MOSS, "drift": ROSE}
+    for e in evs:
+        risk = e["meta"].get("risk") if e["kind"] == "commit" else None
+        flag = f" [{ROSE}]{','.join(risk)}[/]" if risk else ""
+        console.print(f" [{SLATE}]{day(e['ts'])}[/] [{col.get(e['kind'], INK)}]{e['kind']:<8}[/] {e['title'][:90]}{flag}")
+
+
+@app.command()
+def sessions(query: Optional[str] = typer.Option(None, "--query", "-q"), limit: int = 20):
+    """What agents did in this repo."""
+    from .core import ago
+    from .engines import journal
+    c = _cairn()
+    if not journal.available():
+        console.print(f"[{SLATE}]Session capture isn't connected. Run[/] cairn init [{SLATE}](needs Node.js 18+).[/]")
+        return
+    if query:
+        for h in c.brain.search(query, kinds=["obs"], limit=limit):
+            console.print(f" [{INK}]{h['title']}[/] [dim]{h['id']}[/]")
+        return
+    for e in c.brain.events(kinds=["session"], limit=limit):
+        console.print(f" [{SLATE}]{ago(e['ts']):>8}[/] [{INK}]{e['title'][:90]}[/]")
+
+
+# ---- servers & agents --------------------------------------------------------------------------------
+@app.command()
+def ui(no_open: bool = typer.Option(False, "--no-open")):
+    """Open the single-page UI (starts the local server if needed)."""
+    from . import daemon
+    c = _cairn()
+    d = daemon.start(c.project)
+    console.print(f"[{MOSS}]✓[/] {d['url']}")
+    if not no_open:
+        webbrowser.open(d["url"])
+
+
+@app.command()
+def up():
+    """Start the local server in the background."""
+    from . import daemon
+    d = daemon.start(_cairn().project)
+    console.print(f"[{MOSS}]✓[/] running at [{AMBER}]{d['url']}[/]")
+
+
+@app.command()
+def down():
+    """Stop the local server."""
+    from . import daemon
+    console.print(f"[{MOSS}]✓[/] stopped" if daemon.stop(_cairn().project) else f"[{SLATE}]not running[/]")
+
+
+@app.command(hidden=True)
+def serve(port: int = 4747):
+    from .server import serve as run
+    run(_cairn(), port)
+
+
+@app.command()
+def mcp():
+    """Run the MCP server on stdio (agents launch this)."""
+    from .mcp_server import main
+    main()
+
+
+@agents_app.command("install")
+def agents_install(agents: Optional[str] = typer.Option(None, help="claude,codex,cursor,gemini,vscode")):
+    """Wire agents to Cairn (idempotent)."""
+    from . import agents as a
+    c = _cairn()
+    changed = a.install(c.project, agents.split(",") if agents else None)
+    for agent, files in changed.items():
+        console.print(f" [{MOSS}]✓[/] [{INK}]{a.AGENTS.get(agent, 'All agents')}[/] [{SLATE}]{', '.join(files)}[/]")
+    if not changed:
+        console.print(f"[{SLATE}]Everything already wired.[/]")
+
+
+@agents_app.command("list")
+def agents_list():
+    """Detected agents."""
+    from . import agents as a
+    det = a.detect(_cairn().project)
+    for k, v in a.AGENTS.items():
+        console.print(f" {'[' + MOSS + ']●[/]' if k in det else '[' + SLATE + ']○[/]'} {v}")
+
+
+@app.command()
+def models(ledger: bool = typer.Option(False, "--ledger", help="Show calls and tokens per tier.")):
+    """Which model does which job, and what it cost."""
+    c = _cairn()
+    t = Table(box=None, padding=(0, 2), header_style=f"bold {SLATE}")
+    t.add_column("Tier", style=f"bold {AMBER}")
+    t.add_column("Model", style=INK)
+    t.add_column("Jobs", style=SLATE)
+    for r in c.router.table():
+        t.add_row(r["tier"], r["model"], ", ".join(r["tasks"]))
+    console.print(brand("models" + ("" if c.router.available else "  (no key: deterministic tier only)")))
+    console.print(t)
+    if ledger:
+        rows = c.brain.ledger()
+        lt = Table(box=None, padding=(0, 2), header_style=f"bold {SLATE}")
+        for col in ("tier", "model", "calls", "input", "output", "cache_read"):
+            lt.add_column(col)
+        for r in rows:
+            lt.add_row(*(f"{r[k]:,}" if isinstance(r[k], int) else str(r[k] or 0) for k in
+                         ("tier", "model", "calls", "input", "output", "cache_read")))
+        console.print(lt if rows else Text("No model calls yet.", style=SLATE))
+
+
+# ---- hook entry points -------------------------------------------------------------------------------
+@app.command(hidden=True)
+def statusline():
+    from . import hooks
+    from .core import Cairn
+    from .project import Project
+    data = sys.stdin.read() if not sys.stdin.isatty() else ""
+    cwd = None
+    try:
+        cwd = json.loads(data).get("workspace", {}).get("current_dir") if data.strip() else None
+    except json.JSONDecodeError:
+        pass
+    proj = Project.discover(Path(cwd) if cwd else None)
+    if proj is None or not proj.db_path.exists():
+        print("▲ cairn · not set up")
+        return
+    print(hooks.statusline(Cairn(proj), data))
+
+
+@app.command(hidden=True)
+def hook(event: str):
+    from . import hooks, sync
+    from .core import Cairn
+    from .project import Project
+    proj = Project.discover()
+    if proj is None or not proj.db_path.exists():
+        return
+    if event == "git":
+        sync.spawn_background(proj)
+    elif event == "session-start":
+        print(hooks.session_start(Cairn(proj)))
+
+
+@app.command()
+def uninstall(purge: bool = typer.Option(False, "--purge", help="Also delete .cairn/ state.")):
+    """Remove Cairn's agent wiring and hooks (and state with --purge)."""
+    import shutil
+    from . import agents as a, daemon, hooks
+    c = _cairn()
+    daemon.stop(c.project)
+    removed = a.uninstall(c.project) + [f".git/hooks/{h}" for h in hooks.remove_git_hooks(c.project)]
+    for r in removed:
+        console.print(f" [{MOSS}]✓[/] removed {r}")
+    if purge:
+        c.brain.close()
+        shutil.rmtree(c.project.dir, ignore_errors=True)
+        console.print(f" [{MOSS}]✓[/] deleted .cairn/")
+    console.print(f"[{SLATE}]Spec files and the map folder are left in place; delete them manually if unwanted.[/]")
+
+
+def main() -> None:
+    os.environ.setdefault("PYTHONWARNINGS", "ignore")
+    app()
+
+
+if __name__ == "__main__":
+    main()

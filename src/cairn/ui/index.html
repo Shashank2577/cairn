@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cairn</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><ellipse cx='16' cy='26' rx='12' ry='5' fill='%23d9a441'/><ellipse cx='16' cy='17' rx='9' ry='4.5' fill='%23c79535'/><ellipse cx='16' cy='9' rx='5.5' ry='3.5' fill='%23b58429'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fragment+Mono&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --bg:#1b2227; --surface:#222b31; --raised:#2a343b; --line:#34414a; --text:#d9e1e5; --muted:#8a99a3;
+  --ochre:#d9a441; --ochre-ink:#1b2227; --moss:#8fb39a; --rose:#d08c8c; --focus:#f0c56a;
+  --ui:"Schibsted Grotesk",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --code:"Fragment Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --r-s:6px; --r-m:10px;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){:root:not([data-theme=dark]){
+  --bg:#eef1f2; --surface:#f8fafa; --raised:#ffffff; --line:#d3dbdf; --text:#1e2a31; --muted:#5d6d77;
+  --ochre:#a8741a; --ochre-ink:#fff; --moss:#3f7a55; --rose:#b0504f; --focus:#a8741a; color-scheme:light}}
+:root[data-theme=light]{--bg:#eef1f2; --surface:#f8fafa; --raised:#ffffff; --line:#d3dbdf; --text:#1e2a31;
+  --muted:#5d6d77; --ochre:#a8741a; --ochre-ink:#fff; --moss:#3f7a55; --rose:#b0504f; --focus:#a8741a; color-scheme:light}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:15px/1.5 var(--ui);-webkit-font-smoothing:antialiased;
+  display:grid;grid-template:"top top top" 56px "rail stage dossier" 1fr "rail strip strip" 76px/200px 1fr minmax(340px,30vw)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
+code,.mono{font-family:var(--code);font-size:.86em}
+
+/* top bar */
+header{grid-area:top;display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid var(--line)}
+.mark{display:flex;align-items:baseline;gap:10px;min-width:184px}
+.mark b{font-weight:700;font-size:18px;letter-spacing:-.01em}
+.mark span{color:var(--muted);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+.cmd{flex:1;position:relative;max-width:720px}
+.cmd input{width:100%;height:36px;border-radius:var(--r-m);border:1px solid var(--line);background:var(--surface);
+  padding:0 12px 0 36px}
+.cmd svg{position:absolute;left:11px;top:10px;opacity:.6}
+.cmd kbd{position:absolute;right:10px;top:8px;font:12px var(--code);color:var(--muted);border:1px solid var(--line);
+  border-radius:4px;padding:1px 5px}
+.results{position:absolute;top:42px;left:0;right:0;background:var(--raised);border:1px solid var(--line);
+  border-radius:var(--r-m);box-shadow:0 12px 32px rgba(0,0,0,.28);max-height:60vh;overflow:auto;z-index:20;display:none}
+.results.open{display:block}
+.results button{display:grid;grid-template-columns:72px 1fr;gap:10px;width:100%;text-align:left;padding:8px 12px;
+  border:0;background:none;cursor:pointer}
+.results button[aria-selected=true],.results button:hover{background:var(--surface)}
+.results .k{color:var(--muted);font-size:13px}
+.results .p{display:block;color:var(--muted);font-size:12.5px;font-family:var(--code)}
+.results .ask{border-bottom:1px solid var(--line);color:var(--ochre)}
+.actions{display:flex;gap:8px;align-items:center}
+.btn{height:34px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);padding:0 12px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--ochre);color:var(--ochre-ink);border-color:var(--ochre);font-weight:600}
+.syncnote{color:var(--muted);font-size:13px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* the cairn */
+nav{grid-area:rail;border-right:1px solid var(--line);padding:22px 12px 16px;display:flex;flex-direction:column;gap:0}
+.cairn{display:flex;flex-direction:column-reverse;align-items:center;gap:0;margin-bottom:18px}
+.cairn .stone+.stone{margin-bottom:-4px}
+.stone{position:relative;border:0;cursor:pointer;background:none;padding:0;display:block}
+.stone svg{display:block;overflow:visible}
+.stone path{fill:var(--raised);stroke:var(--line);stroke-width:1.2;transition:fill .2s,stroke .2s}
+.stone.on path{fill:color-mix(in srgb,var(--ochre) 34%,var(--raised))}
+.stone[aria-current=true].on path{fill:color-mix(in srgb,var(--ochre) 62%,var(--raised))}
+.stone:hover path{stroke:var(--muted)}
+.stone[aria-current=true] path{stroke:var(--ochre);stroke-width:2}
+.stone.off path{fill:transparent;stroke-dasharray:3 3}
+.layers{display:flex;flex-direction:column;gap:2px}
+.layer{display:grid;grid-template-columns:1fr auto;gap:4px;border:0;background:none;text-align:left;padding:7px 8px;
+  border-radius:var(--r-s);cursor:pointer}
+.layer:hover{background:var(--surface)}
+.layer[aria-current=true]{background:var(--surface)}
+.layer[aria-current=true] .n{color:var(--ochre)}
+.layer .n{font-weight:600}
+.layer .c{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.layer .d{grid-column:1/-1;color:var(--muted);font-size:12.5px;margin-top:-3px}
+.railfoot{margin-top:auto;color:var(--muted);font-size:12.5px;line-height:1.45}
+.railfoot button{background:none;border:0;padding:0;color:var(--muted);text-decoration:underline;cursor:pointer}
+
+/* stage */
+main{grid-area:stage;position:relative;overflow:hidden;min-width:0}
+#map{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
+#map.drag{cursor:grabbing}
+.crumbs{position:absolute;left:16px;top:14px;display:flex;gap:8px;align-items:center;z-index:2;font-size:14px}
+.crumbs button{border:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-s);padding:3px 9px;cursor:pointer}
+.legend{position:absolute;left:16px;bottom:12px;display:flex;gap:14px;color:var(--muted);font-size:12.5px;z-index:2}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.view{position:absolute;inset:0;overflow:auto;padding:24px 28px 40px;display:none}
+.view.on{display:block}
+.view h2{font-size:22px;font-weight:650;letter-spacing:-.01em;margin:0 0 4px}
+.view .lede{color:var(--muted);margin:0 0 20px;max-width:64ch}
+.empty{border:1px dashed var(--line);border-radius:var(--r-m);padding:22px;color:var(--muted);max-width:64ch}
+.empty code{color:var(--text)}
+
+/* specs */
+.feature{border-top:1px solid var(--line);padding:16px 0}
+.feature>button{display:grid;grid-template-columns:auto 1fr 180px;gap:14px;align-items:center;width:100%;border:0;
+  background:none;text-align:left;cursor:pointer;padding:0}
+.fid{font-family:var(--code);color:var(--ochre);font-size:13px}
+.ft{font-weight:600}
+.bar{height:6px;border-radius:3px;background:var(--raised);overflow:hidden;position:relative}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--ochre);border-radius:3px}
+.bar+small{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+.stories{display:none;margin:12px 0 0 0}
+.feature.open .stories{display:block}
+.story{margin:10px 0 4px;font-weight:600;font-size:14px}
+.story span{color:var(--muted);font-weight:400;margin-right:6px}
+.task{display:grid;grid-template-columns:18px 52px 1fr;gap:8px;padding:3px 0;font-size:14px;color:var(--text)}
+.task.done{color:var(--muted)}
+.task .fl{grid-column:3;display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--code);font-size:12px;border:1px solid var(--line);border-radius:4px;padding:0 6px;background:none;
+  cursor:pointer;color:var(--text)}
+.chip:hover{border-color:var(--ochre)}
+.chip.missing{border-style:dashed;color:var(--rose)}
+.principles{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 20px}
+.principles span{border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:13px;color:var(--muted)}
+.finding{display:grid;grid-template-columns:70px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.sev{font-size:12.5px;font-weight:600}
+.sev.high{color:var(--rose)} .sev.medium{color:var(--ochre)} .sev.low{color:var(--muted)}
+
+/* lists */
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.filters button{border:1px solid var(--line);background:none;border-radius:999px;padding:3px 11px;font-size:13px;cursor:pointer}
+.filters button[aria-pressed=true]{background:var(--text);color:var(--bg);border-color:var(--text)}
+.event{display:grid;grid-template-columns:92px 74px 1fr;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.event time{color:var(--muted);font-variant-numeric:tabular-nums}
+.event .kind{color:var(--muted)}
+.event.risk .kind{color:var(--rose)}
+.event button{all:unset;cursor:pointer}
+.event button:hover{text-decoration:underline}
+.memform{display:grid;grid-template-columns:1fr 140px auto;gap:8px;margin:0 0 18px;max-width:900px}
+.memform textarea{grid-column:1/-1;min-height:64px;resize:vertical;border:1px solid var(--line);border-radius:var(--r-m);
+  background:var(--surface);padding:10px 12px}
+.memform select,.memform input{height:36px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface);padding:0 10px}
+.memory{display:grid;grid-template-columns:96px 1fr auto;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);max-width:900px}
+.memory .kind{font-size:13px;font-weight:600;color:var(--ochre)}
+.memory small{display:block;color:var(--muted);font-size:12.5px}
+.memory button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:13px}
+.memory button:hover{color:var(--rose)}
+
+/* dossier */
+aside{grid-area:dossier;border-left:1px solid var(--line);overflow:auto;padding:20px 20px 32px;min-width:0}
+.dz{color:var(--muted)}
+.dz h3{color:var(--text);font-size:17px;margin:4px 0 6px}
+.dz ul{padding-left:18px}
+.dh{margin:0 0 4px;font-size:18px;font-weight:650;letter-spacing:-.01em;word-break:break-word}
+.dsub{color:var(--muted);font-family:var(--code);font-size:12.5px;margin:0 0 14px;word-break:break-all}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 14px}
+.tabs button{border:0;background:none;padding:8px 10px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button[aria-selected=true]{color:var(--text);border-bottom-color:var(--ochre)}
+.risk{display:flex;gap:10px;align-items:flex-start;margin:0 0 14px;font-size:14px}
+.badge{font-size:12px;font-weight:700;border-radius:4px;padding:2px 7px;color:var(--bg)}
+.badge.HIGH{background:var(--rose)} .badge.MEDIUM{background:var(--ochre)} .badge.LOW{background:var(--moss)}
+.sec{margin:16px 0 6px;font-weight:600;font-size:14px;display:flex;justify-content:space-between}
+.sec small{color:var(--muted);font-weight:400}
+.item{font-size:13.5px;padding:5px 0 5px 12px;border-left:2px solid var(--line);margin:0 0 4px;line-height:1.45}
+.item .ex{color:var(--moss);font-size:12px} .item .in{color:var(--ochre);font-size:12px}
+.item .cite{font-family:var(--code);font-size:11.5px;color:var(--muted);background:none;border:0;padding:0;cursor:pointer;
+  display:block;margin-top:1px;text-align:left;word-break:break-all}
+.item .cite:hover{color:var(--ochre)}
+.answer{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:12px 14px;margin:0 0 16px;
+  white-space:pre-wrap;font-size:14px}
+.answer small{display:block;color:var(--muted);margin-top:8px}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--ochre);border-radius:50%;
+  animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* timeline strip */
+footer{grid-area:strip;border-top:1px solid var(--line);position:relative}
+#strip{width:100%;height:100%;display:block}
+.tip{position:fixed;pointer-events:none;background:var(--raised);border:1px solid var(--line);border-radius:var(--r-s);
+  padding:6px 9px;font-size:13px;max-width:360px;z-index:30;display:none;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.tip time{display:block;color:var(--muted);font-size:12px}
+
+@media (max-width:980px){
+  body{grid-template:"top" auto "rail" auto "stage" 56vh "strip" 64px "dossier" auto/1fr;height:auto}
+  header{flex-wrap:wrap;padding:10px 12px;gap:10px}.mark{min-width:0;flex:1}
+  .cmd{order:3;flex-basis:100%;max-width:none}.cmd kbd{display:none}
+  .layer{white-space:nowrap}
+  nav{border-right:0;border-bottom:1px solid var(--line);padding:10px 12px;flex-direction:row;overflow:auto}
+  .cairn,.railfoot{display:none}.layers{flex-direction:row}.layer .d{display:none}
+  aside{border-left:0;border-top:1px solid var(--line)}
+  .syncnote{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="mark"><b>cairn</b><span id="proj">…</span></div>
+  <div class="cmd" role="combobox" aria-expanded="false" aria-owns="results" aria-haspopup="listbox">
+    <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    <input id="q" type="search" autocomplete="off" spellcheck="false" aria-label="Ask a question, or jump to a file or symbol"
+      placeholder="Ask a question, or jump to a file or symbol">
+    <kbd>/</kbd>
+    <div class="results" id="results" role="listbox"></div>
+  </div>
+  <div class="actions">
+    <span class="syncnote" id="syncnote" aria-live="polite"></span>
+    <button class="btn" id="theme" title="Switch light or dark">Theme</button>
+    <button class="btn primary" id="sync">Sync now</button>
+  </div>
+</header>
+
+<nav aria-label="Layers">
+  <div class="cairn" id="cairn"></div>
+  <div class="layers" id="layers"></div>
+  <div class="railfoot" id="railfoot"></div>
+</nav>
+
+<main>
+  <canvas id="map" aria-label="Map of the system. Click an area to open it, click a node to see its dossier."></canvas>
+  <div class="crumbs" id="crumbs"></div>
+  <div class="legend" id="legend"></div>
+  <section class="view" id="v-specs"></section>
+  <section class="view" id="v-timeline"></section>
+  <section class="view" id="v-memory"></section>
+  <section class="view" id="v-sessions"></section>
+</main>
+
+<aside id="dossier" aria-live="polite"></aside>
+<footer><canvas id="strip" aria-label="Timeline of commits, specs, sessions and decisions"></canvas></footer>
+<div class="tip" id="tip"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const api = async (path, opts) => { const r = await fetch(path, opts); if (!r.ok) throw new Error(await r.text()); return r.json(); };
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmtDate = ts => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : "";
+const ago = ts => { if (!ts) return ""; const d = Date.now()/1000 - ts;
+  for (const [u, s] of [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60]]) if (d >= s) return `${Math.floor(d/s)}${u} ago`;
+  return "just now"; };
+const nf = n => (n ?? 0).toLocaleString();
+const md = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const state = { layer: "map", ov: null, area: null, selected: null, tab: "impact" };
+const LAYERS = [
+  ["map", "Map", "What the code is"],
+  ["specs", "Specs", "What we intended"],
+  ["timeline", "Timeline", "What happened"],
+  ["memory", "Memory", "What we learned"],
+  ["sessions", "Sessions", "What agents did"],
+];
+
+/* ---------- theme ---------- */
+try { const t = localStorage.getItem("cairn-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+$("#theme").onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  const next = cur === "light" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("cairn-theme", next); } catch {}
+  drawMap(); drawStrip();
+};
+
+/* ---------- the cairn (layers rail) ---------- */
+function stonePath(w, h, seed) {
+  // an irregular rounded stone: a superellipse with gentle per-stone wobble
+  const pts = [], n = 28;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2, wob = 1 + 0.045 * Math.sin(a * 3 + seed) + 0.03 * Math.cos(a * 5 + seed * 2);
+    const c = Math.cos(a), s = Math.sin(a);
+    const x = Math.sign(c) * Math.pow(Math.abs(c), 0.72) * (w / 2) * wob;
+    const y = Math.sign(s) * Math.pow(Math.abs(s), 0.9) * (h / 2) * wob;
+    pts.push([x + w / 2 + 4, y + h / 2 + 3]);
+  }
+  let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], q = pts[(i + 1) % n], mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+    d += ` Q${p[0].toFixed(1)},${p[1].toFixed(1)} ${mx.toFixed(1)},${my.toFixed(1)}`;
+  }
+  return d + "Z";
+}
+function layerCount(key) {
+  const L = state.ov?.layers; if (!L) return 0;
+  return { map: L.map.nodes, specs: L.specs.tasks, timeline: L.timeline.commits, memory: L.memory.memories,
+           sessions: L.sessions.observations }[key] || 0;
+}
+function layerLabel(key) {
+  const L = state.ov?.layers; if (!L) return "";
+  if (key === "map") return nf(L.map.files) + " files";
+  if (key === "specs") return L.specs.connected ? `${L.specs.done}/${L.specs.tasks}` : "not set up";
+  if (key === "timeline") return nf(L.timeline.commits) + " commits";
+  if (key === "memory") return nf(L.memory.memories);
+  if (key === "sessions") return L.sessions.connected ? nf(L.sessions.observations) : "off";
+}
+function renderRail() {
+  const cairn = $("#cairn"), layers = $("#layers");
+  cairn.innerHTML = ""; layers.innerHTML = "";
+  LAYERS.forEach(([key, name, desc], i) => {
+    const n = layerCount(key), on = n > 0;
+    // base stone widest; volume nudges width (log scale) so the cairn reads as a real stack
+    const w = Math.round(Math.max(64, Math.min(168, 150 - i * 18 + Math.log10(n + 1) * 8)));
+    const h = 30 - i * 1.5;
+    const b = document.createElement("button");
+    b.className = `stone ${on ? "on" : "off"}`; b.title = `${name}: ${layerLabel(key)}`;
+    b.setAttribute("aria-label", `${name}, ${layerLabel(key)}`);
+    b.setAttribute("aria-current", state.layer === key);
+    b.innerHTML = `<svg width="${w + 8}" height="${h + 6}"><path d="${stonePath(w, h, i * 1.7 + 0.4)}"/></svg>`;
+    b.onclick = () => show(key);
+    cairn.appendChild(b);
+    const l = document.createElement("button");
+    l.className = "layer"; l.setAttribute("aria-current", state.layer === key);
+    l.innerHTML = `<span class="n">${name}</span><span class="c">${esc(layerLabel(key))}</span><span class="d">${desc}</span>`;
+    l.onclick = () => show(key);
+    layers.appendChild(l);
+  });
+  const m = state.ov;
+  let foot = "";
+  if (m && !m.models?.available) foot += "Deep tier is off. Set <code>ANTHROPIC_API_KEY</code> and sync for timeline facts and narrated answers.";
+  else if (m) foot += "Deep tier on.";
+  if (m?.drift) foot += `<br><br><button onclick="show('specs')">${m.drift} drift finding${m.drift > 1 ? "s" : ""}</button>`;
+  $("#railfoot").innerHTML = foot;
+}
+
+function show(layer) {
+  state.layer = layer;
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + layer));
+  const isMap = layer === "map";
+  $("#map").style.display = $("#crumbs").style.display = $("#legend").style.display = isMap ? "" : "none";
+  renderRail();
+  ({ map: () => drawMap(), specs: renderSpecs, timeline: renderTimeline, memory: renderMemory, sessions: renderSessions })[layer]();
+}
+
+/* ---------- map (canvas, custom force layout, no dependencies) ---------- */
+const map = { nodes: [], links: [], level: "areas", k: 1, x: 0, y: 0, hover: null };
+const cv = $("#map"), cx = cv.getContext("2d");
+function layout(nodes, links, W, H) {
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  nodes.forEach((n, i) => { const a = i * 2.399963, r = 18 * Math.sqrt(i + 1); n.x = W / 2 + r * Math.cos(a); n.y = H / 2 + r * Math.sin(a); n.vx = n.vy = 0; });
+  const L = links.map(l => [byId.get(l.source), byId.get(l.target), l.weight || 1]).filter(l => l[0] && l[1]);
+  const maxW = Math.max(1, ...L.map(l => l[2]));
+  for (let it = 0; it < 320; it++) {
+    const t = 1 - it / 320;
+    for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j]; let dx = b.x - a.x, dy = b.y - a.y; const d2 = dx * dx + dy * dy + 0.01;
+      const minD = a.r + b.r + 10; const f = (d2 < minD * minD ? 3 : 1) * 1800 / d2;
+      const d = Math.sqrt(d2); dx /= d; dy /= d; a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f;
+    }
+    for (const [a, b, w] of L) {
+      const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const target = a.r + b.r + 60, f = (d - target) * 0.012 * (0.4 + w / maxW);
+      a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f;
+    }
+    for (const n of nodes) { n.vx += (W / 2 - n.x) * 0.004; n.vy += (H / 2 - n.y) * 0.004;
+      n.x += Math.max(-12, Math.min(12, n.vx)) * t; n.y += Math.max(-12, Math.min(12, n.vy)) * t; n.vx *= 0.5; n.vy *= 0.5; }
+  }
+  return L;
+}
+async function loadMap(area = null) {
+  const data = await api(area == null ? "/api/map" : `/api/map?area=${area}`);
+  map.level = data.level; state.area = area;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (data.level === "areas") {
+    const max = Math.max(1, ...data.nodes.map(n => n.size));
+    data.nodes.forEach(n => { n.r = 6 + 34 * Math.sqrt(n.size / max); n.label = n.name; });
+  } else {
+    const max = Math.max(1, ...data.nodes.map(n => n.degree));
+    data.nodes.forEach(n => { n.r = 3.5 + 13 * Math.sqrt(n.degree / max); });
+  }
+  map.nodes = data.nodes;
+  map.L = layout(data.nodes, data.links, W, H);
+  map.k = 1; map.x = 0; map.y = 0;
+  fit();
+  const a = data.level === "areas" ? null : state.ov && data.nodes.length ? data : null;
+  $("#crumbs").innerHTML = data.level === "areas"
+    ? `<span class="dz">${data.nodes.length} areas. Click one to open it.</span>`
+    : `<button id="back">All areas</button><span>${esc(areaName(area))}</span>`;
+  if ($("#back")) $("#back").onclick = () => loadMap(null);
+  $("#legend").innerHTML = data.level === "areas"
+    ? `<span><i style="border:1.5px solid ${css("--muted")}"></i>Area, sized by how much code it holds</span><span>Thicker lines mean more dependencies</span>`
+    : `<span><i style="border:1.5px solid ${css("--ochre")}"></i>Code</span><span><i style="border:1.5px solid ${css("--moss")}"></i>Docs</span><span><i style="border:1.5px solid ${css("--muted")}"></i>Rationale and concepts</span>`;
+  drawMap();
+}
+let areaNames = {};
+function areaName(id) { return areaNames[id] || `Area ${id}`; }
+function fit() {
+  if (!map.nodes.length) return;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  const xs = map.nodes.map(n => n.x), ys = map.nodes.map(n => n.y);
+  const minX = Math.min(...xs) - 60, maxX = Math.max(...xs) + 60, minY = Math.min(...ys) - 60, maxY = Math.max(...ys) + 60;
+  map.k = Math.min(1.6, Math.min(W / (maxX - minX), H / (maxY - minY)));
+  map.x = W / 2 - map.k * (minX + maxX) / 2; map.y = H / 2 - map.k * (minY + maxY) / 2;
+}
+function drawMap() {
+  if (state.layer !== "map") return;
+  const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr; cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, W, H);
+  if (!map.nodes.length) {
+    cx.fillStyle = css("--muted"); cx.font = `15px ${css("--ui")}`; cx.textAlign = "center";
+    cx.fillText("The map is empty. Add code, then press Sync now.", W / 2, H / 2); return;
+  }
+  cx.save(); cx.translate(map.x, map.y); cx.scale(map.k, map.k);
+  const hov = map.hover, near = new Set();
+  if (hov) (map.L || []).forEach(([a, b]) => { if (a === hov) near.add(b); if (b === hov) near.add(a); });
+  const maxW = Math.max(1, ...(map.L || []).map(l => l[2]));
+  for (const [a, b, w] of map.L || []) {
+    const lit = hov && (a === hov || b === hov);
+    cx.strokeStyle = lit ? css("--ochre") : css("--line"); cx.globalAlpha = lit ? 0.9 : hov ? 0.18 : 0.7;
+    cx.lineWidth = (map.level === "areas" ? 0.6 + 3 * (w / maxW) : 0.8) / Math.sqrt(map.k);
+    cx.beginPath(); cx.moveTo(a.x, a.y); cx.lineTo(b.x, b.y); cx.stroke();
+  }
+  cx.globalAlpha = 1;
+  const sel = state.selected;
+  for (const n of map.nodes) {
+    const dim = hov && n !== hov && !near.has(n);
+    let fill = css("--raised"), ring = css("--muted");
+    if (map.level === "members") { ring = n.type === "code" ? css("--ochre") : n.type === "document" ? css("--moss") : css("--muted"); }
+    const hot = n === hov || (sel && sel === `symbol:${n.id}`);
+    cx.globalAlpha = dim ? 0.25 : 1;
+    cx.fillStyle = hot ? css("--ochre") : fill; cx.beginPath(); cx.arc(n.x, n.y, n.r, 0, Math.PI * 2); cx.fill();
+    cx.strokeStyle = hot ? css("--ochre") : ring; cx.lineWidth = (hot ? 2.2 : 1.2) / Math.sqrt(map.k); cx.stroke();
+  }
+  cx.globalAlpha = 1;
+  const labelled = [...map.nodes].sort((a, b) => b.r - a.r).slice(0, map.level === "areas" ? 18 : 24);
+  if (hov && !labelled.includes(hov)) labelled.push(hov);
+  cx.font = `${12 / Math.sqrt(map.k)}px ${map.level === "areas" ? css("--ui") : css("--code")}`; cx.textAlign = "center";
+  for (const n of labelled) {
+    if (hov && n !== hov && !near.has(n)) continue;
+    const t = String(n.label || n.name || "").slice(0, 34);
+    cx.fillStyle = css("--bg"); cx.globalAlpha = 0.72; const w = cx.measureText(t).width;
+    cx.fillRect(n.x - w / 2 - 3, n.y + n.r + 3, w + 6, 16 / Math.sqrt(map.k)); cx.globalAlpha = 1;
+    cx.fillStyle = css("--text"); cx.fillText(t, n.x, n.y + n.r + 15 / Math.sqrt(map.k));
+  }
+  cx.restore();
+}
+function hit(e) {
+  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left - map.x) / map.k, y = (e.clientY - r.top - map.y) / map.k;
+  let best = null, bd = Infinity;
+  for (const n of map.nodes) { const d = Math.hypot(n.x - x, n.y - y); if (d < n.r + 4 / map.k && d < bd) { best = n; bd = d; } }
+  return best;
+}
+let drag = null;
+cv.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, mx: map.x, my: map.y, moved: false }; cv.classList.add("drag"); });
+addEventListener("mouseup", e => {
+  cv.classList.remove("drag");
+  if (drag && !drag.moved && e.target === cv) {
+    const n = hit(e);
+    if (n) { if (map.level === "areas") loadMap(n.id); else select(`symbol:${n.id}`, n.label); }
+  }
+  drag = null;
+});
+cv.addEventListener("mousemove", e => {
+  if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+    map.x = drag.mx + dx; map.y = drag.my + dy; drawMap(); return; }
+  const n = hit(e); if (n !== map.hover) { map.hover = n; cv.style.cursor = n ? "pointer" : "grab"; drawMap(); }
+  if (n) tip(e, `<b>${esc(n.label || n.name)}</b>${n.file ? `<time>${esc(n.file)}</time>` : n.top ? `<time>${esc(n.size)} nodes: ${esc(n.top.slice(0, 3).join(", "))}</time>` : ""}`);
+  else hideTip();
+});
+cv.addEventListener("mouseleave", () => { map.hover = null; hideTip(); drawMap(); });
+cv.addEventListener("wheel", e => {
+  e.preventDefault(); const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  const k = Math.max(0.2, Math.min(6, map.k * Math.exp(-e.deltaY * 0.0015)));
+  map.x = px - (px - map.x) * k / map.k; map.y = py - (py - map.y) * k / map.k; map.k = k; drawMap();
+}, { passive: false });
+addEventListener("resize", () => { drawMap(); drawStrip(); });
+
+/* ---------- dossier ---------- */
+function citeTarget(c) {
+  if (!c) return null;
+  if (/^(file|symbol|task|req|spec|story):/.test(c)) return c;
+  return null;
+}
+function renderPack(p) {
+  let h = "";
+  if (p.risk) h += `<div class="risk"><span class="badge ${p.risk}">${p.risk}</span><span>${esc((p.reasons || []).join("; ") || "No dependents or warnings recorded.")}</span></div>`;
+  const secs = p.sections || {};
+  const order = ["Rationale","Dependents","Tests likely affected","Changes together","Historical warnings","Origin","Recent changes","Intent","Memory","Agent sessions","Facts"];
+  const keys = Object.keys(secs).sort((a, b) => (order.indexOf(a) + 99) % 99 - (order.indexOf(b) + 99) % 99);
+  if (!keys.length) h += `<div class="empty">Nothing recorded for this yet. It fills in as commits, specs, sessions and memories accumulate.</div>`;
+  for (const s of keys) {
+    const items = secs[s].slice().sort((a, b) => b.score - a.score);
+    h += `<div class="sec">${esc(s)}<small>${items.length}</small></div>`;
+    for (const it of items.slice(0, 12)) {
+      const txt = esc(it.text).replace(/EXTRACTED/g, '<span class="ex">extracted</span>').replace(/INFERRED/g, '<span class="in">inferred</span>');
+      const tgt = citeTarget(it.cite);
+      h += `<div class="item">${txt}${it.cite ? `<button class="cite" ${tgt ? `data-go="${esc(tgt)}"` : "disabled"}>${esc(it.cite)}</button>` : ""}</div>`;
+    }
+  }
+  return h;
+}
+async function select(id, label) {
+  state.selected = id; drawMap();
+  const d = $("#dossier");
+  d.innerHTML = `<p class="dh">${esc(label || id)}</p><p class="dsub">${esc(id)}</p>
+    <div class="tabs" role="tablist"><button role="tab" data-tab="impact">Impact</button><button role="tab" data-tab="why">Why</button></div>
+    <div id="dbody"><span class="spin"></span>Gathering…</div>`;
+  d.querySelectorAll("[data-tab]").forEach(b => { b.setAttribute("aria-selected", b.dataset.tab === state.tab); b.onclick = () => { state.tab = b.dataset.tab; select(id, label); }; });
+  try {
+    const p = await api(`/api/${state.tab}?target=${encodeURIComponent(id)}`);
+    if (state.selected !== id) return;
+    const title = p.title.replace(/^(Impact|Why): /, "");
+    $(".dh", d).textContent = title;
+    $("#dbody").innerHTML = renderPack(p);
+  } catch (e) { $("#dbody").innerHTML = `<div class="empty">Couldn't load this: ${esc(e.message)}</div>`; }
+}
+$("#dossier").addEventListener("click", e => { const b = e.target.closest("[data-go]"); if (b) select(b.dataset.go); });
+function welcome() {
+  const o = state.ov; if (!o) return;
+  const hubs = (o.hubs || []).slice(0, 6).map(h => `<li><button class="chip" data-go="symbol:${esc(h.id)}">${esc(h.label)}</button> <span class="dz">${esc(h.file || "")}</span></li>`).join("");
+  $("#dossier").innerHTML = `<div class="dz"><h3>Pick anything to see its dossier</h3>
+    <p>Click a node on the map, search above, or open a file from a spec. You'll see what depends on it, what changes with it, past incidents, the spec that owns it, and what the team and agents learned.</p>
+    ${hubs ? `<h3>Most connected code</h3><ul style="list-style:none;padding:0;display:grid;gap:6px">${hubs}</ul>` : ""}
+    ${o.active_spec ? `<h3>Active spec</h3><p>${esc(o.active_spec.name)}: ${o.active_spec.done} of ${o.active_spec.total} tasks done.</p>` : ""}</div>`;
+}
+
+/* ---------- command bar ---------- */
+const q = $("#q"), res = $("#results");
+let qTimer, qItems = [], qIdx = -1;
+function closeResults() { res.classList.remove("open"); $(".cmd").setAttribute("aria-expanded", "false"); qIdx = -1; }
+q.addEventListener("input", () => {
+  clearTimeout(qTimer);
+  const text = q.value.trim(); if (!text) return closeResults();
+  qTimer = setTimeout(async () => {
+    const hits = await api(`/api/search?q=${encodeURIComponent(text)}&limit=10`).catch(() => []);
+    qItems = [{ ask: true, title: text }, ...hits];
+    res.innerHTML = qItems.map((h, i) => h.ask
+      ? `<button role="option" class="ask" data-i="${i}"><span class="k">Ask</span><span>${esc(h.title)}</span></button>`
+      : `<button role="option" data-i="${i}"><span class="k">${esc(h.kind)}</span><span>${esc(h.title)}<span class="p">${esc(h.path || h.id)}</span></span></button>`).join("");
+    qIdx = hits.length ? 1 : 0; mark(); res.classList.add("open"); $(".cmd").setAttribute("aria-expanded", "true");
+  }, 140);
+});
+function mark() { res.querySelectorAll("button").forEach((b, i) => b.setAttribute("aria-selected", i === qIdx)); }
+q.addEventListener("keydown", e => {
+  if (e.key === "ArrowDown") { qIdx = Math.min(qItems.length - 1, qIdx + 1); mark(); e.preventDefault(); }
+  else if (e.key === "ArrowUp") { qIdx = Math.max(0, qIdx - 1); mark(); e.preventDefault(); }
+  else if (e.key === "Enter") { choose(qIdx < 0 ? 0 : qIdx); e.preventDefault(); }
+  else if (e.key === "Escape") { closeResults(); q.blur(); }
+});
+res.addEventListener("click", e => { const b = e.target.closest("[data-i]"); if (b) choose(+b.dataset.i); });
+function choose(i) {
+  const h = qItems[i]; closeResults(); if (!h) return;
+  if (h.ask) return askQ(h.title);
+  if (h.kind === "memory") { show("memory"); return; }
+  select(h.id, h.title);
+}
+async function askQ(question) {
+  const d = $("#dossier");
+  d.innerHTML = `<p class="dh">${esc(question)}</p><p class="dsub">question</p><div id="dbody"><span class="spin"></span>Gathering evidence…</div>`;
+  try {
+    const r = await api("/api/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question }) });
+    let h = r.answer ? `<div class="answer">${esc(r.answer)}<small>Answered by ${esc(r.model)} from the evidence below</small></div>` : "";
+    const lines = r.pack.split("\n"), sections = {}; let cur = null;
+    for (const ln of lines) {
+      if (ln.startsWith("### ")) { cur = ln.slice(4).replace(/ \(\+\d+ more\)$/, ""); sections[cur] = []; }
+      else if (ln.startsWith("- ") && cur) { const m = ln.match(/^- (.*?)(?: \[([^\]]+)\])?$/); sections[cur].push({ text: m[1], cite: m[2] || "", score: 1 }); }
+    }
+    h += renderPack({ sections });
+    $("#dbody").innerHTML = h;
+  } catch (e) { $("#dbody").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+addEventListener("keydown", e => {
+  if ((e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) || (e.key === "k" && (e.metaKey || e.ctrlKey))) { e.preventDefault(); q.focus(); q.select(); }
+});
+addEventListener("click", e => { if (!e.target.closest(".cmd")) closeResults(); });
+
+/* ---------- specs ---------- */
+async function renderSpecs() {
+  const v = $("#v-specs");
+  v.innerHTML = `<h2>Specs</h2><p class="lede">Intent, traced to code. Each task links to the files it names; drift shows where they disagree.</p><span class="spin"></span>`;
+  const [s, dr] = await Promise.all([api("/api/specs"), api("/api/drift")]);
+  let h = `<h2>Specs</h2><p class="lede">Intent, traced to code. Each task links to the files it names; drift shows where they disagree.</p>`;
+  if (s.constitution) h += `<div class="principles">${s.constitution.principles.map(p => `<span>${esc(p)}</span>`).join("")}</div>`;
+  if (dr.findings.length) {
+    h += `<div class="sec">Drift<small>${dr.findings.length}</small></div>`;
+    h += dr.findings.map(f => `<div class="finding"><span class="sev ${f.severity}">${f.severity}</span><div>${esc(f.title)}<div class="dz" style="font-size:13px">${esc(f.evidence.slice(0, 2).join("; "))}</div></div></div>`).join("");
+  }
+  if (!s.features.length) {
+    h += `<div class="empty">No specs yet. In your coding agent, run <code>/speckit-constitution</code> to set principles, then <code>/speckit-specify</code> followed by what you want to build. Cairn adds impact and history to the plan automatically.</div>`;
+  }
+  for (const f of s.features) {
+    const pct = f.progress.total ? Math.round(100 * f.progress.done / f.progress.total) : 0;
+    const stories = f.stories.length ? f.stories : [{ id: null, title: "Tasks", priority: "" }];
+    const body = stories.map(st => {
+      const ts = f.tasks.filter(t => st.id ? t.story === st.id : true);
+      if (!ts.length && st.id) return "";
+      return `<div class="story"><span>${esc(st.priority)}</span>${esc(st.id ? st.id + " " : "")}${esc(st.title)}</div>` + ts.map(t =>
+        `<div class="task ${t.done ? "done" : ""}"><span>${t.done ? "✓" : "○"}</span><span class="mono">${t.id}</span><span>${md(t.text)}</span>
+         <span class="fl">${t.files.map(([p, ok]) => `<button class="chip ${ok ? "" : "missing"}" data-go="file:${esc(p)}" title="${ok ? "Open dossier" : "File not found"}">${esc(p)}</button>`).join("")}</span></div>`).join("");
+    }).join("") + (f.stories.length ? (() => { const rest = f.tasks.filter(t => !t.story); return rest.length ? `<div class="story">Shared tasks</div>` + rest.map(t => `<div class="task ${t.done ? "done" : ""}"><span>${t.done ? "✓" : "○"}</span><span class="mono">${t.id}</span><span>${md(t.text)}</span><span class="fl">${t.files.map(([p, ok]) => `<button class="chip ${ok ? "" : "missing"}" data-go="file:${esc(p)}">${esc(p)}</button>`).join("")}</span></div>`).join("") : ""; })() : "");
+    h += `<div class="feature"><button aria-expanded="false"><span class="fid">${esc(f.id)}</span><span class="ft">${esc(f.title)}</span>
+      <span><div class="bar"><i style="width:${pct}%"></i></div><small>${f.progress.done} of ${f.progress.total} tasks</small></span></button>
+      <div class="stories">${body}</div></div>`;
+  }
+  v.innerHTML = h;
+  v.querySelectorAll(".feature>button").forEach(b => b.onclick = () => { const f = b.parentElement; f.classList.toggle("open"); b.setAttribute("aria-expanded", f.classList.contains("open")); });
+  v.querySelectorAll("[data-go]").forEach(b => b.onclick = () => select(b.dataset.go, b.textContent));
+  if (s.features.length === 1) v.querySelector(".feature>button")?.click();
+}
+
+/* ---------- timeline ---------- */
+const kinds = ["commit", "spec", "session", "memory", "fact", "drift"];
+state.kinds = new Set(kinds); state.riskOnly = false;
+async function renderTimeline() {
+  const v = $("#v-timeline");
+  const evs = await api("/api/timeline?limit=400");
+  const shown = evs.filter(e => state.kinds.has(e.kind) && (!state.riskOnly || (e.meta?.risk || []).length || e.kind === "drift"));
+  v.innerHTML = `<h2>Timeline</h2><p class="lede">Commits, spec progress, agent sessions, decisions and facts in one stream. Fixes and reverts are marked as warnings.</p>
+    <div class="filters">${kinds.map(k => `<button aria-pressed="${state.kinds.has(k)}" data-k="${k}">${k}</button>`).join("")}
+    <button aria-pressed="${state.riskOnly}" data-risk>warnings only</button></div>
+    ${shown.length ? shown.map(e => {
+      const risk = (e.meta?.risk || []).length;
+      const file = (e.refs || []).find(r => r.startsWith("file:"));
+      return `<div class="event ${risk ? "risk" : ""}"><time>${fmtDate(e.ts)}</time><span class="kind">${risk ? e.meta.risk.join(", ") : e.kind}</span>
+        <span>${file ? `<button data-go="${esc(file)}">${esc(e.title)}</button>` : esc(e.title)}${e.actor ? ` <span class="dz">${esc(e.actor)}</span>` : ""}</span></div>`;
+    }).join("") : `<div class="empty">Nothing matches these filters.</div>`}`;
+  v.querySelectorAll("[data-k]").forEach(b => b.onclick = () => { const k = b.dataset.k; state.kinds.has(k) ? state.kinds.delete(k) : state.kinds.add(k); renderTimeline(); });
+  v.querySelector("[data-risk]").onclick = () => { state.riskOnly = !state.riskOnly; renderTimeline(); };
+  v.querySelectorAll("[data-go]").forEach(b => b.onclick = () => select(b.dataset.go));
+}
+
+/* ---------- memory ---------- */
+async function renderMemory() {
+  const v = $("#v-memory");
+  const mems = await api("/api/memories");
+  v.innerHTML = `<h2>Memory</h2><p class="lede">What the team has learned. Every agent connected to this repo sees these before it edits related code.</p>
+    <form class="memform" id="mf"><textarea id="mt" required placeholder="One precise sentence, e.g. Payment calls must send an idempotency key; the provider retries on timeouts."></textarea>
+    <select id="mk" aria-label="Kind">${["convention","decision","gotcha","preference","fact"].map(k => `<option>${k}</option>`).join("")}</select>
+    <span></span><button class="btn primary">Save memory</button></form>
+    <div id="ml">${mems.length ? mems.map(m => `<div class="memory"><span class="kind">${esc(m.kind)}</span>
+      <span>${esc(m.text)}<small>${fmtDate(m.created_at)}, from ${esc(m.source)}${m.provenance === "INFERRED" ? ", inferred" : ""}</small></span>
+      <button data-f="${m.id}" aria-label="Forget this memory">Forget</button></div>`).join("")
+      : `<div class="empty">No memories yet. Save a convention above, or let agents call <code>cairn_remember</code> as they learn.</div>`}</div>`;
+  $("#mf").onsubmit = async e => { e.preventDefault(); const text = $("#mt").value.trim(); if (!text) return;
+    await api("/api/memories", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, kind: $("#mk").value }) });
+    await refresh(); renderMemory(); };
+  v.querySelectorAll("[data-f]").forEach(b => b.onclick = async () => { await api(`/api/memories/${b.dataset.f}`, { method: "DELETE" }); await refresh(); renderMemory(); });
+}
+
+/* ---------- sessions ---------- */
+async function renderSessions() {
+  const v = $("#v-sessions");
+  const conn = state.ov?.layers.sessions.connected;
+  const list = conn ? await api("/api/sessions") : [];
+  v.innerHTML = `<h2>Sessions</h2><p class="lede">What coding agents did here: what they read, changed and learned. Captured automatically.</p>` +
+    (!conn ? `<div class="empty">Session capture isn't connected. Install Node.js 18 or later, then run <code>cairn init</code> again.</div>`
+      : list.length ? list.map(s => `<div class="event"><time>${ago(s.ts)}</time><span class="kind">${esc(s.meta?.type || "session")}</span>
+        <span>${esc(s.title)}${(s.meta?.modified || []).length ? `<span class="fl" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${s.meta.modified.slice(0, 4).map(p => `<button class="chip" data-go="file:${esc(p)}">${esc(p)}</button>`).join("")}</span>` : ""}</span></div>`).join("")
+      : `<div class="empty">No sessions recorded for this repo yet. They appear after your next agent session.</div>`);
+  v.querySelectorAll("[data-go]").forEach(b => b.onclick = () => select(b.dataset.go));
+}
+
+/* ---------- timeline strip ---------- */
+const st = $("#strip"), sx = st.getContext("2d"); let stripEvents = [], stripMarks = [];
+async function loadStrip() { stripEvents = await api("/api/timeline?limit=1500").catch(() => []); drawStrip(); }
+function drawStrip() {
+  const dpr = devicePixelRatio || 1, W = st.clientWidth, H = st.clientHeight;
+  st.width = W * dpr; st.height = H * dpr; sx.setTransform(dpr, 0, 0, dpr, 0, 0); sx.clearRect(0, 0, W, H);
+  stripMarks = [];
+  if (!stripEvents.length) { sx.fillStyle = css("--muted"); sx.font = `13px ${css("--ui")}`; sx.fillText("History appears here after the first commit.", 16, H / 2 + 4); return; }
+  const now = Date.now() / 1000, t0 = Math.max(Math.min(...stripEvents.map(e => e.ts)), now - 365 * 86400), pad = 16, span = Math.max(86400, now - t0);
+  const X = ts => pad + (W - 2 * pad) * (ts - t0) / span, base = H - 22;
+  sx.strokeStyle = css("--line"); sx.beginPath(); sx.moveTo(pad, base + .5); sx.lineTo(W - pad, base + .5); sx.stroke();
+  sx.fillStyle = css("--muted"); sx.font = `11.5px ${css("--ui")}`;
+  const months = Math.max(1, Math.round(span / 2592000)), step = Math.max(1, Math.ceil(months / 8));
+  for (let m = 0; m <= months; m += step) { const ts = t0 + m * 2592000; const d = new Date(ts * 1000);
+    sx.fillText(d.toLocaleString(undefined, { month: "short", year: "2-digit" }), X(ts) - 14, H - 6); }
+  const col = { commit: css("--muted"), spec: css("--ochre"), session: css("--moss"), memory: css("--ochre"), fact: css("--moss"), drift: css("--rose") };
+  for (const e of stripEvents) {
+    if (e.ts < t0) continue;
+    const x = Math.round(X(e.ts)) + .5, risk = (e.meta?.risk || []).length;
+    let h = e.kind === "commit" ? 10 + Math.min(14, Math.log2(1 + (e.meta?.churn || 1))) : 22;
+    if (risk) h = 34;
+    sx.strokeStyle = risk ? css("--rose") : col[e.kind] || css("--muted"); sx.globalAlpha = e.kind === "commit" && !risk ? .55 : .95;
+    sx.lineWidth = e.kind === "commit" ? 1 : 2;
+    sx.beginPath(); sx.moveTo(x, base); sx.lineTo(x, base - h); sx.stroke();
+    if (e.kind === "memory" || e.kind === "fact") { sx.fillStyle = col[e.kind]; sx.beginPath(); sx.arc(x, base - h - 3, 3, 0, 7); sx.fill(); }
+    stripMarks.push({ x, e });
+  }
+  sx.globalAlpha = 1;
+}
+st.addEventListener("mousemove", ev => {
+  const r = st.getBoundingClientRect(), x = ev.clientX - r.left;
+  let best = null, bd = 6; for (const m of stripMarks) { const d = Math.abs(m.x - x); if (d < bd) { bd = d; best = m; } }
+  if (best) { const e = best.e; tip(ev, `<b>${esc(e.title)}</b><time>${fmtDate(e.ts)}, ${esc(e.kind)}${(e.meta?.risk || []).length ? ", " + esc(e.meta.risk.join(", ")) : ""}</time>`); st.style.cursor = "pointer"; st._hit = e; }
+  else { hideTip(); st.style.cursor = ""; st._hit = null; }
+});
+st.addEventListener("mouseleave", hideTip);
+st.addEventListener("click", () => { const e = st._hit; if (!e) return; const f = (e.refs || []).find(r => /^(file|spec|task):/.test(r)); if (f) select(f); else { show("timeline"); } });
+function tip(e, html) { const t = $("#tip"); t.innerHTML = html; t.style.display = "block";
+  t.style.left = Math.min(innerWidth - 370, e.clientX + 14) + "px"; t.style.top = Math.max(8, e.clientY - 48) + "px"; }
+function hideTip() { $("#tip").style.display = "none"; }
+
+/* ---------- sync & boot ---------- */
+async function refresh() {
+  state.ov = await api("/api/overview");
+  $("#proj").textContent = state.ov.project; document.title = `${state.ov.project} – Cairn`;
+  renderRail();
+}
+$("#sync").onclick = async () => {
+  const r = await api("/api/sync", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  $("#syncnote").innerHTML = r.started ? `<span class="spin"></span>Syncing` : "A sync is already running";
+};
+function listen() {
+  const es = new EventSource("/api/stream");
+  es.onmessage = async m => {
+    const d = JSON.parse(m.data);
+    if (d.step === "sync" && d.state === "done") {
+      $("#syncnote").textContent = "Synced just now";
+      await refresh(); await loadMap(state.area); await loadStrip(); if (state.layer !== "map") show(state.layer);
+    } else if (d.state !== "start") $("#syncnote").innerHTML = `<span class="spin"></span>${esc(d.step)}: ${esc(d.detail)}`;
+  };
+}
+(async function boot() {
+  try {
+    await refresh();
+    const areas = await api("/api/map"); (areas.nodes || []).forEach(a => areaNames[a.id] = a.name);
+    await loadMap(null); welcome(); loadStrip(); listen();
+    $("#syncnote").textContent = state.ov.last_sync ? `Synced ${ago(state.ov.last_sync)}` : "Not synced yet";
+  } catch (e) {
+    document.body.innerHTML = `<div style="padding:40px;font:15px system-ui">Cairn's local server isn't reachable. Run <code>cairn ui</code> in the repository, then reload.</div>`;
+  }
+})();
+</script>
+</body>
+</html>
