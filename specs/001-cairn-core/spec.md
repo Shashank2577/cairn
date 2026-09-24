@@ -162,6 +162,26 @@ recording cost.
 - Concurrent syncs (hook + manual): a lock file serialises them; the second exits immediately.
 - Model provider errors or budget exhaustion: deterministic output is returned, error is noted.
 
+## Clarifications
+
+### Session 2026-09-24
+
+- Q: Should underlying engines be visible to users? → A: No. One vocabulary (Map, Specs, Timeline,
+  Memory, Sessions). Engines are dependencies, credited in THIRD_PARTY_NOTICES.md only (licence
+  notices are legally required and are kept there).
+- Q: Must the product work without any API key? → A: Yes. Deterministic tier is complete; keys
+  unlock the deep tier (temporal facts, semantic memory, narration, semantic drift).
+- Q: Graph store for the temporal layer without Docker? → A: Embedded store by default; a graph
+  server URL (FalkorDB/Neo4j) switches to it. Embedded mode is flagged as "local" in doctor.
+- Q: Embeddings without an embeddings API? → A: Local ONNX embeddings when installed; otherwise
+  the deep tier requires an OpenAI-compatible embeddings endpoint. Memory falls back to full-text.
+- Q: Which model does which job? → A: fast=Haiku (classify, summarise), balanced=Sonnet (extract,
+  link tie-breaks), deep=Opus (why/impact/drift synthesis, ask), frontier=Fable (opt-in reviews).
+- Q: What happens to the engines' own agent integrations? → A: Session capture installs its hooks
+  (required for capture). The code map's own agent skill is NOT installed by default — agents use
+  Cairn's MCP instead, to keep one surface. `--native-skills` opts in.
+- Q: Default UI port? → A: 4747 (configurable), bound to 127.0.0.1 only.
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
