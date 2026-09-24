@@ -18,20 +18,24 @@ UI = Path(__file__).resolve().parent / "ui" / "index.html"
 
 
 def create_app(cairn: Cairn) -> FastAPI:
-    app = FastAPI(title="Cairn", version=__version__, docs_url="/api/docs", redoc_url=None)
+    from contextlib import asynccontextmanager
+
     listeners: list[asyncio.Queue] = []
     state = {"syncing": False}
     loop_holder: dict = {}
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        loop_holder["loop"] = asyncio.get_running_loop()
+        yield
+
+    app = FastAPI(title="Cairn", version=__version__, docs_url="/api/docs", redoc_url=None, lifespan=lifespan)
 
     def broadcast(msg: dict) -> None:
         loop = loop_holder.get("loop")
         for q in list(listeners):
             if loop:
                 loop.call_soon_threadsafe(q.put_nowait, msg)
-
-    @app.on_event("startup")
-    async def _startup():
-        loop_holder["loop"] = asyncio.get_running_loop()
 
     @app.get("/", response_class=HTMLResponse)
     def index():

@@ -222,16 +222,47 @@ class MapIndex:
                             "rel": e.rel, "provenance": e.confidence})
         return out[:limit]
 
+    @staticmethod
+    def _line(node: dict) -> int | None:
+        loc = (node or {}).get("source_location") or ""
+        return int(loc[1:]) if loc[1:].isdigit() else None
+
+    def _span(self, nid: str) -> tuple[str, int, int] | None:
+        """(file, first line, last line) of a symbol: up to the next symbol that starts after it."""
+        n = self.nodes.get(nid, {})
+        f, start = n.get("source_file"), self._line(n)
+        if not f or start is None:
+            return None
+        starts = sorted(l for o in self.by_file.get(f, ()) if (l := self._line(self.nodes[o])) and l > start
+                        and self.nodes[o].get("file_type") == "code" and self.label(o) != Path(f).name)
+        return f, start, (starts[0] - 1 if starts else 10**9)
+
     def rationale(self, nids: Iterable[str], limit: int = 12) -> list[dict]:
-        """`# WHY:`/`# NOTE:` comments, docstrings and design-doc refs attached to these nodes."""
+        """`# WHY:`/`# NOTE:` comments, docstrings and design-doc refs attached to these nodes —
+        directly, or by location (comments inside a symbol's body are often attached to the file)."""
         out, seen = [], set()
+
+        def add(rid: str, owner: str) -> None:
+            if rid in seen:
+                return
+            seen.add(rid)
+            n = self.nodes.get(rid, {})
+            out.append({"id": rid, "text": n.get("label", ""), "file": n.get("source_file"),
+                        "location": n.get("source_location"), "for": self.label(owner)})
+        nids = list(nids)
         for nid in nids:
             for e in self.inc.get(nid, ()):
-                if e.rel == "rationale_for" and e.other not in seen:
-                    seen.add(e.other)
-                    n = self.nodes.get(e.other, {})
-                    out.append({"id": e.other, "text": n.get("label", ""), "file": n.get("source_file"),
-                                "location": n.get("source_location"), "for": self.label(nid)})
+                if e.rel == "rationale_for":
+                    add(e.other, nid)
+        for nid in nids:
+            span = self._span(nid)
+            if not span or self.label(nid) == Path(span[0]).name:
+                continue
+            f, a, b = span
+            for o in self.by_file.get(f, ()):
+                node = self.nodes[o]
+                if node.get("file_type") == "rationale" and (ln := self._line(node)) and a <= ln <= b:
+                    add(o, nid)
         return out[:limit]
 
     def hubs(self, top: int = 10) -> list[dict]:
