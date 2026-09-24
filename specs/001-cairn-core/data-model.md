@@ -7,7 +7,8 @@
 | `events` | `id` | ts (epoch), kind, title, body, actor, refs JSON, source | kinds: commit, spec, session, memory, fact, drift |
 | `memories` | `id` | text, kind, scope, source, provenance, confidence, created_at, superseded_by, engine_ref | kinds: convention, decision, gotcha, preference, fact |
 | `cochange` | (a, b) | count, last_ts | file pairs changed in the same commit (≤ 40 files/commit) |
-| `kv` | key | value | cursors: last_commit, last_obs_id, map_mtime, spec_hash:* |
+| `filestats` | path | commits, risky, last_ts, authors | added during implementation: needed for co-change ratios and drift |
+| `kv` | key | value | cursors: history.cursor, sessions.cursor, chronicle.cursor, map.mtime, specs.digest |
 | `ledger` | id | ts, task, tier, model, input_tokens, output_tokens, cache_read, cache_write | cost accounting |
 | `fts` | FTS5 | id, kind, title, body | search over entities, events, memories |
 
