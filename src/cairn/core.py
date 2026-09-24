@@ -275,7 +275,7 @@ class Cairn:
             score += 0.5
             reasons.append(f"{len(open_tasks)} open spec task{'s' if len(open_tasks) > 1 else ''}")
         level = "HIGH" if score >= 4 else "MEDIUM" if score >= 1.5 else "LOW"
-        where = f" ({', '.join(t.files[:2])})" if t.files else ""
+        where = f" ({', '.join(t.files[:2])})" if t.files and t.files[0] != t.label else ""
         header = [f"**Risk: {level}**" + (f" — {'; '.join(reasons)}" if reasons else " — no dependents or warnings recorded")]
         return Pack(f"Impact: {t.label}{where}", items, header, budget,
                     data={"risk": level, "reasons": reasons, "files": t.files, "dependents": len(deps),
@@ -313,7 +313,7 @@ class Cairn:
         items += self._memories(labels, t.files)
         items += self._sessions(t.files)
         items += self._facts(labels)
-        where = f" ({', '.join(t.files[:2])})" if t.files else ""
+        where = f" ({', '.join(t.files[:2])})" if t.files and t.files[0] != t.label else ""
         return Pack(f"Why: {t.label}{where}", items, [], budget, data={"files": t.files, "target": t.raw})
 
     # ---- context for a task (the one call agents should make first) --------------------------------

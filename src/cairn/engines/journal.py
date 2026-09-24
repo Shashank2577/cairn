@@ -29,7 +29,7 @@ def can_install() -> bool:
     return bool(shutil.which("npx") and shutil.which("node"))
 
 
-def install() -> tuple[bool, str]:
+def install(log_dir: Path | None = None) -> tuple[bool, str]:
     """Install session capture hooks for the user's agents (user-level, one time)."""
     if available():
         return True, "already capturing"
@@ -40,7 +40,14 @@ def install() -> tuple[bool, str]:
                              input="\n")
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)
-    return res.returncode == 0, "capture installed" if res.returncode == 0 else (res.stderr or res.stdout)[-300:]
+    if res.returncode == 0 and available():
+        return True, "capture installed"
+    if log_dir:
+        (log_dir / "capture.log").write_text(res.stdout + "\n" + res.stderr)
+    lines = [ln.strip() for ln in (res.stderr + "\n" + res.stdout).splitlines()
+             if ln.strip() and not ln.lower().startswith("npm notice")]
+    hint = lines[-1][:90] if lines else "no output"
+    return False, f"not installed ({hint}); details in .cairn/capture.log"
 
 
 def _cols(db: sqlite3.Connection, table: str) -> set[str]:

@@ -65,7 +65,7 @@ def install_extension(project: Project) -> tuple[bool, str]:
     if not cmd:
         return False, "workflow CLI unavailable"
     try:
-        res = subprocess.run([*cmd, "extension", "add", "cairn", "--dev", str(EXTENSION_DIR)], cwd=project.root,
+        res = subprocess.run([*cmd, "extension", "add", str(EXTENSION_DIR), "--dev"], cwd=project.root,
                              capture_output=True, text=True, timeout=180, input="y\n")
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)

@@ -1,0 +1,54 @@
+schema_version: "1.0"
+
+extension:
+  id: "cairn"
+  name: "Cairn project memory"
+  version: "0.1.0"
+  description: "Brings code impact, history, decisions and drift checks into every stage of the spec workflow."
+  author: "Cairn contributors"
+  repository: "https://github.com/cairn-dev/cairn"
+  license: "Apache-2.0"
+  homepage: "https://github.com/cairn-dev/cairn"
+
+requires:
+  speckit_version: ">=0.8.0"
+  tools:
+    - name: "cairn"
+      version: ">=0.1.0"
+      required: true
+
+provides:
+  commands:
+    - name: "speckit.cairn.context"
+      file: "commands/context.md"
+      description: "Gather impact, rationale and conventions for the code a feature will touch"
+    - name: "speckit.cairn.trace"
+      file: "commands/trace.md"
+      description: "Link tasks to code, flag risky files and co-change gaps"
+    - name: "speckit.cairn.remember"
+      file: "commands/remember.md"
+      description: "Record clarified decisions as team memory"
+    - name: "speckit.cairn.verify"
+      file: "commands/verify.md"
+      description: "Check the implementation against the spec and record what was learned"
+
+hooks:
+  before_plan:
+    command: "speckit.cairn.context"
+    optional: false
+    description: "Ground the plan in the real code, history and conventions"
+  after_tasks:
+    command: "speckit.cairn.trace"
+    optional: false
+    description: "Trace tasks to code and surface risk before implementation"
+  after_clarify:
+    command: "speckit.cairn.remember"
+    optional: true
+    prompt: "Save the clarified decisions to team memory?"
+    description: "Turn clarifications into durable memory"
+  after_implement:
+    command: "speckit.cairn.verify"
+    optional: false
+    description: "Drift check and learning capture"
+
+tags: ["memory", "impact-analysis", "code-graph", "drift", "context"]

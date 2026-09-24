@@ -38,8 +38,19 @@ def _engine(*args: str, cwd: Path, timeout: int = 900) -> subprocess.CompletedPr
                           capture_output=True, text=True, timeout=timeout, errors="replace")
 
 
+IGNORE_BLOCK = "# cairn: tool folders are not part of the system\n.cairn/\n.specify/\n.claude/\n.cursor/\n.gemini/\n"
+
+
+def ensure_ignores(root: Path) -> None:
+    ig = root / ".graphifyignore"
+    text = ig.read_text() if ig.exists() else ""
+    if "# cairn:" not in text:
+        ig.write_text(text + ("\n" if text and not text.endswith("\n") else "") + IGNORE_BLOCK)
+
+
 def build(root: Path, force: bool = False) -> tuple[bool, str]:
     """Incrementally (re)build the map. Deterministic, local, no model calls."""
+    ensure_ignores(root)
     args = ["update", str(root)]
     if force:
         args.append("--force")
