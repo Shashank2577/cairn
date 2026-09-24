@@ -15,7 +15,7 @@ Each decision was validated against the installed engine versions on 2026-09-24.
 ## R2 Spec workflow integration
 - **Decision**: Bootstrap with `specify init --here --integration <agent> --non-interactive
   --offline --ignore-agent-tools --force` and ship a Spec Kit **extension** (`extension.yml`,
-  commands `speckit.cairn.*`, hooks) installed with `specify extension add cairn --dev <dir>`.
+  commands `speckit.cairn.*`, hooks) installed with `specify extension add <dir> --dev` (verified against the CLI; see analysis A2).
 - **Evidence**: `--force` on a repo with existing `CLAUDE.md`/`AGENTS.md` left them untouched and
   added only `.specify/` and agent skill files. Hook events available: before/after for specify,
   clarify, plan, tasks, implement, analyze, checklist, constitution, taskstoissues.

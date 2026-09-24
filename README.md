@@ -9,7 +9,7 @@ curl -fsSL https://raw.githubusercontent.com/cairn-dev/cairn/main/install.sh | s
 cd your-repo && cairn
 ```
 
-![Cairn UI: the layer rail, the map, and a dossier](docs/images/ui-map.png)
+![Cairn UI: the layer rail, the map, and a dossier linking code to its spec task and a team convention](docs/images/ui-map.png)
 
 ## Why
 
@@ -69,6 +69,10 @@ Budgets, prompt caching and a cost ledger (`cairn models --ledger`) are built in
   Sessions   ██████░░░░░░  812 observations
 Active spec 003 41/96 tasks   2 drift findings → cairn drift   UI http://127.0.0.1:4747
 ```
+
+| Specs, traced to code | Team memory (light theme) |
+|---|---|
+| ![Specs view](docs/images/ui-specs.png) | ![Memory view](docs/images/ui-memory-light.png) |
 
 ## Commands
 

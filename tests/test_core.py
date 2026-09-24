@@ -82,3 +82,32 @@ def test_context_infers_targets(cairn):
 def test_brief_is_small(cairn):
     b = cairn.brief()
     assert len(b) // 4 <= 560 and "Cairn brief" in b
+
+
+def test_sessions_reader_links_observations(cairn, repo, tmp_path, monkeypatch):
+    """Schema-compatible capture DB (columns as in the capture engine's migrations)."""
+    import json
+    import sqlite3
+    from cairn.engines import journal
+    data = tmp_path / "capture"
+    data.mkdir()
+    db = sqlite3.connect(data / "claude-mem.db")
+    db.executescript("""
+      CREATE TABLE observations(id INTEGER PRIMARY KEY, memory_session_id TEXT, project TEXT, text TEXT, type TEXT,
+        created_at TEXT, created_at_epoch INTEGER, title TEXT, subtitle TEXT, narrative TEXT, facts TEXT,
+        concepts TEXT, files_read TEXT, files_modified TEXT);
+      CREATE TABLE session_summaries(id INTEGER PRIMARY KEY, memory_session_id TEXT, project TEXT, request TEXT,
+        investigated TEXT, learned TEXT, completed TEXT, next_steps TEXT, created_at_epoch INTEGER);""")
+    db.execute("INSERT INTO observations VALUES(1,'s1',?,'','bugfix','',1790000000000,'Fixed retry double charge',"
+               "'','Added idempotency key',?,'[]',?,?)",
+               (repo.name, json.dumps(["gateway retries on timeout"]), json.dumps([str(repo / "shop/api.py")]),
+                json.dumps([str(repo / "shop/payments.py")])))
+    db.execute("INSERT INTO session_summaries VALUES(1,'s1',?,'Fix double charge','','Provider retries','done','',1790000000000)",
+               (repo.name,))
+    db.commit()
+    db.close()
+    monkeypatch.setenv("CLAUDE_MEM_DATA_DIR", str(data))
+    assert journal.ingest(cairn.project, cairn.brain)["observations"] == 1
+    assert journal.ingest(cairn.project, cairn.brain)["observations"] == 0  # cursor
+    secs = cairn.impact("shop/payments.py").sections()
+    assert any("double charge" in i["text"] for i in secs.get("Agent sessions", []))

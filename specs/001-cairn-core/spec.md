@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-cairn-core`
 **Created**: 2026-09-24
-**Status**: Ready for planning (clarified)
+**Status**: Implemented (v0.1.0)
 **Input**: User description: "Consolidate a code knowledge graph, spec-driven workflow, temporal
 knowledge graph, long-term memory and agent session capture into one product. One command to
 plug into new or existing repos, a premium terminal experience across coding agents, one
