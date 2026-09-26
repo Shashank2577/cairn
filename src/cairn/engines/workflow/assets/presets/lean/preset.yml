@@ -1,0 +1,51 @@
+schema_version: "1.0"
+
+preset:
+  id: "lean"
+  name: "Lean Workflow"
+  version: "1.0.0"
+  description: "Minimal core workflow commands - just the prompt, just the artifact"
+  author: "github"
+  repository: "https://github.com/cairn-dev/cairn"
+  license: "MIT"
+
+requires:
+  workflow_version: ">=0.6.0"
+
+provides:
+  templates:
+    - type: "command"
+      name: "cairn.specify"
+      file: "commands/cairn.specify.md"
+      description: "Lean specify - create spec.md from a feature description"
+      replaces: "cairn.specify"
+
+    - type: "command"
+      name: "cairn.plan"
+      file: "commands/cairn.plan.md"
+      description: "Lean plan - create plan.md from the spec"
+      replaces: "cairn.plan"
+
+    - type: "command"
+      name: "cairn.tasks"
+      file: "commands/cairn.tasks.md"
+      description: "Lean tasks - create tasks.md from plan and spec"
+      replaces: "cairn.tasks"
+
+    - type: "command"
+      name: "cairn.implement"
+      file: "commands/cairn.implement.md"
+      description: "Lean implement - execute tasks from tasks.md"
+      replaces: "cairn.implement"
+
+    - type: "command"
+      name: "cairn.constitution"
+      file: "commands/cairn.constitution.md"
+      description: "Lean constitution - create or update project constitution"
+      replaces: "cairn.constitution"
+
+tags:
+  - "lean"
+  - "minimal"
+  - "workflow"
+  - "core"

@@ -1,0 +1,5 @@
+*
+!config.toml
+!.gitignore
+!workflow/
+!workflow/**

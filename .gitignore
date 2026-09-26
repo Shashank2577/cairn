@@ -8,4 +8,15 @@ build/
 .ruff_cache/
 .cairn/*
 !.cairn/config.toml
-graphify-out/
+.DS_Store
+.omc/
+# Generated agent-integration files that bake in this machine's absolute interpreter path
+# (only happens when `cairn` isn't on PATH yet); regenerate locally with `cairn init`.
+/.mcp.json
+/.claude/settings.json
+/.codex/hooks.json
+/.cursor/hooks.json
+/.cursor/mcp.json
+/.gemini/settings.json
+/.opencode/plugins/cairn.js
+/.vscode/mcp.json

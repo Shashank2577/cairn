@@ -1,244 +1,346 @@
-# Feature Specification: Cairn Core — the engineering brain
+# Feature Specification: Cairn Core — one product for project memory
 
 **Feature Branch**: `001-cairn-core`
 **Created**: 2026-09-24
-**Status**: Implemented (v0.1.0)
-**Input**: User description: "Consolidate a code knowledge graph, spec-driven workflow, temporal
-knowledge graph, long-term memory and agent session capture into one product. One command to
-plug into new or existing repos, a premium terminal experience across coding agents, one
-beautiful single-page UI, useful from day one and more useful over time."
+**Updated**: 2026-09-25
+**Status**: Implemented, with converge items open
+**Input**: User description: "One product that gives coding agents and developers an institutional
+memory: a code and document knowledge graph, a spec-driven workflow, agent session memory, a temporal
+fact graph and self-reconciling memory, built in under one vocabulary. One command on any repository,
+useful with no model, better with one, and the same product for one developer or a team."
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 — One command on an existing repo (Priority: P1)
+### User Story 1 — One command on any repository (Priority: P1)
 
-Priya maintains a four-year-old payments service. She runs `cairn` in the repo. In under a
-minute she has a structural map of the code, git-derived risk signals, and her coding agents
-(Claude Code and Cursor) are wired to the brain. Nothing asked her a question.
+Priya maintains a four-year-old payments service. She runs `cairn` in the repository. In a minute or
+two she has a map of the code, git-derived risk signals, the spec workflow, her agents wired to the
+project's memory and a page to look at. Nothing asked her a question, and she needed no key.
 
-**Why this priority**: Without frictionless adoption nothing else matters. This alone delivers
-value: a queryable map plus history-aware impact answers.
+**Why this priority**: Without frictionless adoption nothing else matters.
 
-**Independent Test**: Run `cairn` in a clean checkout of any git repo with no keys set. Verify the
-map is built, `cairn impact <symbol>` returns callers + co-change + risky past commits, the MCP
-server responds, and agent config files were written idempotently.
+**Independent Test**: Run `cairn` in a clean git repository with no keys and no Claude Code CLI.
+The map is built, `cairn impact <symbol>` answers, agent configs are written, and a second run
+changes no files.
 
 **Acceptance Scenarios**:
 
-1. **Given** a git repo with no Cairn state, **When** the developer runs `cairn`, **Then** Cairn
-   initialises `.cairn/`, builds the map, ingests git history, wires detected agents, installs
-   git hooks, starts the local UI and prints a summary with next steps — with zero prompts.
-2. **Given** Cairn is already initialised, **When** the developer runs `cairn` again, **Then** it
-   shows status in < 300 ms and changes nothing.
-3. **Given** the repo has pre-existing `CLAUDE.md`/`AGENTS.md`, **When** Cairn wires agents,
-   **Then** it only adds a marked block and never rewrites user content.
+1. **Given** a git repository with no Cairn state, **When** the developer runs `cairn`, **Then** it
+   adds the spec workflow, wires detected agents, installs git hooks, syncs every layer, starts the
+   local server and prints the page address, with zero prompts.
+2. **Given** Cairn is set up, **When** the developer runs `cairn` again, **Then** it shows status and
+   changes nothing.
+3. **Given** existing `CLAUDE.md`, `AGENTS.md` or agent configs, **When** Cairn wires agents, **Then**
+   it only adds a marked block or merges its own keys, and `cairn uninstall` removes exactly those.
 
 ---
 
 ### User Story 2 — "What breaks if I change this?" (Priority: P1)
 
-Before touching `PaymentService.process`, Priya (or her agent) asks for impact. Cairn returns
-dependents from the map, files that historically change together, past fixes/reverts touching
-the area, specs/tasks that own the code, recent agent sessions that worked there, and memories
-(conventions, gotchas) — ranked, cited and within a token budget.
+Before touching `PaymentService.process`, Priya or her agent asks for impact. Cairn returns
+dependents, tests likely affected, files that change together, past fixes and reverts, the spec task
+that owns the code, conventions and recent agent work, ranked, cited and within a token budget.
 
-**Why this priority**: This is the question agents most often get wrong; answering it well is the
-core value proposition.
+**Why this priority**: This is the question agents most often get wrong.
 
-**Independent Test**: On a repo with history, `cairn impact <target>` and the MCP `cairn_impact`
-tool return all available sections with provenance tags; output respects `--budget`.
+**Independent Test**: `cairn impact <target>` and the `cairn_impact` tool return every available
+section with provenance tags and never exceed the budget.
 
 **Acceptance Scenarios**:
 
 1. **Given** a symbol with callers, **When** impact is requested, **Then** direct and transitive
-   dependents are listed with depth and edge provenance.
-2. **Given** a file touched by a commit whose message indicates a fix or revert, **When** impact is
-   requested, **Then** that commit appears under historical warnings.
-3. **Given** no model key, **When** impact is requested, **Then** the full deterministic answer is
-   returned; with a key, an optional deep-tier summary is prepended.
+   dependents are listed with depth and provenance.
+2. **Given** a file touched by a commit whose message marks a fix or revert, **When** impact is
+   requested, **Then** that commit appears as a warning and raises the risk level.
+3. **Given** no model, **When** impact is requested, **Then** the full deterministic answer is
+   returned; with a model, `--explain` adds a short summary.
 
 ---
 
 ### User Story 3 — "Why is this code like this?" (Priority: P2)
 
 A new teammate asks why retries in `client.py` are capped at three. Cairn assembles rationale
-comments, the commits that introduced and changed the lines, the spec requirement and task that
-produced it, decisions stored in memory, and timeline facts — then (optionally) narrates.
+comments, the commits that wrote the lines, the requirement and task that produced the code,
+recorded decisions and timeline facts.
 
-**Independent Test**: `cairn why <file|symbol>` returns rationale, origin commits, owning spec
-items and related memories, each cited.
+**Independent Test**: `cairn why <file|symbol>` returns rationale, origin commits, owning spec items
+and related memories, each cited.
 
 **Acceptance Scenarios**:
 
-1. **Given** code with `# WHY:`/`# NOTE:` comments, **When** why is requested, **Then** those
-   rationale nodes are included first.
-2. **Given** a task in `tasks.md` that names the file, **When** why is requested, **Then** the task,
-   its user story and requirement are linked.
+1. **Given** code with rationale comments, **When** why is requested, **Then** they come first.
+2. **Given** a task in `tasks.md` naming the file, **When** why is requested, **Then** the task, its
+   story and its requirement are linked.
 
 ---
 
 ### User Story 4 — Spec-driven work with memory (Priority: P2)
 
-A developer uses the spec workflow (constitution → specify → clarify → plan → tasks → analyze →
-implement → converge). At each stage the brain contributes: before planning it supplies impact
-and conventions; after tasks it links tasks to code and flags risky files; after implementation
-it verifies against the spec (drift) and records decisions to memory.
+A developer works spec-first in any of 41 agents: constitution, specify, clarify, plan, tasks,
+analyze, implement, converge. The project's memory joins in at each stage: plans are grounded in
+impact and history, tasks are traced to code, clarifications become decisions, and implementation
+ends with a drift check and recorded learnings.
 
-**Independent Test**: In a repo initialised by Cairn, the spec workflow's hook configuration lists
-Cairn hooks at `before_plan`, `after_tasks`, `after_clarify`, `after_implement`; `cairn specs`
-shows each feature's requirement → task → file trace and progress.
-
-**Acceptance Scenarios**:
-
-1. **Given** `specs/NNN-x/tasks.md` with file paths, **When** Cairn syncs, **Then** each task is
-   linked to the files it names and completion (`[x]`) is reflected as progress.
-2. **Given** a completed task whose named file no longer exists, **When** drift runs, **Then** a
-   drift finding is raised with evidence.
-3. **Given** a functional requirement with no task, **When** drift runs, **Then** it is flagged
-   as uncovered.
-
----
-
-### User Story 5 — Memory that compounds (Priority: P2)
-
-Agents and developers record durable knowledge ("payments must be idempotent", "prefer optimistic
-locking"). Agent sessions are captured automatically. Later, any agent in any tool recalls it.
-
-**Independent Test**: `cairn remember "..." --kind convention`, then `cairn recall` and the MCP
-`cairn_context` tool surface it for related targets. Captured sessions appear under Sessions,
-linked to the files they read and modified.
+**Independent Test**: After `cairn init`, the `/cairn.*` commands (or `/cairn-*` skills) exist for the
+agent, `cairn specs` shows each feature's requirement → task → file trace, and `cairn drift`
+reports done tasks whose files are missing.
 
 **Acceptance Scenarios**:
 
-1. **Given** a stored memory mentioning a symbol, **When** context for that symbol is assembled,
-   **Then** the memory is included with its source and date.
-2. **Given** a newer memory that contradicts an older one, **When** it is stored with
-   `--supersedes`, **Then** the old one is marked superseded and hidden by default.
-3. **Given** session capture is installed, **When** an agent session ends, **Then** its observations
-   are ingested on next sync and linked to files.
+1. **Given** `specs/NNN-x/tasks.md` naming files, **When** Cairn syncs, **Then** each task links to
+   those files and `[x]` counts as progress.
+2. **Given** a done task naming a file that doesn't exist, **When** drift runs, **Then** a
+   high-severity finding is raised with evidence.
+3. **Given** a functional requirement no task or plan references, **When** drift runs, **Then** it is
+   flagged as uncovered.
+4. **Given** a repository on an older workflow layout, **When** `cairn init` runs, **Then** the
+   workflow is migrated into `.cairn/workflow/` with its constitution and settings.
 
 ---
 
-### User Story 6 — One page to see everything (Priority: P2)
+### User Story 5 — Memory that keeps itself tidy (Priority: P2)
 
-`cairn ui` opens a single page: a map of the system, the five layers as a stacked navigation,
-a dossier for any selected thing (why, impact, history, memory, sessions, specs), a timeline
-strip, and a command bar that answers questions.
+Agents and developers record durable knowledge ("payments must be idempotent"). Cairn also learns
+from what the repository already says: accepted ADRs, answered clarifications, contributing rules,
+reverted and explained fixes. With a model, a new memory updates, merges with or retires the ones it
+overlaps, and every change is kept in its history.
 
-**Independent Test**: With the server running, the page loads offline, renders the map, and every
-layer view works against the HTTP API.
+**Independent Test**: `cairn remember "…" --kind convention`, then `cairn recall` and
+`cairn_context` surface it for related targets; `cairn memory history <id>` shows its changes.
+
+**Acceptance Scenarios**:
+
+1. **Given** a memory mentioning a symbol, **When** context for that symbol is assembled, **Then** the
+   memory is included with its source.
+2. **Given** a newer memory stored with `--supersedes`, **Then** the old one is hidden by default and
+   kept in history.
+3. **Given** an ADR is edited or deleted, **When** Cairn syncs, **Then** the memory seeded from it is
+   updated or retired; hand-written memories are never retired by seeding.
 
 ---
 
-### User Story 7 — Premium agent experience everywhere (Priority: P3)
+### User Story 6 — Agents remember earlier sessions (Priority: P1)
 
-In Claude Code, the status line shows brain health and open drift; a session-start briefing gives
-the agent a compact project brief; `/cairn:*` slash commands and model-tiered sub-agents exist.
-Codex, Cursor, Gemini CLI and VS Code get the MCP server and instruction files.
+Every Claude Code session in the repository is captured: prompts, tool use, files read and changed.
+The next session starts with a compact timeline of recent work, reading a file brings up what earlier
+sessions learned about it, and agents can search, expand and read past observations.
 
-**Independent Test**: `cairn agents install` writes the expected files for each detected agent;
-`cairn statusline` prints one line; `cairn hook session-start` prints valid hook JSON under 600 tokens.
+**Why this priority**: Agents forget everything between sessions; this is where much of the value is.
+
+**Independent Test**: With capture on, a session's events land in `.cairn/sessions.db`; after the
+worker or a sync, `cairn sessions search` finds observations linked to the files touched, and the
+`SessionStart` hook prints a context block.
+
+**Acceptance Scenarios**:
+
+1. **Given** a hook receives malformed input or a locked store, **Then** it exits 0 and the agent is
+   unaffected.
+2. **Given** a prompt containing `<private>…</private>` or a credential-like value, **Then** neither
+   is stored.
+3. **Given** no model, **When** the queue is drained, **Then** deterministic observations are
+   recorded; with a model, observations and summaries are written by it.
 
 ---
 
-### User Story 8 — Deep tier when a key is present (Priority: P3)
+### User Story 7 — What was true, and when (Priority: P3)
 
-With a model key, Cairn builds a temporal fact graph from commits, specs, sessions and decisions
-("X was true from March until the May refactor"), upgrades memory to semantic dedupe/update, and
-narrates why/impact/drift answers — routing each job to the cheapest capable model tier and
-recording cost.
+With a model available, Cairn builds a fact graph from each day's commits, spec progress, sessions
+and decisions. Facts carry validity windows; a later contradiction ends a fact instead of deleting it.
 
-**Independent Test**: With a key, `cairn sync --deep` ingests episodes with a budget; `cairn models
---ledger` shows per-tier calls and tokens; without a key the same command is a no-op with a hint.
+**Independent Test**: With a model, `cairn sync` (or `cairn timeline ingest`) creates episodes and
+facts within the budget; `cairn timeline search <q> --at <date>` answers as of that date; without a
+model, ingestion is a no-op and reads still work.
+
+---
+
+### User Story 8 — One page for everything (Priority: P2)
+
+`cairn ui` opens one page with an overview (layers, activity, savings, hubs), impact and why for any
+target, the map with its views and wiki, specs with drift, sessions, the timeline, memory and
+settings, updated live while syncs and sessions run.
+
+**Independent Test**: With the server running, the page loads with no network access and every view
+works against the HTTP API.
+
+---
+
+### User Story 9 — Every agent gets the same memory (Priority: P2)
+
+Claude Code, Codex, Cursor, Gemini CLI and VS Code get the `cairn` MCP server and instructions. The
+default tool set is small enough that it saves agents more tokens than it costs. Claude Code also
+gets a status line, a session-start briefing, `/cairn:*` commands and model-tiered sub-agents.
+
+**Independent Test**: `cairn agents install` writes the expected files per detected agent; the core
+tool set lists 12 tools; `[mcp] tools = "all"` lists every operation.
+
+---
+
+### User Story 10 — Model features with no key (Priority: P2)
+
+A developer signed in to Claude Code gets model features without creating a key. A team with an API
+key or a local OpenAI-compatible server uses that instead. Every job goes to the cheapest capable
+tier, within budgets, and every call is in the ledger.
+
+**Independent Test**: With only the `claude` CLI on PATH, `cairn doctor` shows the `claude-code`
+model and `cairn sync` records ledger rows; with nothing available, every model feature reports
+that it needs a model and nothing else changes.
+
+---
+
+### User Story 11 — One server, many projects, a whole team (Priority: P2)
+
+A developer with several repositories runs one local server for all of them. A team runs the same
+server in team mode: people sign in, belong to teams with roles, add projects from git URLs that
+re-sync on push, issue tokens for agents and CI, and can see who changed what.
+
+**Independent Test**: `cairn ui` in two repositories reuses one server; in team mode, requests without
+a session or token get 401, a viewer's write gets 403, a project outside the caller's teams gets 404,
+and a signed push webhook triggers a refresh and sync.
+
+---
+
+### User Story 12 — Savings you can see (Priority: P3)
+
+Priya wants to know whether Cairn pays for itself. Every pack an agent receives is logged with its
+size and the size of the files behind it, and the Overview page shows the totals by surface.
+
+**Independent Test**: Calling `cairn_impact` through MCP adds one `queries` row with sent and source
+tokens; the page's own lookups add none; session briefings count as cost.
 
 ### Edge Cases
 
-- Brand-new empty repo: map is empty; Cairn guides the user to start with constitution/specify.
-- Not a git repo: Cairn offers `git init` guidance and still builds the map for the folder.
-- Monorepos with >50k files: map build is incremental; UI shows communities, not raw nodes.
-- Detached HEAD / shallow clones: history ingest uses what exists and reports depth.
-- Session capture or spec tooling unavailable (no Node/uv): those layers show as "not connected"
-  with one command to enable; nothing else degrades.
-- Concurrent syncs (hook + manual): a lock file serialises them; the second exits immediately.
-- Model provider errors or budget exhaustion: deterministic output is returned, error is noted.
+- Brand-new empty repository: the map is empty; Cairn suggests starting spec-driven work with
+  `/cairn-specify` (and `cairn specs` points to `/cairn-constitution` first).
+- Not a git repository: history and hooks are skipped with guidance; map, specs and memory still work.
+- Large repositories: map builds are incremental; the page shows areas rather than every node.
+- Concurrent syncs (hook and manual): a lock serialises them; the second exits at once.
+- The embedded fact graph is a single-writer file: every process opens it per operation, so the
+  server, git-hook syncs and agents never lock each other out.
+- No network on first run: a hashing embedder replaces the local model; search stays lexical.
+- Model errors or budget exhaustion: deterministic output is returned and the error noted; unfinished
+  timeline work resumes on the next sync.
+- A malformed `config.toml` is ignored rather than blocking commands.
 
 ## Clarifications
 
 ### Session 2026-09-24
 
-- Q: Should underlying engines be visible to users? → A: No. One vocabulary (Map, Specs, Timeline,
-  Memory, Sessions). Engines are dependencies, credited in THIRD_PARTY_NOTICES.md only (licence
-  notices are legally required and are kept there).
-- Q: Must the product work without any API key? → A: Yes. Deterministic tier is complete; keys
-  unlock the deep tier (temporal facts, semantic memory, narration, semantic drift).
-- Q: Graph store for the temporal layer without Docker? → A: Embedded store by default; a graph
-  server URL (FalkorDB/Neo4j) switches to it. Embedded mode is flagged as "local" in doctor.
-- Q: Embeddings without an embeddings API? → A: Local ONNX embeddings when installed; otherwise
-  the deep tier requires an OpenAI-compatible embeddings endpoint. Memory falls back to full-text.
-- Q: Which model does which job? → A: fast=Haiku (classify, summarise), balanced=Sonnet (extract,
-  link tie-breaks), deep=Opus (why/impact/drift synthesis, ask), frontier=Fable (opt-in reviews).
-- Q: What happens to the engines' own agent integrations? → A: Session capture installs its hooks
-  (required for capture). The code map's own agent skill is NOT installed by default — agents use
-  Cairn's MCP instead, to keep one surface. `--native-skills` opts in.
-- Q: Default UI port? → A: 4747 (configurable), bound to 127.0.0.1 only.
+- Q: Should the engines be visible to users? → A: No. Users learn one vocabulary (Map, Specs,
+  Timeline, Memory, Sessions); engine origins are credited only in NOTICE and licenses/.
+- Q: Must Cairn work without any model? → A: Yes. Impact, why, context, drift, the map, git history,
+  spec parsing and session capture are deterministic; models add observations, facts,
+  reconciliation, narration and semantic drift.
+- Q: Default page port and binding? → A: 4747 on 127.0.0.1 in local mode, configured in
+  $CAIRN_HOME/server.toml.
+
+### Session 2026-09-25
+
+- Q: Are the engines separate installs? → A: No. All five engines are part of Cairn's source under
+  src/cairn/engines with their full feature sets, sharing one model layer, one vector module, one
+  read model, one CLI, one MCP server, one HTTP API and one page.
+- Q: Which model provider does Cairn use by default? → A: provider auto picks an Anthropic key, then
+  an OpenAI-compatible key or endpoint, then the signed-in Claude Code CLI, which needs no key.
+- Q: Where do the stores live by default? → A: Embedded in .cairn: the fact graph in
+  .cairn/temporal/graph.kuzu, memory vectors in .cairn/memstore, sessions in .cairn/sessions.db;
+  teams can point the fact graph at Neo4j or FalkorDB and memory at Qdrant, pgvector or Chroma.
+- Q: How many MCP tools do agents get by default? → A: A compact core set of 12 tools; setting
+  mcp tools to all exposes every map, timeline-fact and session operation.
+- Q: One server per repository? → A: No. One server serves every project on the machine; team mode
+  adds sign-in, roles, scoped hashed tokens, git projects with push webhooks and an audit log.
+- Q: How do agents on other machines use a team server? → A: Through /mcp/<project id> with a
+  bearer token; cairn agents connect writes the config with the token read from an environment
+  variable, and callers who cannot write get read-only tools.
+- Q: Where does the spec workflow keep its files? → A: Its constitution, templates, scripts and
+  integrations live in .cairn/workflow (committed with the repository); features live in specs.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: `cairn` with no arguments MUST initialise an uninitialised repo and show status otherwise.
-- **FR-002**: Init MUST be idempotent, non-destructive to user files, and reversible via `cairn uninstall`.
-- **FR-003**: The system MUST build and incrementally update a code/doc map without model calls.
-- **FR-004**: The system MUST ingest git history incrementally, derive co-change pairs and risk commits.
-- **FR-005**: The system MUST parse spec artifacts (constitution, spec, plan, tasks) into
-  features, user stories, requirements and tasks, linking tasks to files they name.
-- **FR-006**: The system MUST ingest captured agent sessions and link them to files read/modified.
-- **FR-007**: The system MUST store memories with kind, scope, provenance, supersession and search.
-- **FR-008**: The system MUST resolve entities across layers into one registry with typed, provenance-tagged links.
-- **FR-009**: The system MUST answer impact, why, trace (path/explain), search, recall and context
-  queries deterministically within a caller-supplied token budget, with citations.
-- **FR-010**: The system MUST detect drift: uncovered requirements, done tasks with missing files,
-  files changed after their task completed, and (deep tier) semantic requirement violations.
-- **FR-011**: The system MUST expose all query capabilities over one MCP server with ≤ 8 tools.
-- **FR-012**: The system MUST install agent integrations for Claude Code, Codex, Cursor, Gemini CLI,
-  VS Code and a generic AGENTS.md, only for agents detected (or explicitly requested).
-- **FR-013**: The system MUST install git hooks that trigger a quick background sync after commit,
-  merge and checkout.
-- **FR-014**: The system MUST serve a single-page UI and HTTP API from a local daemon.
-- **FR-015**: The system MUST integrate with the spec workflow as an extension providing hooks at
-  `before_plan`, `after_tasks`, `after_clarify` and `after_implement`.
-- **FR-016**: With a model key, the system MUST route model work by task tier, enforce a per-sync
-  token budget, use prompt caching for stable prefixes, and record a cost ledger.
-- **FR-017**: With a model key, the system MUST maintain a temporal fact graph from episodes and
-  support semantic memory updates.
-- **FR-018**: The system MUST expose engine-native capabilities (graph query/path/explain/hubs/
-  communities, PR impact, spec workflow commands, session search, memory history) through
-  Cairn commands without exposing engine names.
-- **FR-019**: `cairn doctor` MUST report every capability's state and the exact command to enable it.
+- **FR-001**: `cairn` with no arguments MUST set up an uninitialised repository and show status otherwise.
+- **FR-002**: Setup MUST never prompt, MUST be idempotent, MUST NOT rewrite user content, and MUST be
+  reversible with `cairn uninstall`.
+- **FR-003**: The system MUST build and incrementally update a code and document map with tree-sitter,
+  with no model calls, and offer path, explain, query, hubs, areas, views, a report, a wiki, exports
+  and PR impact.
+- **FR-004**: The system MUST ingest git history incrementally and derive co-change pairs and risk tags.
+- **FR-005**: The system MUST bundle the spec-driven workflow in `.cairn/workflow/` with commands for
+  41 agent integrations, extensions, presets, workflows and bundles, working offline, and MUST migrate
+  older workflow layouts.
+- **FR-006**: The system MUST parse spec artifacts into features, stories, requirements and tasks and
+  link tasks to the files they name.
+- **FR-007**: The system MUST detect drift deterministically (missing files for done tasks, uncovered
+  requirements, files changed after their task was done, finished specs still marked Draft) and, with
+  a model, judge recently changed requirements under a budget.
+- **FR-008**: The system MUST capture agent sessions through hooks that only write to
+  `.cairn/sessions.db`, never fail the agent, drop `<private>` content and mask credential-like values.
+- **FR-009**: The system MUST turn captured events into observations and session summaries with a
+  model, or deterministic records without one, make them searchable by text and meaning, and inject
+  recent work at session start.
+- **FR-010**: The system MUST store memories with kind, scope, provenance, supersession and history,
+  reconcile new memories with a model, and seed memory from ADRs, clarifications, contributing rules
+  and git history.
+- **FR-011**: The system MUST maintain a temporal fact graph with validity windows from daily episodes
+  under a token budget, embedded by default and on a graph server when configured.
+- **FR-012**: The system MUST mirror every engine into one read model with canonical ids and typed,
+  provenance-tagged links.
+- **FR-013**: The system MUST answer impact, why and context within a caller-supplied token budget
+  and search, recall and facts within a result limit, all with citations, and narrate only when asked
+  and a model is available.
+- **FR-014**: The system MUST expose a compact core MCP tool set by default and every operation when
+  `[mcp] tools = "all"`.
+- **FR-015**: The system MUST wire detected agents (Claude Code, Codex, Cursor, Gemini CLI, VS Code)
+  and a generic `AGENTS.md`, adding a status line, briefing, commands and sub-agents for Claude Code.
+- **FR-016**: The system MUST install git hooks that sync in the background after commit, merge,
+  checkout and rewrite, with syncs serialised by a lock.
+- **FR-017**: The system MUST route every model call through one layer with providers `anthropic`,
+  `openai`, `claude-code` and `auto`, task tiers, bounded escalation, budgets and a ledger.
+- **FR-018**: One server per machine MUST serve every registered project: the HTTP API, a live event
+  stream, a per-project MCP endpoint and the page.
+- **FR-019**: Team mode MUST require a session or token and provide teams, roles with per-project
+  overrides, invitations, scoped hashed tokens, git projects with push webhooks and an audit log.
+- **FR-020**: The system MUST log every context pack handed to a reader with sent and source tokens
+  and show the savings on the page.
+- **FR-021**: `cairn doctor` MUST report every capability's state and the command that enables it.
+- **FR-022**: The product MUST use Cairn's names only; the engines' origins MUST be credited only in
+  `NOTICE` and `licenses/`.
+- **FR-023**: Agents on other machines MUST be able to send captured session events to a team server
+  project.
 
 ### Key Entities
 
-- **Entity**: anything addressable — file, symbol, rationale, spec, story, requirement, task,
-  commit, session, observation, memory, fact. Canonical id `kind:key`.
-- **Link**: typed, directed relation between entities with provenance, confidence and source.
-- **Event**: a timestamped occurrence on the timeline (commit, spec change, session, decision).
+- **Entity**: anything addressable (file, symbol, rationale, spec, story, requirement, task, commit,
+  session, observation, fact), with a canonical id `kind:key`.
+- **Link**: a typed, directed relation between entities with provenance, confidence and source.
+- **Event**: a timestamped occurrence on the timeline (commit, spec change, workflow run, session,
+  memory, fact, drift finding).
 - **Memory**: durable knowledge with kind (convention, decision, gotcha, preference, fact), scope
-  (project/user), provenance and optional supersession.
-- **Context Pack**: ranked, budgeted, cited bundle returned to agents.
+  (project, team, user, session), source, provenance, supersession and history.
+- **Observation / session summary**: what an agent did and learned, with the files it read and changed.
+- **Fact**: a statement with valid-from and valid-until times, extracted from an episode.
+- **Context pack**: a ranked, budgeted, cited answer.
+- **Project, team, membership, token, audit entry**: the platform's records in `platform.db`.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: From `pipx/uv install` to first useful impact answer in < 2 minutes on a 1k-file repo.
-- **SC-002**: Zero prompts and zero config edits needed for the deterministic tier.
-- **SC-003**: Agent-facing context packs stay within budget (default 1,800 tokens) 100% of the time.
-- **SC-004**: Re-running init produces no file changes (idempotence), verified in CI.
-- **SC-005**: Deep-tier sync cost for a typical day of commits stays under the configured budget
-  (default 150k tokens), with ≥ 70% of calls on the fast or balanced tier.
+- **SC-001**: `cairn` reaches a synced, useful state in a git repository with zero prompts, zero
+  config edits and no model.
+- **SC-002**: Re-running setup produces no file changes (verified by the test suite).
+- **SC-003**: Context packs stay within their budget 100% of the time (verified by the test suite).
+- **SC-004**: The core MCP tool set costs under 2,000 tokens of schema per agent turn (measured at
+  about 1,600).
+- **SC-005**: Capture hooks exit 0 on any input and write only to the session store.
+- **SC-006**: The test suite runs with no network access and no model calls.
+- **SC-007**: Timeline-fact work per sync stays within `[deep] budget_tokens` (150,000 by default).
+- **SC-008**: Targets from the constitution: `cairn` status under 300 ms; `cairn_context` under 800 ms
+  p95 on a 5,000-file repository without a model; first paint of the page under 1 s.
 
 ## Assumptions
 
-- Python ≥ 3.11 is available; `uv` or `pipx` is the install path. Node ≥ 18 enables session capture.
-- Model access defaults to Anthropic; OpenAI-compatible endpoints are supported for all tiers.
-- The temporal graph uses an embedded store by default and a graph server when configured.
+- Python 3.11 or newer and git are available; `uv` or `pipx` installs the tool.
+- The local embedding model downloads once; without network access a hashing embedder is used.
+- Model access comes from an API key, an OpenAI-compatible endpoint or a signed-in Claude Code CLI;
+  none is required.
+- Team servers run behind an HTTPS reverse proxy.

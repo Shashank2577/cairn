@@ -1,6 +1,6 @@
 ---
 name: cairn-architect
-description: Design reviewer for plans and cross-cutting changes. Use for /speckit-plan reviews, refactors touching hubs, or when impact risk is HIGH.
+description: Design reviewer for plans and cross-cutting changes. Use for /cairn-plan reviews, refactors touching hubs, or when impact risk is HIGH.
 tools: Read, Grep, Glob, mcp__cairn__cairn_context, mcp__cairn__cairn_impact, mcp__cairn__cairn_why, mcp__cairn__cairn_specs, mcp__cairn__cairn_trace, mcp__cairn__cairn_recall
 model: opus
 ---

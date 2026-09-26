@@ -1,6 +1,8 @@
 """Store, history, specs, drift, memory, linker and the context assembler."""
 from __future__ import annotations
 
+import pytest
+
 from cairn import drift
 from cairn.engines import history, specs
 from cairn.store import Brain, fts_query
@@ -84,30 +86,230 @@ def test_brief_is_small(cairn):
     assert len(b) // 4 <= 560 and "Cairn brief" in b
 
 
-def test_sessions_reader_links_observations(cairn, repo, tmp_path, monkeypatch):
-    """Schema-compatible capture DB (columns as in the capture engine's migrations)."""
-    import json
-    import sqlite3
+def _hook(kind, root, **payload):
+    from cairn import capture
+    return capture.record(kind, {"session_id": "s1", "cwd": str(root), **payload})
+
+
+@pytest.fixture()
+def no_model(monkeypatch):
+    """Session capture without a model: the sync derives records from the queued tool events."""
+    monkeypatch.setenv("CAIRN_NO_CLI_MODELS", "1")
+    monkeypatch.setenv("CAIRN_EMBEDDER", "hash")
+
+
+def test_capture_records_prompts_files_and_commands(cairn, repo, no_model):
+    assert _hook("prompt", repo, prompt="Fix the double charge on retry") == 1
+    _hook("tool", repo, tool_name="Read", tool_input={"file_path": str(repo / "shop/api.py")})
+    _hook("tool", repo, tool_name="Edit", tool_input={"file_path": str(repo / "shop/payments.py")})
+    _hook("tool", repo, tool_name="Bash", tool_input={"command": "pytest -q  tests/  API_TOKEN=abc123"})
+    _hook("tool", repo, tool_name="Read", tool_input={"file_path": "/etc/hosts"})  # outside the repo: not recorded
+    _hook("stop", repo)
     from cairn.engines import journal
-    data = tmp_path / "capture"
-    data.mkdir()
-    db = sqlite3.connect(data / "claude-mem.db")
-    db.executescript("""
-      CREATE TABLE observations(id INTEGER PRIMARY KEY, memory_session_id TEXT, project TEXT, text TEXT, type TEXT,
-        created_at TEXT, created_at_epoch INTEGER, title TEXT, subtitle TEXT, narrative TEXT, facts TEXT,
-        concepts TEXT, files_read TEXT, files_modified TEXT);
-      CREATE TABLE session_summaries(id INTEGER PRIMARY KEY, memory_session_id TEXT, project TEXT, request TEXT,
-        investigated TEXT, learned TEXT, completed TEXT, next_steps TEXT, created_at_epoch INTEGER);""")
-    db.execute("INSERT INTO observations VALUES(1,'s1',?,'','bugfix','',1790000000000,'Fixed retry double charge',"
-               "'','Added idempotency key',?,'[]',?,?)",
-               (repo.name, json.dumps(["gateway retries on timeout"]), json.dumps([str(repo / "shop/api.py")]),
-                json.dumps([str(repo / "shop/payments.py")])))
-    db.execute("INSERT INTO session_summaries VALUES(1,'s1',?,'Fix double charge','','Provider retries','done','',1790000000000)",
-               (repo.name,))
-    db.commit()
-    db.close()
-    monkeypatch.setenv("CLAUDE_MEM_DATA_DIR", str(data))
     assert journal.ingest(cairn.project, cairn.brain)["observations"] == 1
     assert journal.ingest(cairn.project, cairn.brain)["observations"] == 0  # cursor
+    [turn] = cairn.brain.entities("obs")
+    assert turn["name"] == "Fix the double charge on retry"
+    assert turn["meta"]["read"] == ["shop/api.py"] and turn["meta"]["modified"] == ["shop/payments.py"]
+    assert any("pytest -q tests/" in f and "abc123" not in f for f in turn["meta"]["facts"])  # secrets redacted
     secs = cairn.impact("shop/payments.py").sections()
     assert any("double charge" in i["text"] for i in secs.get("Agent sessions", []))
+
+
+def test_capture_groups_turns_and_finishes_them_on_the_next_sync(cairn, repo, no_model):
+    from cairn.engines import journal
+    _hook("prompt", repo, prompt="Explain the gateway")
+    _hook("tool", repo, tool_name="Read", tool_input={"file_path": str(repo / "shop/gateway.py")})
+    journal.ingest(cairn.project, cairn.brain)
+    _hook("tool", repo, tool_name="Write", tool_input={"file_path": str(repo / "shop/ledger.py")})  # same turn, later
+    _hook("prompt", repo, prompt="Now add a refund")
+    _hook("tool", repo, tool_name="Bash", tool_input={"command": "pytest -q"})
+    journal.ingest(cairn.project, cairn.brain)
+    turns = {e["name"]: e["meta"] for e in cairn.brain.entities("obs")}
+    assert turns["Explain the gateway"]["modified"] == ["shop/ledger.py"]  # the later event joined its turn
+    assert turns["Explain the gateway"]["read"] == ["shop/gateway.py"]
+    assert "Now add a refund" in turns
+    [session] = cairn.brain.entities("session")
+    assert session["meta"]["turns"] == 2
+
+
+def test_capture_is_silent_outside_cairn_repos_and_when_disabled(tmp_path, repo):
+    from cairn import capture
+    assert capture.record("prompt", {"session_id": "s", "cwd": str(tmp_path), "prompt": "hi"}) == 0
+    (repo / ".cairn").mkdir(exist_ok=True)
+    (repo / ".cairn" / "config.toml").write_text("[sessions]\ncapture = false\n")
+    assert capture.record("prompt", {"session_id": "s", "cwd": str(repo), "prompt": "hi"}) == 0
+
+
+def test_capture_hook_is_light_and_never_fails(repo):
+    """Runs on every tool call: standard library only, and bad input must not break the agent."""
+    import subprocess
+    import sys
+    probe = "import sys, cairn.capture; print(sorted(m for m in ('typer', 'rich', 'fastapi', 'cairn.core') if m in sys.modules))"
+    assert subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True).stdout.strip() == "[]"
+    res = subprocess.run([sys.executable, "-m", "cairn.capture", "tool"], input="not json", capture_output=True,
+                         text=True, cwd=repo, check=False)
+    assert res.returncode == 0 and res.stdout == "" and res.stderr == ""
+
+
+def test_drift_ids_are_stable_across_processes():
+    """Finding ids must not depend on PYTHONHASHSEED, or every sync re-records every finding."""
+    import os
+    import subprocess
+    import sys
+    code = "from cairn.drift import _finding; print(_finding('missing-file', 'high', '001-x', 'T1 is done', [])['id'])"
+    ids = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                          env={**os.environ, "PYTHONHASHSEED": seed}).stdout.strip() for seed in ("1", "2", "3")}
+    assert len(ids) == 1
+
+
+def test_drift_record_is_idempotent_and_keeps_first_seen(cairn):
+    found = drift.check(cairn)
+    drift.record(cairn, found)
+    first = {e["id"]: e["ts"] for e in cairn.brain.events(kinds=["drift"])}
+    assert first
+    drift.record(cairn, drift.check(cairn))
+    again = {e["id"]: e["ts"] for e in cairn.brain.events(kinds=["drift"])}
+    assert again == first
+
+
+def test_sync_links_summary_names_what_it_counts():
+    from cairn import sync
+    assert sync._summary("links", {"links": 3}) == "3 memory links"
+
+
+def test_session_paths_keep_dotfolders(tmp_path):
+    from cairn.capture import _rel
+    root = tmp_path / "repo"
+    (root / ".claude").mkdir(parents=True)
+    assert _rel(str(root / ".claude" / "settings.json"), root, str(root)) == ".claude/settings.json"
+    assert _rel("./src/app.py", root, str(root)) == "src/app.py"
+    assert _rel(str(tmp_path / "elsewhere.py"), root, str(root)) == ""  # outside the repo
+
+
+def test_pack_accounting_matches_render_and_logs_once(cairn):
+    p = cairn.impact("PaymentService", budget=300)
+    acc = p.accounting()
+    assert f"budget used: {acc['used']}/300" in p.render()
+    assert all(v["kept"] <= v["total"] for v in acc["sections"].values())
+    p.render()  # rendering again must not count the pack twice
+    [q] = cairn.brain.queries()
+    assert (q["surface"], q["kind"], q["target"]) == ("cli", "impact", "PaymentService")
+    assert q["sent_tokens"] == acc["used"] and q["source_tokens"] > 0 and q["source_files"] >= 1
+
+
+def test_only_packs_handed_out_are_logged(cairn):
+    cairn.impact("PaymentService")  # built, never rendered: nobody received it
+    cairn.context("change how PaymentService handles retries").render()
+    assert [q["kind"] for q in cairn.brain.queries()] == ["context"]
+
+
+def test_source_cost_counts_existing_files_once(cairn, repo):
+    tokens, n = cairn.source_cost(["shop/payments.py", "shop/payments.py", "missing.py"])
+    assert n == 1 and tokens == max(1, (repo / "shop/payments.py").stat().st_size // 4)
+
+
+def test_file_graph_layers_and_cycles():
+    from cairn.engines.mapper import Edge, MapIndex
+    idx = MapIndex()
+    for nid, f in {"a": "app.py", "b": "svc.py", "c": "db.py", "d": "x.py", "e": "y.py"}.items():
+        idx.nodes[nid] = {"id": nid, "label": nid, "file_type": "code", "source_file": f}
+        idx.by_file[f].append(nid)
+    for s, t in (("a", "b"), ("b", "c"), ("d", "e"), ("e", "d"), ("d", "c")):
+        idx.out[s].append(Edge(t, "calls", "EXTRACTED", None))
+        idx.inc[t].append(Edge(s, "calls", "EXTRACTED", None))
+    g = idx.file_graph()
+    layer = {n["id"]: n["layer"] for n in g["nodes"]}
+    assert (layer["db.py"], layer["svc.py"], layer["app.py"]) == (0, 1, 2)
+    assert layer["x.py"] == layer["y.py"] == 1  # an import cycle shares one layer, above what it uses
+    cycle = {n["id"]: n["cycle"] for n in g["nodes"]}
+    assert cycle["x.py"] == ["x.py", "y.py"] and cycle["app.py"] == []
+    assert {"source": "app.py", "target": "svc.py", "weight": 1} in g["links"]
+
+
+def test_wrapped_requirements_are_read_whole(tmp_path):
+    fdir = tmp_path / "specs" / "001-x"
+    fdir.mkdir(parents=True)
+    (fdir / "spec.md").write_text("# Feature Specification: X\n\n- **FR-001**: The system MUST parse specs into\n"
+                                  "  features and tasks.\n- **FR-002**: One line.\n\n  Unrelated indented text.\n")
+    (fdir / "tasks.md").write_text("# Tasks\n")
+    reqs = specs.features(tmp_path)[0]["requirements"]
+    assert [r["text"] for r in reqs] == ["The system MUST parse specs into features and tasks.", "One line."]
+
+
+def test_map_rebuild_skips_when_nothing_changed(cairn, repo):
+    from cairn.engines import mapper
+    assert mapper.build(repo)[1] == "unchanged"                 # the fixture already synced once
+    (repo / "shop" / "api.py").write_text((repo / "shop" / "api.py").read_text() + "\n\ndef refund(order_id): ...\n")
+    ok, summary = mapper.build(repo)
+    assert ok and summary.startswith("1 changed file re-mapped")
+    assert any(cairn.map.label(n) == "refund()" for n in cairn.map.by_file["shop/api.py"])
+    assert mapper.build(repo)[1] == "unchanged"
+
+
+def test_a_shrink_guard_failure_reads_like_english_on_the_web_page(cairn, repo, monkeypatch):
+    from cairn.engines import mapper
+    from cairn.engines.graph import api as graph_api
+
+    cli_message = (
+        "[cairn graph] WARNING: new graph has 3 nodes but existing graph.json has 10. "
+        "Refusing to overwrite — you may be missing chunk files from a previous session. "
+        "Pass --force to override."
+    )
+    monkeypatch.setattr(graph_api, "build",
+                         lambda *a, **k: {"ok": False, "summary": cli_message, "log": [cli_message]})
+    ok, summary = mapper.build(repo, force=True)
+    assert not ok
+    assert "[cairn graph]" not in summary
+    assert "Pass --force to override" not in summary  # meaningless to someone on the web page
+    assert f"cairn graph update {repo} --force" in summary  # the actual command to run instead
+
+
+def test_changing_ignore_rules_rebuilds_the_map(cairn, repo):
+    from cairn.engines import mapper
+    assert mapper.build(repo)[1] == "unchanged"
+    with open(repo / ".cairn" / "graphignore", "a") as fh:
+        fh.write("shop/api.py\n")
+    ok, summary = mapper.build(repo)
+    assert ok and summary != "unchanged"
+    assert "shop/api.py" not in {cairn.map.file_of(n) for n in cairn.map.nodes}
+
+
+def test_set_cfg_never_writes_an_invalid_config(tmp_path):
+    import tomllib
+
+    import pytest
+
+    from cairn.project import Project
+    proj = Project(root=tmp_path)
+    proj.ensure_dir()
+    text = proj.config_path.read_text().replace("[models]", "[ models ]   # which models")
+    proj.config_path.write_text(text)
+    proj.set_cfg("models.provider", "openai")
+    proj.set_cfg("models.base_url", "http://h/v1\nx\x07")
+    tomllib.loads(proj.config_path.read_text())
+    assert proj.cfg("models.provider") == "openai" and proj.cfg("models.base_url") == "http://h/v1\nx\x07"
+    with pytest.raises(ValueError):
+        proj.set_cfg("deep.budget_tokens", None)
+
+
+def test_session_start_carries_remembered_facts_and_always_its_instruction(cairn):
+    for i in range(12):
+        cairn.remember(f"Convention {i}: every money amount is an integer number of cents, never a float value",
+                       kind="convention")
+    cairn.remember("Refund retries use exponential backoff capped at 5 attempts", kind="fact")
+    brief = cairn.brief()
+    assert "Refund retries use exponential backoff" in brief
+    assert brief.rstrip().endswith("Record durable learnings with cairn_remember.")
+    assert len(cairn.brief(max_tokens=60).splitlines()) >= 2  # a tiny budget still ends with the instruction
+
+
+def test_remember_links_symbols_and_refreshes_agent_context_files(cairn, monkeypatch):
+    from cairn import agents
+    refreshed = []
+    monkeypatch.setattr(agents, "refresh_context", lambda project, c=None: refreshed.append(project.root) or True)
+    res = cairn.remember("checkout() in shop/api.py must pass an idempotency key", kind="gotcha", scope="team")
+    assert refreshed == [cairn.project.root]
+    assert cairn.brain.memory(res["id"])["scope"] == "team"
+    monkeypatch.setattr(agents, "refresh_context", lambda *a, **k: (_ for _ in ()).throw(OSError("read-only")))
+    assert cairn.remember("Refunds are capped at the captured amount")["status"] == "stored"  # never fails a remember

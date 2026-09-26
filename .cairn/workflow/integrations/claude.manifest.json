@@ -1,0 +1,17 @@
+{
+  "integration": "claude",
+  "version": "1.0.12",
+  "installed_at": "2026-09-24T20:17:26.717900+00:00",
+  "files": {
+    ".claude/skills/cairn-analyze/SKILL.md": "beaa8b9bd39aaa5321af4235e1d15a50c9395ca35eadf3bcbaf028acce051129",
+    ".claude/skills/cairn-clarify/SKILL.md": "aee270fbe27c3666aeee36ac15ebfc156d71faa6b073ad58c7a141b1d2dabf03",
+    ".claude/skills/cairn-constitution/SKILL.md": "65918d2e872f139561a81c36ca567abd90cbd2ef227aaca313458c18660a6be9",
+    ".claude/skills/cairn-implement/SKILL.md": "7718f1964bf7efab31291c69d1827296dbbc575b77e0d3e71c59b4c56e495087",
+    ".claude/skills/cairn-converge/SKILL.md": "9852897403328f5b9946e95208c0f0cbbbdc337df45f9b356fbaa7d01c9f72d8",
+    ".claude/skills/cairn-plan/SKILL.md": "5474b98c55e19dcd06b73437c2fa920fc8c00789c8787d60040a4da0ef9a2158",
+    ".claude/skills/cairn-checklist/SKILL.md": "cd247a7cc66f0d91ecaf51a0b06c41b141856cd34ba422fdb01dc1298b2332e7",
+    ".claude/skills/cairn-specify/SKILL.md": "517cae889eba97dadef390d8fc0cefbfa7566ac683486a7336b6190d81445283",
+    ".claude/skills/cairn-tasks/SKILL.md": "aa89f5d7caca08d074144a44d391153471f5321d608aa8284fb321a5d74449a5",
+    ".claude/skills/cairn-taskstoissues/SKILL.md": "11324f948f9ef9a18d5d6f3938b9fd275ccefc2642bce555f09ba51dcfa3ca31"
+  }
+}

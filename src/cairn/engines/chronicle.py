@@ -1,15 +1,18 @@
-"""Timeline layer (deep tier): a temporal fact graph built from episodes.
+"""Timeline layer (deep tier): the temporal fact graph built from the repository's own history.
 
-Episodes are built deterministically from the read model — one per *day* of commits (≈20× fewer
-extraction calls than per-commit), plus spec changes, session summaries and decisions. Facts carry
-validity windows ("true from March until the May refactor") and are mirrored into the read model.
+Episodes are built deterministically from the read model — one per *day* of activity (commits,
+spec progress, agent sessions, team decisions), ≈20× fewer extraction calls than per-commit — and
+fed to the temporal engine (``cairn.engines.temporal``) under a token budget. Facts carry validity
+windows ("true from March until the May refactor"); when a later day contradicts a fact, the old
+one is invalidated, not deleted. Every fact is mirrored into the read model as a ``fact:<uuid>``
+entity plus timeline events, so surfaces answer from the read model without touching the graph.
 
-Runs with an embedded store by default (no Docker) or a graph server via ``deep.graph_url``.
-Embeddings run locally (ONNX) so no embeddings API is required.
+The graph store is embedded (``.cairn/temporal/``) unless ``temporal.url`` names a team server.
+Embeddings run locally, so no embeddings API is required. Without a model (``router.available``
+is False) ingestion is a clean no-op.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -25,101 +28,45 @@ from ..store import Brain
 log = logging.getLogger("cairn.chronicle")
 EPISODE_OVERHEAD = 3500   # extraction + dedupe prompts per episode (observed)
 EPISODE_MULT = 6          # body tokens are read several times across extraction passes
+SOURCE = "timeline"
+SAGA_SUFFIX = "activity"
+_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 
 
-def _local_embedder():
-    from graphiti_core.embedder.client import EmbedderClient
-
-    class LocalEmbedder(EmbedderClient):
-        """Local ONNX embeddings — no embeddings API needed."""
-
-        def __init__(self, model: str = "BAAI/bge-small-en-v1.5"):
-            from fastembed import TextEmbedding
-            self._m = TextEmbedding(model_name=model)
-
-        async def create(self, input_data):
-            text = input_data if isinstance(input_data, str) else " ".join(map(str, input_data))
-            vec = await asyncio.to_thread(lambda: next(iter(self._m.embed([text]))))
-            return [float(x) for x in vec]
-
-        async def create_batch(self, input_data_list):
-            vecs = await asyncio.to_thread(lambda: list(self._m.embed(list(input_data_list))))
-            return [[float(x) for x in v] for v in vecs]
-
-    return LocalEmbedder()
-
-
-def _lexical_reranker():
-    from graphiti_core.cross_encoder.client import CrossEncoderClient
-
-    class LexicalReranker(CrossEncoderClient):
-        """Dependency-free reranker: token overlap with length normalisation."""
-
-        async def rank(self, query, passages):
-            q = set(re.findall(r"\w+", query.lower()))
-            scored = []
-            for p in passages:
-                words = re.findall(r"\w+", p.lower())
-                overlap = sum(1 for w in words if w in q)
-                scored.append((p, overlap / (1 + len(words) ** 0.5)))
-            return sorted(scored, key=lambda x: -x[1])
-
-    return LexicalReranker()
+def _ts(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.timestamp()
 
 
 class Chronicle:
     def __init__(self, project: Project, brain: Brain, router: Router):
         self.project, self.brain, self.router = project, brain, router
-        self._g = None
         self.error: str | None = None
+        self._service = None
 
     # ---- engine ---------------------------------------------------------------------------------
-    async def engine(self):
-        if self._g is not None or self.error:
-            return self._g
-        if not self.router.deep_enabled():
-            self.error = "no model key"
-            return None
-        try:
-            from graphiti_core import Graphiti
-            from graphiti_core.llm_client.config import LLMConfig
+    def service(self, budget: Budget | None = None):
+        """The project's ``TemporalService`` (the temporal graph facade)."""
+        from .temporal.service import TemporalService
 
-            if self.router.provider == "anthropic":
-                from graphiti_core.llm_client.anthropic_client import AnthropicClient
-                llm = AnthropicClient(LLMConfig(api_key=self.router.api_key, model=self.router.model("balanced"),
-                                                small_model=self.router.model("fast")))
-            else:
-                from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
-                llm = OpenAIGenericClient(LLMConfig(api_key=self.router.api_key, base_url=self.router.base_url,
-                                                    model=self.router.model("balanced"),
-                                                    small_model=self.router.model("fast")))
-            self._g = Graphiti(graph_driver=self._driver(), llm_client=llm, embedder=_local_embedder(),
-                               cross_encoder=_lexical_reranker(), max_coroutines=4)
-            if self.brain.get_kv("chronicle.indices") != "1":
-                await self._g.build_indices_and_constraints()
-                self.brain.set_kv("chronicle.indices", "1")
-        except Exception as exc:
-            self.error = f"{type(exc).__name__}: {exc}"[:240]
-            log.info("timeline engine unavailable: %s", self.error)
-            self._g = None
-        return self._g
+        if self._service is None or budget is not None:
+            self._service = TemporalService(self.project, self.router, self.brain, budget=budget)
+        return self._service
 
-    def _driver(self):
-        url = str(self.project.cfg("deep.graph_url", "") or "")
-        if url.startswith(("falkor://", "redis://")):
-            from graphiti_core.driver.falkordb_driver import FalkorDriver
-            hostport = url.split("://", 1)[1]
-            host, _, port = hostport.partition(":")
-            return FalkorDriver(host=host or "localhost", port=int(port or 6379), database=self.project.id)
-        if url.startswith(("bolt://", "neo4j://", "neo4j+s://")):
-            import os
-            from graphiti_core.driver.neo4j_driver import Neo4jDriver
-            return Neo4jDriver(url, os.environ.get("NEO4J_USER", "neo4j"), os.environ.get("NEO4J_PASSWORD", ""))
-        import warnings
-        from graphiti_core.driver.kuzu_driver import KuzuDriver
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            return KuzuDriver(db=str(self.project.dir / "timeline.kuzu"))
+    @property
+    def group_id(self) -> str:
+        return self.project.id
+
+    @property
+    def saga(self) -> str:
+        return f"{self.project.id}-{SAGA_SUFFIX}"
 
     # ---- episodes -------------------------------------------------------------------------------
     def pending_episodes(self, limit: int = 60) -> list[dict]:
@@ -133,8 +80,11 @@ class Chronicle:
         episodes = []
         for day in sorted(days)[:limit]:
             evs = days[day]
-            lines = []
+            lines, refs = [], []
             for ev in evs:
+                refs += [r for r in ev["refs"] if r.startswith(("commit:", "file:", "spec:", "task:", "memory:"))]
+                if ev["kind"] == "commit" and str(ev["id"]).startswith("commit:"):
+                    refs.append(ev["id"])
                 if ev["kind"] == "commit":
                     risk = f" [{', '.join(ev['meta'].get('risk', []))}]" if ev["meta"].get("risk") else ""
                     files = [r[5:] for r in ev["refs"] if r.startswith("file:")][:8]
@@ -147,73 +97,151 @@ class Chronicle:
                 else:
                     lines.append(f"- spec progress: {ev['title']}")
             body = f"Engineering activity in repository {self.project.name} on {day}:\n" + "\n".join(lines[:80])
-            episodes.append({"name": f"{self.project.id}-{day}", "body": body, "ts": max(e["ts"] for e in evs),
+            episodes.append({"name": f"{self.project.id}-{day}", "day": day, "body": body,
+                             "ts": max(e["ts"] for e in evs), "refs": sorted(set(refs)),
                              "tokens": estimate_tokens(body) * EPISODE_MULT + EPISODE_OVERHEAD})
         return episodes
 
     async def ingest(self, budget: Budget, on_progress=None) -> dict:
-        g = await self.engine()
-        if g is None:
-            return {"episodes": 0, "note": self.error or "unavailable"}
-        from graphiti_core.nodes import EpisodeType
+        if not getattr(self.router, "available", False):
+            return {"episodes": 0, "facts": 0, "skipped": True, "note": "needs a model"}
+        pending = self.pending_episodes()
+        if not pending:
+            return {"episodes": 0, "facts": 0}
+        from .temporal.ontology import ENGINEERING_ENTITY_TYPES, ENGINEERING_EXTRACTION_INSTRUCTIONS
 
-        done, facts = 0, 0
-        for ep in self.pending_episodes():
-            try:
-                budget.check(ep["tokens"])
-            except BudgetExceeded as exc:
-                return {"episodes": done, "facts": facts, "note": f"budget reached ({exc}); continues next sync"}
-            t0 = time.time()
-            try:
-                res = await g.add_episode(name=ep["name"], episode_body=ep["body"],
-                                          source_description="engineering activity", source=EpisodeType.text,
-                                          reference_time=datetime.fromtimestamp(ep["ts"], tz=timezone.utc),
-                                          group_id=self.project.id)
-            except Exception as exc:
-                log.info("episode failed: %s", exc)
-                return {"episodes": done, "facts": facts, "note": f"stopped: {type(exc).__name__}"}
-            budget.charge(ep["tokens"])
-            self.brain.log_call("episode", "balanced", self.router.model("balanced"),
-                                {"input": ep["tokens"], "output": 0}, True)
-            facts += self._mirror(getattr(res, "edges", []) or [])
-            self.brain.set_kv("chronicle.cursor", str(ep["ts"]))
-            done += 1
-            if on_progress:
-                on_progress(f"{ep['name']} → {facts} facts ({time.time() - t0:.0f}s)")
-        return {"episodes": done, "facts": facts}
+        svc = self.service(budget)
+        done, facts, ended = 0, 0, 0
+        note = None
+        try:
+            async with svc.session() as engine:
+                from .temporal.nodes import EpisodeType
 
-    def _mirror(self, edges: Iterable) -> int:
-        ents, events = [], []
+                last = self.brain.get_kv("chronicle.last_episode") or None
+                for ep in pending:
+                    try:
+                        budget.check(ep["tokens"])
+                    except BudgetExceeded as exc:
+                        note = f"budget reached ({exc}); continues next sync"
+                        break
+                    t0 = time.time()
+                    try:
+                        res = await engine.add_episode(
+                            name=ep["name"], episode_body=ep["body"],
+                            source_description="engineering activity", source=EpisodeType.text,
+                            reference_time=datetime.fromtimestamp(ep["ts"], tz=timezone.utc),
+                            group_id=self.group_id,
+                            entity_types=svc.entity_types() or ENGINEERING_ENTITY_TYPES,
+                            edge_types=svc.edge_types(), edge_type_map=svc.edge_type_map(),
+                            custom_extraction_instructions=(svc.settings.custom_extraction_instructions
+                                                            or ENGINEERING_EXTRACTION_INSTRUCTIONS),
+                            # Only the previous day as context keeps each episode's prompts small.
+                            previous_episode_uuids=[last] if last else [],
+                            saga=self.saga, saga_previous_episode_uuid=last,
+                        )
+                    except BudgetExceeded as exc:
+                        note = f"budget reached ({exc}); continues next sync"
+                        break
+                    except Exception as exc:
+                        log.info("episode failed: %s", exc)
+                        self.error = f"{type(exc).__name__}: {exc}"[:240]
+                        note = f"stopped: {type(exc).__name__}"
+                        break
+                    new, invalidated = self._mirror(res.edges, ep)
+                    facts += new
+                    ended += invalidated
+                    last = res.episode.uuid
+                    self.brain.set_kv("chronicle.cursor", str(ep["ts"]))
+                    self.brain.set_kv("chronicle.last_episode", last)
+                    done += 1
+                    if on_progress:
+                        on_progress(f"{ep['name']} → {facts} facts ({time.time() - t0:.0f}s)")
+        except Exception as exc:  # store unavailable (locked, broken server config)
+            self.error = f"{type(exc).__name__}: {exc}"[:240]
+            log.info("timeline engine unavailable: %s", self.error)
+            return {"episodes": done, "facts": facts, "note": f"unavailable: {self.error}", "error": self.error}
+        out = {"episodes": done, "facts": facts, "invalidated": ended}
+        if note:
+            out["note"] = note
+        if note and note.startswith("stopped"):  # a failure, not the budget: the sync shows it as failed
+            out["error"] = f"stopped after {done} day{'s' if done != 1 else ''}: {self.error}"
+        return out
+
+    # ---- read model mirror ----------------------------------------------------------------------
+    def _mirror(self, edges: Iterable, episode: dict | None = None) -> tuple[int, int]:
+        """Upsert facts as ``fact:<uuid>`` entities and timeline events.
+
+        Returns (facts mirrored, facts that are no longer true)."""
+        ents, events, links = [], [], []
+        commits = [r for r in (episode or {}).get("refs", []) if r.startswith("commit:")]
+        ended = 0
         for e in edges:
             uid = getattr(e, "uuid", None)
             fact = getattr(e, "fact", "")
             if not uid or not fact:
                 continue
-            valid = getattr(e, "valid_at", None)
-            invalid = getattr(e, "invalid_at", None)
-            meta = {"relation": getattr(e, "name", ""), "valid_at": valid.timestamp() if valid else None,
-                    "invalid_at": invalid.timestamp() if invalid else None}
-            ents.append((f"fact:{uid}", "fact", fact[:240], None, meta, "timeline", fact))
-            events.append({"id": f"fact:{uid}", "ts": meta["valid_at"] or time.time(), "kind": "fact",
-                           "title": fact[:200], "body": fact, "refs": [f"fact:{uid}"], "meta": meta,
-                           "source": "timeline"})
+            valid, invalid = _ts(getattr(e, "valid_at", None)), _ts(getattr(e, "invalid_at", None))
+            expired, created = _ts(getattr(e, "expired_at", None)), _ts(getattr(e, "created_at", None))
+            fid = f"fact:{uid}"
+            meta = {"relation": getattr(e, "name", ""), "valid_at": valid, "invalid_at": invalid,
+                    "expired_at": expired, "created_at": created,
+                    "source_node": getattr(e, "source_node_uuid", None),
+                    "target_node": getattr(e, "target_node_uuid", None),
+                    "episodes": list(getattr(e, "episodes", []) or []), "group_id": getattr(e, "group_id", ""),
+                    "current": invalid is None and expired is None}
+            ents.append((fid, "fact", fact[:240], None, meta, SOURCE, fact))
+            events.append({"id": fid, "ts": valid or created or time.time(), "kind": "fact",
+                           "title": fact[:200], "body": fact, "refs": [fid], "meta": meta, "source": SOURCE})
+            if invalid is not None or expired is not None:
+                ended += 1
+                events.append({"id": f"fact-end:{uid}", "ts": invalid or expired or time.time(), "kind": "fact_end",
+                               "title": f"No longer true: {fact[:180]}", "body": fact, "refs": [fid],
+                               "meta": meta, "source": SOURCE})
+            for c in commits:  # facts that name a commit are linked to it
+                sha = c.split(":", 1)[1]
+                if any(sha.startswith(m) or m.startswith(sha[:7]) for m in _SHA.findall(fact.lower())):
+                    links.append((fid, c, "derived_from", "INFERRED", 0.8, SOURCE))
         if ents:
             self.brain.put_entities(ents)
             self.brain.add_events(events)
-        return len(ents)
+        if links:
+            self.brain.link(links)
+        return len(ents), ended
 
     async def search(self, query: str, limit: int = 6) -> list[dict]:
-        g = await self.engine()
-        if g is None:
+        if not self.project.dir.joinpath("temporal").exists():
             return []
         try:
-            edges = await g.search(query, group_ids=[self.project.id], num_results=limit)
+            facts = await self.service().search_facts(query, group_ids=[self.group_id], max_facts=limit)
         except Exception as exc:
             log.info("timeline search failed: %s", exc)
             return []
-        return [{"id": f"fact:{e.uuid}", "fact": e.fact,
-                 "valid_at": e.valid_at.timestamp() if e.valid_at else None,
-                 "invalid_at": e.invalid_at.timestamp() if e.invalid_at else None} for e in edges]
+        return [{"id": f"fact:{f['uuid']}", "fact": f["fact"], "valid_at": _ts(f["valid_at"]),
+                 "invalid_at": _ts(f["invalid_at"])} for f in facts]
+
+    def resync_mirror(self) -> int:
+        """Rebuild the read-model mirror from the graph (after a clear, or a store from a teammate)."""
+        async def run():
+            out, cursor = [], None
+            while True:
+                page = await self.service().list_facts(group_id=self.group_id, limit=500, uuid_cursor=cursor)
+                if not page:
+                    return out
+                out += page
+                cursor = page[-1]["uuid"]
+
+        from .temporal.service import run_sync
+
+        facts = run_sync(run())
+        self.brain.drop_source(SOURCE, kinds=("fact",))
+
+        class _F:  # minimal edge-like view over the JSON shape
+            def __init__(self, d):
+                self.__dict__.update(d)
+                self.name = d.get("name", "")
+
+        n, _ = self._mirror([_F(f) for f in facts])
+        return n
 
 
 def facts_matching(brain: Brain, words: list[str], limit: int = 5) -> list[dict]:

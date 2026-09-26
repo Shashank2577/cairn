@@ -9,7 +9,26 @@ import pytest
 
 ENV = {**os.environ, "GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.com",
        "GIT_COMMITTER_NAME": "Ada", "GIT_COMMITTER_EMAIL": "ada@example.com", "ANTHROPIC_API_KEY": "",
-       "CAIRN_API_KEY": "", "OPENAI_API_KEY": ""}
+       "CAIRN_API_KEY": "", "OPENAI_API_KEY": "",
+       "CAIRN_EMBEDDER": "hash",        # offline, deterministic embeddings (no model download in tests)
+       "CAIRN_NO_CLI_MODELS": "1"}      # never call the signed-in Claude Code CLI from tests
+
+
+# Every test runs offline, never calls the signed-in agent CLI, and never touches the real ~/.cairn.
+os.environ.setdefault("CAIRN_EMBEDDER", "hash")
+os.environ.setdefault("CAIRN_NO_CLI_MODELS", "1")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_cairn_home(tmp_path_factory):
+    home = tmp_path_factory.mktemp("cairn-home")
+    old = os.environ.get("CAIRN_HOME")
+    os.environ["CAIRN_HOME"] = str(home)
+    yield home
+    if old is None:
+        os.environ.pop("CAIRN_HOME", None)
+    else:
+        os.environ["CAIRN_HOME"] = old
 
 
 def git(root: Path, *args: str) -> str:

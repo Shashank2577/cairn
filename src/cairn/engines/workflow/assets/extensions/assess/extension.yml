@@ -1,0 +1,40 @@
+schema_version: "1.0"
+
+extension:
+  id: assess
+  name: "Idea Assessment Pipeline"
+  version: "1.0.1"
+  description: "Assess an idea before Spec-Driven Development via intake, research, define, shape, and decide. A go verdict hands off to /cairn.specify; a kill closes it. Lives under .cairn/workflow/assessments/<slug>/"
+  category: "process"
+  effect: "read-write"
+  author: cairn
+  repository: https://github.com/cairn-dev/cairn
+  license: MIT
+
+requires:
+  workflow_version: ">=0.9.0"
+
+provides:
+  commands:
+    - name: cairn.assess.intake
+      file: commands/cairn.assess.intake.md
+      description: "Capture and normalize a raw idea (text, URL, ticket, or codebase pointer) into an intake note"
+    - name: cairn.assess.research
+      file: commands/cairn.assess.research.md
+      description: "Gather evidence — users, market, prior art, and data — to support or challenge the idea"
+    - name: cairn.assess.define
+      file: commands/cairn.assess.define.md
+      description: "Define the problem: who is affected, what hurts, goals, non-goals, and success metrics"
+    - name: cairn.assess.shape
+      file: commands/cairn.assess.shape.md
+      description: "Shape a concept: solution options, scope, appetite, and trade-offs (no implementation design)"
+    - name: cairn.assess.decide
+      file: commands/cairn.assess.decide.md
+      description: "Apply a go / needs-clarification / kill gate and hand survivors off to /cairn.specify"
+
+tags:
+  - "assessment"
+  - "discovery"
+  - "triage"
+  - "product"
+  - "workflow"

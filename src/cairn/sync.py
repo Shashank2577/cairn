@@ -4,13 +4,15 @@ runs the deep tier under a token budget. Serialised by a lock so git hooks never
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from typing import Callable
 
 from . import drift, linker
 from .engines import history, journal, mapper, specs
@@ -56,7 +58,7 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
                 res = fn() or {}
                 res["seconds"] = round(time.time() - t, 2)
                 results[name] = res
-                say(name, "done", _summary(name, res))
+                say(name, "fail" if res.get("error") else "done", _summary(name, res))
             except Exception as exc:  # one layer failing never blocks the others
                 results[name] = {"error": f"{type(exc).__name__}: {exc}"[:200]}
                 say(name, "fail", results[name]["error"])
@@ -66,6 +68,11 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
                 ok_, summary = mapper.build(project.root)
                 if not ok_:
                     return {"error": summary or "map build failed"}
+                if summary != "unchanged" or not (project.map_dir / "wiki").is_dir():
+                    with contextlib.suppress(Exception):  # one article per community, written without a model
+                        from .engines.graph import api as graph_api
+                        graph_api.run(["export", "wiki", "--graph", str(graph_api.graph_json(project.root))],
+                                       root=project.root)
             idx = cairn.map
             res = linker.ingest_map(project, brain, idx)
             res["nodes"] = len(idx)
@@ -78,6 +85,10 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
                     pool.submit(step, "sessions", lambda: journal.ingest(project, brain))]
             for f in futs:
                 f.result()
+        def do_memory():
+            from .engines.memory import seed_from_repo
+            return seed_from_repo(project, brain, cairn.router, store=cairn.memory)
+        step("memory", do_memory)
         step("links", lambda: {"links": linker.relink_memories(brain, cairn.map)})
 
         def do_drift():
@@ -100,8 +111,27 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
         elif deep:
             say("timeline", "skip", "needs a model key (ANTHROPIC_API_KEY or models.provider)")
         brain.set_kv("sync.last", str(time.time()))
+        brain.set_kv("sync.failed", json.dumps({k: v["error"] for k, v in results.items()
+                                                 if isinstance(v, dict) and v.get("error")}))
+        with contextlib.suppress(Exception):  # agents that read instruction files get the fresh brief
+            from .agents import refresh_context
+            refresh_context(project, cairn)
         results["seconds"] = round(time.time() - t0, 2)
+    _mark_synced(project)
     return results
+
+
+def _mark_synced(project) -> None:
+    """Tell the project list when this repository was last synced (bookkeeping: never fails a sync)."""
+    with contextlib.suppress(Exception):
+        from .platform import Platform, ServerConfig
+        platform = Platform(config=ServerConfig.load())
+        try:
+            rec = platform.project_by_root(project.root)
+            if rec:
+                platform.mark_synced(rec.id)
+        finally:
+            platform.close()
 
 
 def _summary(name: str, res: dict) -> str:
@@ -114,7 +144,9 @@ def _summary(name: str, res: dict) -> str:
         "history": lambda r: f"{r.get('commits', 0):,} new commits, {r.get('risky', 0)} warnings",
         "specs": lambda r: f"{r.get('features', 0)} features, {r.get('tasks', 0)} tasks",
         "sessions": lambda r: f"{r.get('observations', 0)} new observations",
-        "links": lambda r: f"{r.get('links', 0)} cross-layer links",
+        "memory": lambda r: f"{r.get('added', 0)} learned from the repo, {r.get('updated', 0)} updated, "
+                            f"{r.get('retired', 0)} retired",
+        "links": lambda r: f"{r.get('links', 0)} memory links",
         "drift": lambda r: f"{r.get('findings', 0)} findings ({r.get('high', 0)} high)",
         "timeline": lambda r: f"{r.get('episodes', 0)} episodes, {r.get('facts', 0)} facts, {r.get('tokens', 0):,} tokens",
     }.get(name, lambda r: "")(res)

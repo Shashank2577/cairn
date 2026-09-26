@@ -1,0 +1,19 @@
+{
+  "integration": "cairn",
+  "version": "1.0.12",
+  "installed_at": "2026-09-24T20:17:26.749668+00:00",
+  "files": {
+    ".cairn/workflow/scripts/bash/common.sh": "e9ff3a26a222e4839cba3c87bafa18870790a5250943fa9f6cb98859cd041315",
+    ".cairn/workflow/scripts/bash/setup-plan.sh": "d0bd298c026446f3c63167130d65e49e4aa4485de6bef18bcdfd57b19aa0de96",
+    ".cairn/workflow/scripts/bash/setup-tasks.sh": "1b96fd86a8e2e48127c420284b4b95fcb82c0c557b8caf511373461020f55168",
+    ".cairn/workflow/scripts/bash/check-prerequisites.sh": "173f2509807a4dc369a5e87f0fdc766939a054ef2e1a3c5ae02d53c91e3ce1d0",
+    ".cairn/workflow/scripts/bash/resolve-template.sh": "829e227096abc8bf0889889ec9f792f503ca5d395b7836a8a7eb739ee75214e7",
+    ".cairn/workflow/scripts/bash/create-new-feature.sh": "c1234dd4b904f92d2e44d5875509af7d0ca517b66434fbd665c06ba6ec048f7e",
+    ".cairn/workflow/templates/constitution-template.md": "ce7549540fa45543cca797a150201d868e64495fdff39dc38246fb17bd4024b3",
+    ".cairn/workflow/templates/checklist-template.md": "4fc7983818f5a89af477f77e037ce8d14be653077e1a830a3225d8815bd61a70",
+    ".cairn/workflow/templates/tasks-template.md": "2c1166ee7c7b5b436fc838eb32bf2580a0325268d64749eb96bf6d3cac182f4e",
+    ".cairn/workflow/templates/spec-template.md": "3945437fc35cd30a5b2bf7beea680337c3516826d3efa5a6b92c4a7eca1ba28e",
+    ".cairn/workflow/templates/plan-template.md": "6cdcd6f650b7c52453463aa174a13e72078c503a062e65e52a4bee07420c818e",
+    ".cairn/workflow/.gitignore": "6ea21e637704d3e0c46521dbf4992ba59350a432828c43040b366e3bdcb6e7e7"
+  }
+}

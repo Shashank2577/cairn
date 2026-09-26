@@ -1,17 +1,19 @@
 # ADR-0002: Deterministic first, models second
 
-**Status:** Accepted · **Date:** 2026-09-24
+**Status:** Accepted · **Date:** 2026-09-25
 
 ## Context
-Model calls cost money, add latency, need keys and can hallucinate. The core questions (what
-depends on this, what changed with it, who owns it, why) have factual answers in ASTs, git and specs.
+Model calls cost money or plan quota, add latency and can be wrong. The questions developers and agents ask
+most (what depends on this, what changed together, which task owns it, what did the last session touch) have
+exact answers in code, git, specs and captured sessions.
 
 ## Decision
-Impact, why, context, drift and briefings are computed without models. Models only (a) narrate
-a pack that has already been assembled, (b) build the temporal fact graph, (c) update semantic
-memory, and (d) judge a bounded set of requirements for semantic drift. Every item carries
-`EXTRACTED`/`INFERRED` provenance and a citation.
+The code map, history, spec parsing, drift checks, impact, why, context packs and session capture are
+computed without a model. Models add what cannot be computed: observations and session summaries written from
+raw agent activity, timeline facts with validity windows, memory reconciliation, semantic drift, narrated
+answers and document extraction. Every model feature degrades to a deterministic result or a clear
+"needs a model" state.
 
 ## Consequences
-Works with zero keys; results are testable and reproducible; model output is always grounded in
-cited evidence. Some nuance (for example "is this requirement still honoured?") needs the deep tier.
+- Cairn is useful on day one with no key and no sign-in.
+- Model features switch on automatically when a model is reachable (see ADR-0004).

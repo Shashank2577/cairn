@@ -1,0 +1,31 @@
+schema_version: "1.0"
+
+extension:
+  id: bug
+  name: "Bug Triage Workflow"
+  version: "1.0.0"
+  description: "Assess, fix, and validate bug reports against the codebase with per-bug reports stored under .cairn/workflow/bugs/<slug>/"
+  author: cairn
+  repository: https://github.com/cairn-dev/cairn
+  license: MIT
+
+requires:
+  workflow_version: ">=0.9.0"
+
+provides:
+  commands:
+    - name: cairn.bug.assess
+      file: commands/cairn.bug.assess.md
+      description: "Assess a bug report (pasted text or URL) against the codebase and produce an assessment with possible remediation"
+    - name: cairn.bug.fix
+      file: commands/cairn.bug.fix.md
+      description: "Apply the remediation from a bug assessment and record what was changed"
+    - name: cairn.bug.test
+      file: commands/cairn.bug.test.md
+      description: "Validate that a previously fixed bug is resolved and record the verification report"
+
+tags:
+  - "bug"
+  - "triage"
+  - "workflow"
+  - "qa"

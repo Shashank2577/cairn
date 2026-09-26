@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS ledger(
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, task TEXT NOT NULL, tier TEXT NOT NULL,
   model TEXT NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
   cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0, ok INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS queries(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, surface TEXT NOT NULL, kind TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT '', sent_tokens INTEGER NOT NULL, source_tokens INTEGER,
+  source_files INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS ix_queries_ts ON queries(ts DESC);
 CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(
   id UNINDEXED, kind UNINDEXED, label UNINDEXED, title, body, tokenize='porter unicode61');
 """
@@ -319,8 +324,29 @@ class Brain:
     def ledger(self, since: float = 0) -> list[dict]:
         return [dict(r) for r in self.q(
             "SELECT tier, model, COUNT(*) calls, SUM(input_tokens) input, SUM(output_tokens) output, "
-            "SUM(cache_read) cache_read, SUM(cache_write) cache_write FROM ledger WHERE ts>=? GROUP BY tier, model "
+            "SUM(cache_read) cache_read, SUM(cache_write) cache_write, "
+            "SUM(input_tokens + cache_read + cache_write) input_total FROM ledger WHERE ts>=? GROUP BY tier, model "
             "ORDER BY calls DESC", (since,))]
+
+    # ---- context served ------------------------------------------------------------------------
+    def log_query(self, surface: str, kind: str, target: str, sent_tokens: int, source_tokens: int | None,
+                  source_files: int = 0) -> None:
+        """Record one context pack handed to a reader. ``source_tokens`` is the size of the files the
+        evidence came from (None when there is no file baseline, e.g. the session briefing)."""
+        with self._lock:
+            self.db.execute("INSERT INTO queries(ts,surface,kind,target,sent_tokens,source_tokens,source_files)"
+                            " VALUES(?,?,?,?,?,?,?)",
+                            (time.time(), surface, kind, target[:200], sent_tokens, source_tokens, source_files))
+            self.db.commit()
+
+    def queries(self, limit: int = 50) -> list[dict]:
+        return [dict(r) for r in self.q("SELECT * FROM queries ORDER BY ts DESC LIMIT ?", (limit,))]
+
+    def query_totals(self) -> list[dict]:
+        return [dict(r) for r in self.q(
+            "SELECT surface, kind, COUNT(*) n, SUM(sent_tokens) sent, SUM(source_tokens) source, "
+            "SUM(CASE WHEN source_tokens IS NULL THEN 0 ELSE sent_tokens END) sent_with_source "
+            "FROM queries GROUP BY surface, kind ORDER BY n DESC")]
 
 
 def _ent(row: sqlite3.Row) -> dict:

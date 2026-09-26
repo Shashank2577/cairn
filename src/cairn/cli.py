@@ -25,11 +25,20 @@ err = Console(stderr=True, highlight=False)
 app = typer.Typer(add_completion=False, no_args_is_help=False, rich_markup_mode="rich",
                   help="Cairn — institutional memory for coding agents. Run [bold]cairn[/] in any repo.")
 trace_app = typer.Typer(help="Explore the code map.")
-spec_app = typer.Typer(help="Spec workflow helpers.")
 agents_app = typer.Typer(help="Agent integrations.")
 app.add_typer(trace_app, name="trace")
-app.add_typer(spec_app, name="spec")
 app.add_typer(agents_app, name="agents")
+
+
+def _mount_platform() -> None:
+    from .platform.commands import project_app, team_app, token_app, user_app
+    app.add_typer(team_app, name="team", help="Teams and members (team server).")
+    app.add_typer(token_app, name="token", help="API tokens for agents and CI.")
+    app.add_typer(project_app, name="project", help="Projects served by this machine's server.")
+    app.add_typer(user_app, name="user", help="User accounts (team server admins).")
+
+
+_mount_platform()
 
 LAYERS = [("map", "Map", "what the code is"), ("specs", "Specs", "what we intended"),
           ("timeline", "Timeline", "what happened"), ("memory", "Memory", "what we learned"),
@@ -55,6 +64,17 @@ def _need_init(c) -> None:
 
 def _emit_json(obj) -> None:
     sys.stdout.write(json.dumps(obj, indent=2, default=str) + "\n")
+
+
+PAGE_ONLY = ("traversal", "target_nodes", "evidence_files")  # drawn by the page; too bulky for CLI readers
+
+
+def _emit_pack(p) -> None:
+    from .router import estimate_tokens
+    text = json.dumps({"title": p.title, "sections": p.sections(),
+                       **{k: v for k, v in p.data.items() if k not in PAGE_ONLY}}, indent=2, default=str)
+    sys.stdout.write(text + "\n")
+    p.mark_sent(estimate_tokens(text))
 
 
 def brand(sub: str = "") -> Text:
@@ -155,7 +175,8 @@ def init(yes: bool = typer.Option(True, "--yes/--ask", help="Zero prompts (defau
 
 def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = False, no_capture: bool = False,
              no_specs: bool = False) -> None:
-    from . import agents as agents_mod, daemon, hooks, sync
+    from . import agents as agents_mod
+    from . import daemon, hooks, sync
     from .core import Cairn
     from .engines import journal, specs
     from .project import Project
@@ -169,6 +190,7 @@ def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = Fa
                       "Continuing with map, specs and memory.")
     proj.ensure_dir()
     proj.reload()
+    proj.remove_legacy_artifacts()
     c = Cairn(proj)
     steps: list[list] = []  # [label, state, detail]
 
@@ -206,26 +228,26 @@ def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = Fa
                     break
             ok, msg = specs.bootstrap(proj, integ)
             if ok:
-                ok2, msg2 = specs.install_extension(proj)
-                mark("Spec workflow", "ok" if ok2 else "fail", f"{msg}; {msg2}")
+                mark("Spec workflow", "ok", msg)
             else:
                 mark("Spec workflow", "skip", msg)
-        # session capture
+        # agents (and session capture, which rides on the agent's own hooks)
+        chosen = agents.split(",") if agents else agents_mod.detect(proj)
+        changed = agents_mod.install(proj, chosen, capture=not no_capture)
+        names = [agents_mod.AGENTS[a] for a in chosen if a in agents_mod.AGENTS]
+        outside = [f for files in changed.values() for f in files if f.startswith(("/", "~"))]
+        mark("Agents", "ok", (", ".join(names) + " + AGENTS.md" if names else "AGENTS.md (no agents detected)")
+             + (f" · outside the repository: {', '.join(outside)}" if outside else "")
+             + (" · Codex: open codex here and approve Cairn's hooks once under /hooks"
+                if agents_mod.codex_hooks_approved(proj) is False else ""))
         if no_capture:
             mark("Session capture", "skip", "skipped")
-        elif journal.available():
-            mark("Session capture", "ok", "already capturing")
-        elif journal.can_install():
-            mark("Session capture", "run", "installing agent hooks (one time, user-level)…")
-            ok, msg = journal.install(proj.dir)
-            mark("Session capture", "ok" if ok else "fail", msg)
+        elif journal.installed(proj):
+            mark("Session capture", "ok", "prompts, files read and changed, commands from "
+                 + ", ".join(agents_mod.AGENTS[a] for a, m in agents_mod.memory_status(proj).items() if m["capture"])
+                 + " — stored in .cairn/")
         else:
-            mark("Session capture", "skip", "needs Node.js 18+ — install Node, then `cairn init`")
-        # agents
-        chosen = agents.split(",") if agents else agents_mod.detect(proj)
-        changed = agents_mod.install(proj, chosen)
-        names = [agents_mod.AGENTS[a] for a in chosen if a in agents_mod.AGENTS]
-        mark("Agents", "ok", ", ".join(names) + " + AGENTS.md" if names else "AGENTS.md (no agents detected)")
+            mark("Session capture", "skip", "no agent with hooks detected; agents show up through their Cairn calls")
         # hooks
         if no_hooks or not proj.is_git:
             mark("Git hooks", "skip", "skipped")
@@ -246,7 +268,7 @@ def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = Fa
         else:
             mark("Local UI", "run", "starting…")
             d = daemon.start(proj)
-            mark("Local UI", "ok", d["url"])
+            mark("Local UI", "ok", d["project_url"])
 
     ov = c.overview()
     console.print()
@@ -259,11 +281,11 @@ def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = Fa
     nxt.add_row("cairn ui", "see everything on one page")
     nxt.add_row("cairn remember \"…\"", "teach every agent a convention")
     if not ov["layers"]["specs"]["features"]:
-        nxt.add_row("/speckit-specify", "start spec-driven work in your agent")
+        nxt.add_row("/cairn-specify", "start spec-driven work in your agent")
     console.print(nxt)
     if not c.router.available:
-        console.print(Text("\nDeep tier (temporal facts, semantic memory, narrated answers) turns on when "
-                           "ANTHROPIC_API_KEY is set.", style=f"dim {SLATE}"))
+        console.print(Text("\nModel features (session summaries, timeline facts, memory reconciliation, narrated "
+                           "answers) turn on when you sign in to Claude Code (claude), or set ANTHROPIC_API_KEY / an OpenAI-compatible endpoint.", style=f"dim {SLATE}"))
 
 
 # ---- status & doctor ---------------------------------------------------------------------------------
@@ -273,7 +295,9 @@ def status(as_json: bool = typer.Option(False, "--json", help="Machine-readable 
     from . import daemon
     c = _cairn()
     ov = c.overview()
-    srv = daemon.info(c.project)
+    srv = daemon.info()
+    if srv:
+        srv["project_url"] = daemon.project_url(srv["url"], daemon.register(c.project))
     if as_json:
         _emit_json({**ov, "server": srv})
         return
@@ -286,7 +310,7 @@ def status(as_json: bool = typer.Option(False, "--json", help="Machine-readable 
         bits.append(f"[{INK}]Active spec[/] [{AMBER}]{a['id'][5:]}[/] {a['done']}/{a['total']} tasks")
     if ov["drift"]:
         bits.append(f"[{ROSE}]{ov['drift']} drift findings[/] → cairn drift")
-    bits.append(f"UI [{AMBER}]{srv['url']}[/]" if srv else f"UI [dim]stopped[/] → cairn ui")
+    bits.append(f"UI [{AMBER}]{srv['project_url']}[/]" if srv else "UI [dim]stopped[/] → cairn ui")
     console.print("   ".join(bits))
 
 
@@ -299,6 +323,9 @@ def _ago(ts: float) -> str:
 def doctor():
     """Every capability, its state, and the exact command to enable it."""
     import shutil
+
+    from rich.markup import escape
+
     from . import daemon
     from .engines import journal, specs
     c = _cairn()
@@ -309,35 +336,52 @@ def doctor():
     t.add_column("Fix", style=AMBER)
     ok, no = f"[{MOSS}]●[/]", f"[{ROSE}]○[/]"
 
-    def row(good, name, state, fix=""):
-        t.add_row(ok if good else no, name, state, "" if good else fix)
+    def row(good, name, state, fix=""):  # state and fix are literal text: `[deep]` is not a style tag
+        t.add_row(ok if good else no, escape(name), escape(state), "" if good else escape(fix))
     idx = c.map
     row(len(idx) > 0, "Map", f"{len(idx):,} nodes" if len(idx) else "empty", "cairn sync")
     row(c.project.is_git, "Git history", "ok" if c.project.is_git else "not a git repo", "git init")
     row(specs.initialized(c.project.root), "Spec workflow", "ok" if specs.initialized(c.project.root) else "missing",
-        "cairn init" if specs.cli() else "install uv, then cairn init")
-    ext = (c.project.root / ".specify" / "extensions" / "cairn").exists()
-    row(ext, "Spec hooks", "installed" if ext else "missing", "cairn init")
-    row(journal.available(), "Session capture", "ok" if journal.available() else "not connected",
-        "cairn init" if journal.can_install() else "install Node.js 18+, then cairn init")
-    row(c.router.available, "Model key", f"{c.router.provider}" if c.router.available else "none (deep tier off)",
-        "export ANTHROPIC_API_KEY=…")
+        "cairn init")
+    legacy = specs.legacy_layout(c.project.root)
+    row(not legacy, "Workflow layout", "current" if not legacy else "older layout", "cairn init (migrates it)")
+    row(journal.installed(c.project), "Session capture", "on (.cairn/sessions.db)" if journal.installed(c.project)
+        else "off", "cairn init --agents claude")
+    row(c.router.available, "Model", c.router.provider if c.router.available else "none (model features off)",
+        "sign in to Claude Code (claude), or set ANTHROPIC_API_KEY / an OpenAI-compatible endpoint")
+    from .engines import vectors
+    embedder = vectors.embedder_id()
+    row(embedder != "hash-v1", "Local embeddings", embedder, "check network once to download the embedding model")
     try:
-        import graphiti_core  # noqa: F401
-        import mem0  # noqa: F401
-        deep_ok = True
+        import kuzu
+        store_ok = True
     except ImportError:
-        deep_ok = False
-    row(deep_ok, "Deep tier packages", "installed" if deep_ok else "not installed", "uv tool install 'cairn-brain[deep]'")
-    graph_url = c.project.cfg("deep.graph_url", "")
-    row(True, "Timeline store", graph_url or "embedded (local)")
-    srv = daemon.info(c.project)
+        store_ok = False
+    graph_url = c.project.cfg("temporal.url", "") or c.project.cfg("deep.graph_url", "")
+    row(store_ok or bool(graph_url), "Timeline store", graph_url or "embedded (.cairn/temporal)",
+        "reinstall Cairn (the embedded graph database is missing)")
+    srv = daemon.info()
     row(bool(srv), "Local UI", srv["url"] if srv else "stopped", "cairn ui")
     row(bool(shutil.which("cairn")), "cairn on PATH", "yes" if shutil.which("cairn") else "no",
         "uv tool install cairn-brain")
     from . import agents as agents_mod
-    det = agents_mod.detect(c.project)
-    row(bool(det), "Agents", ", ".join(agents_mod.AGENTS[a] for a in det) or "none detected", "cairn agents install --agents claude")
+    wired = agents_mod.installed(c.project)
+    detected = agents_mod.detect(c.project)
+    unwired = [a for a in detected if a not in wired]
+    state = ", ".join(agents_mod.AGENTS[a] for a in wired) or "none wired"
+    if unwired:
+        state += (f" · also detected: {', '.join(agents_mod.AGENTS[a] for a in unwired)}"
+                  f" (cairn agents install --agents {','.join(unwired)})")
+    row(bool(wired), "Agents", state, "cairn agents install --agents claude")
+    memory = agents_mod.memory_status(c.project)  # memory at session start, per agent
+    for a in (a for a in agents_mod.AGENTS if a in wired or a in detected):
+        m = memory[a]
+        pending = m.get("approved") is False  # Codex runs a hook only once it is approved in /hooks
+        row(bool(m["injection"]) and not pending, f"{agents_mod.AGENTS[a]} memory",
+            f"{m['injection'] or 'off'} · capture {'on' if m['capture'] else 'off'}"
+            + (" · hooks not approved yet" if pending else ""),
+            "open codex here and approve Cairn's hooks once under /hooks" if pending
+            else f"cairn agents install --agents {a}")
     console.print(brand("doctor"))
     console.print(t)
 
@@ -379,7 +423,7 @@ def impact(target: str = typer.Argument(..., help="File path, symbol, Class.meth
     _need_init(c)
     p = c.impact(target, depth, budget)
     if as_json:
-        _emit_json({"title": p.title, "sections": p.sections(), **p.data})
+        _emit_pack(p)
         return
     render_pack(p.render())
     if explain:
@@ -394,7 +438,7 @@ def why(target: str = typer.Argument(...), budget: int = typer.Option(1800),
     _need_init(c)
     p = c.why(target, budget)
     if as_json:
-        _emit_json({"title": p.title, "sections": p.sections(), **p.data})
+        _emit_pack(p)
         return
     render_pack(p.render())
     if explain:
@@ -403,7 +447,7 @@ def why(target: str = typer.Argument(...), budget: int = typer.Option(1800),
 
 def _narrate(c, pack, task):
     if not c.router.available:
-        console.print(Text("\n--explain needs a model key (ANTHROPIC_API_KEY).", style=f"dim {SLATE}"))
+        console.print(Text("\n--explain needs a model: sign in to Claude Code (claude), or set ANTHROPIC_API_KEY / an OpenAI-compatible endpoint.", style=f"dim {SLATE}"))
         return
     with console.status(f"[{AMBER}]thinking with {c.router.model(c.router.tier_for(task))}…"):
         text = c.narrate(pack, task)
@@ -488,9 +532,16 @@ def areas(top: int = 20):
 @app.command()
 def prs(args: list[str] = typer.Argument(None)):
     """Open pull requests with their map impact (needs the GitHub CLI)."""
-    import subprocess
-    c = _cairn()
-    subprocess.run([sys.executable, "-m", "graphify", "prs", *(args or [])], cwd=c.project.root)
+    from .engines.graph import api as graph_api
+    raise typer.Exit(graph_api.prs(list(args or []), root=_cairn().project.root))
+
+
+@app.command("graph", add_help_option=False,
+             context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def graph_cmd(ctx: typer.Context):
+    """Code & document knowledge graph: build, extract, query, path, explain, views, wiki, exports (see `cairn graph --help`)."""
+    from .engines.graph.cli import main
+    raise typer.Exit(main(list(ctx.args)))
 
 
 # ---- specs -------------------------------------------------------------------------------------------
@@ -504,8 +555,8 @@ def specs(spec_id: Optional[str] = typer.Argument(None), as_json: bool = typer.O
         _emit_json(feats)
         return
     if not feats:
-        console.print(f"[{SLATE}]No specs yet.[/] In your agent run [bold]/speckit-constitution[/], then "
-                      "[bold]/speckit-specify[/] <what to build>.")
+        console.print(f"[{SLATE}]No specs yet.[/] In your agent run [bold]/cairn-constitution[/], then "
+                      "[bold]/cairn-specify[/] <what to build>.")
         return
     for f in feats:
         p = f["progress"]
@@ -524,13 +575,19 @@ def specs(spec_id: Optional[str] = typer.Argument(None), as_json: bool = typer.O
                 console.print(f"     {mark} [{INK}]{t['id']}[/] {t['text'][:70]} [dim]{files}[/]")
 
 
-@spec_app.command("new")
-def spec_new(description: str):
-    """Create a new feature folder (then run /speckit-specify in your agent)."""
-    from .engines import specs as se
-    res = se.new_feature(_cairn().project, description)
-    console.print(f"[{MOSS}]✓[/] {res.get('BRANCH_NAME', '')} → [{AMBER}]{res.get('SPEC_FILE', '')}[/]")
-    console.print(f"[{SLATE}]Next: in your agent, run /speckit-specify {description}[/]")
+@app.command("spec", add_help_option=False,
+             context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def spec(ctx: typer.Context):
+    """Spec-driven workflow: init, new feature, extensions, presets, workflows, bundles, integrations."""
+    args = list(ctx.args)
+    if args[:1] == ["new"]:
+        from .engines import specs as se
+        res = se.new_feature(_cairn().project, " ".join(args[1:]))
+        console.print(f"[{MOSS}]✓[/] {res.get('BRANCH_NAME', '')} → [{AMBER}]{res.get('SPEC_FILE', '')}[/]")
+        console.print(f"[{SLATE}]Next: in your agent, run /cairn-specify {' '.join(args[1:])}[/]")
+        return
+    from .engines.workflow.cli import main
+    raise typer.Exit(main(args))
 
 
 @app.command()
@@ -595,74 +652,213 @@ def memories(all: bool = typer.Option(False, "--all", help="Include superseded a
 
 @app.command()
 def forget(memory_id: str):
-    """Forget a memory (soft delete)."""
-    ok = _cairn().brain.forget(memory_id.removeprefix("memory:"))
+    """Forget a memory (soft delete; also removed from semantic recall)."""
+    ok = _cairn().memory.forget(memory_id.removeprefix("memory:"))
     console.print(f"[{MOSS}]✓[/] forgotten" if ok else f"[{ROSE}]no such memory[/]")
 
 
+# ---- memory engine (power tools behind remember/recall) ------------------------------------------------------
+memory_app = typer.Typer(help="The memory engine: add from conversations, search with filters, history, import, seed.")
+app.add_typer(memory_app, name="memory")
+SCOPE = typer.Option("project", "--scope", help="project | team | user | session")
+
+
+def _engine_call(fn, *args, scope: str = "project", scope_id: Optional[str] = None, **kwargs):
+    from .engines.memstore.commands import CommandError
+    c = _cairn()
+    eng = c.memory.semantic.engine
+    if eng is None:
+        err.print(f"[{ROSE}]The memory engine isn't available[/] ({c.memory.semantic.error or 'turned off'}).")
+        raise typer.Exit(1)
+    try:
+        return fn(eng, *args, **kwargs, **c.memory.semantic.scope_ids(scope, scope_id)) if scope \
+            else fn(eng, *args, **kwargs)
+    except CommandError as exc:
+        err.print(f"[{ROSE}]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+
+def _show_memories(res, as_json: bool) -> None:
+    if as_json:
+        _emit_json(res)
+        return
+    rows = res.get("results", res) if isinstance(res, dict) else res
+    for m in rows if isinstance(rows, list) else [rows]:
+        score = f" [{SLATE}]{m['score']:.2f}[/]" if isinstance(m, dict) and m.get("score") is not None else ""
+        text = m.get("memory") or m.get("new_memory") or m.get("event") if isinstance(m, dict) else str(m)
+        console.print(f" [{INK}]{text}[/]{score} [dim]{m.get('id', '') if isinstance(m, dict) else ''}[/]")
+
+
+@memory_app.command("add")
+def memory_add(text: Optional[str] = typer.Argument(None, help="Text; or use --messages / --file / stdin."),
+               messages: Optional[str] = typer.Option(None, help="JSON list of {role, content} messages."),
+               file: Optional[str] = typer.Option(None, help="JSON file with messages."),
+               metadata: Optional[str] = typer.Option(None, help="JSON metadata."),
+               infer: bool = typer.Option(True, "--infer/--no-infer", help="Extract and reconcile facts with a model."),
+               expires: Optional[str] = typer.Option(None, help="YYYY-MM-DD"),
+               instructions: Optional[str] = typer.Option(None, help="Extra guidance for extraction."),
+               scope: str = SCOPE, scope_id: Optional[str] = None,
+               as_json: bool = typer.Option(False, "--json")):
+    """Add memories from text or a conversation (reconciled against what is already known)."""
+    from .engines.memstore import commands as mc
+    _show_memories(_engine_call(mc.add, text, messages=messages, file=file, metadata=metadata, infer=infer,
+                                expires=expires, instructions=instructions, scope=scope, scope_id=scope_id), as_json)
+
+
+@memory_app.command("search")
+def memory_search(query: str, top_k: int = typer.Option(10, "--top-k"), threshold: float = 0.1,
+                  rerank: bool = False, keyword: bool = False, filter: Optional[str] = typer.Option(None, "--filter"),
+                  show_expired: bool = False, explain: bool = False, scope: str = SCOPE,
+                  scope_id: Optional[str] = None, as_json: bool = typer.Option(False, "--json")):
+    """Search memories (semantic + keyword + entity signals, with filters)."""
+    from .engines.memstore import commands as mc
+    _show_memories(_engine_call(mc.search, query, top_k=top_k, threshold=threshold, rerank=rerank, keyword=keyword,
+                                filters=filter, show_expired=show_expired, explain=explain, scope=scope,
+                                scope_id=scope_id), as_json)
+
+
+@memory_app.command("list")
+def memory_list(page: int = 1, page_size: int = 100, show_expired: bool = False, scope: str = SCOPE,
+                scope_id: Optional[str] = None, as_json: bool = typer.Option(False, "--json")):
+    """Every memory in a scope."""
+    from .engines.memstore import commands as mc
+    _show_memories(_engine_call(mc.list_memories, page=page, page_size=page_size, show_expired=show_expired,
+                                scope=scope, scope_id=scope_id), as_json)
+
+
+@memory_app.command("get")
+def memory_get(memory_id: str):
+    """One memory by engine id."""
+    from .engines.memstore import commands as mc
+    _emit_json(_engine_call(mc.get, memory_id, scope=""))
+
+
+@memory_app.command("update")
+def memory_update(memory_id: str, text: Optional[str] = typer.Argument(None),
+                  metadata: Optional[str] = None, expires: Optional[str] = None, clear_expiry: bool = False):
+    """Change a memory's text, metadata or expiry (kept in its history)."""
+    from .engines.memstore import commands as mc
+    _emit_json(_engine_call(mc.update, memory_id, text, metadata=metadata, expires=expires,
+                            clear_expiry=clear_expiry, scope=""))
+
+
+@memory_app.command("delete")
+def memory_delete(memory_id: Optional[str] = typer.Argument(None), all_: bool = typer.Option(False, "--all"),
+                  dry_run: bool = False, scope: str = SCOPE, scope_id: Optional[str] = None):
+    """Delete one memory, or every memory in a scope with --all."""
+    from .engines.memstore import commands as mc
+    _emit_json(_engine_call(mc.delete, memory_id, all_=all_, dry_run=dry_run, scope=scope if all_ else "",
+                            scope_id=scope_id))
+
+
+@memory_app.command("history")
+def memory_history(memory_id: str):
+    """How a memory changed: every ADD, UPDATE and DELETE (read-model id or engine id)."""
+    c = _cairn()
+    mid = memory_id.removeprefix("memory:")
+    if c.brain.memory(mid):
+        _emit_json(c.memory.history(mid))
+        return
+    from .engines.memstore import commands as mc
+    _emit_json(_engine_call(mc.history, mid, scope=""))
+
+
+@memory_app.command("import")
+def memory_import(path: str, infer: bool = False, scope: str = SCOPE, scope_id: Optional[str] = None):
+    """Import memories from a JSON export."""
+    from .engines.memstore import commands as mc
+    _emit_json(_engine_call(mc.import_file, path, infer=infer, scope=scope, scope_id=scope_id))
+
+
+@memory_app.command("entities")
+def memory_entities():
+    """Who and what memories are scoped to, with counts."""
+    from .engines.memstore import commands as mc
+    _emit_json(_engine_call(mc.entities, scope=""))
+
+
+@memory_app.command("check")
+def memory_check(fix: bool = typer.Option(False, "--fix", help="Re-create wrong or missing engine records.")):
+    """Check that every memory's engine record still says what the memory says (repair with --fix)."""
+    _emit_json(_cairn().memory.check_engine(fix=fix))
+
+
+@memory_app.command("seed")
+def memory_seed():
+    """Learn decisions, clarifications, conventions and gotchas from this repository now."""
+    from .engines.memory import seed_from_repo
+    c = _cairn()
+    _emit_json(seed_from_repo(c.project, c.brain, c.router, store=c.memory))
+
+
 # ---- timeline & sessions -----------------------------------------------------------------------------
-@app.command()
-def timeline(target: Optional[str] = typer.Option(None, help="file:<path>, spec:<id>, …"),
+from .engines.temporal.cli import timeline_app
+
+
+@timeline_app.callback(invoke_without_command=True)
+def timeline(ctx: typer.Context, target: Optional[str] = typer.Option(None, help="file:<path>, spec:<id>, …"),
              days: int = typer.Option(30, help="How far back."), limit: int = 40):
-    """What happened: commits, spec progress, sessions, decisions, facts, drift."""
+    """What happened: commits, spec progress, sessions, decisions, facts, drift. Subcommands work the fact graph."""
+    if ctx.invoked_subcommand:
+        return
     from .core import day
     c = _cairn()
     evs = c.brain.events(since=time.time() - days * 86400, ref=target, limit=limit)
-    col = {"commit": INK, "spec": AMBER, "session": MOSS, "memory": AMBER, "fact": MOSS, "drift": ROSE}
+    col = {"commit": INK, "spec": AMBER, "session": MOSS, "memory": AMBER, "fact": MOSS, "fact_end": SLATE,
+           "drift": ROSE, "workflow_run": AMBER}
     for e in evs:
         risk = e["meta"].get("risk") if e["kind"] == "commit" else None
         flag = f" [{ROSE}]{','.join(risk)}[/]" if risk else ""
         console.print(f" [{SLATE}]{day(e['ts'])}[/] [{col.get(e['kind'], INK)}]{e['kind']:<8}[/] {e['title'][:90]}{flag}")
 
 
-@app.command()
-def sessions(query: Optional[str] = typer.Option(None, "--query", "-q"), limit: int = 20):
-    """What agents did in this repo."""
-    from .core import ago
-    from .engines import journal
-    c = _cairn()
-    if not journal.available():
-        console.print(f"[{SLATE}]Session capture isn't connected. Run[/] cairn init [{SLATE}](needs Node.js 18+).[/]")
-        return
-    if query:
-        for h in c.brain.search(query, kinds=["obs"], limit=limit):
-            console.print(f" [{INK}]{h['title']}[/] [dim]{h['id']}[/]")
-        return
-    for e in c.brain.events(kinds=["session"], limit=limit):
-        console.print(f" [{SLATE}]{ago(e['ts']):>8}[/] [{INK}]{e['title'][:90]}[/]")
+app.add_typer(timeline_app, name="timeline")
+
+
+@app.command("sessions", add_help_option=False,
+             context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def sessions(ctx: typer.Context):
+    """What agents did here: recent sessions (no arguments), search, timeline, context, worker, transcripts, settings."""
+    from .engines.recall.cli import main
+    raise typer.Exit(main(list(ctx.args) or ["sessions"]))
 
 
 # ---- servers & agents --------------------------------------------------------------------------------
 @app.command()
 def ui(no_open: bool = typer.Option(False, "--no-open")):
-    """Open the single-page UI (starts the local server if needed)."""
+    """Open the UI for this repository (starts the local server if needed; one server serves every repo)."""
     from . import daemon
     c = _cairn()
     d = daemon.start(c.project)
-    console.print(f"[{MOSS}]✓[/] {d['url']}")
+    console.print(f"[{MOSS}]✓[/] {d['project_url']}")
     if not no_open:
-        webbrowser.open(d["url"])
+        webbrowser.open(d["project_url"])
 
 
 @app.command()
 def up():
-    """Start the local server in the background."""
+    """Start the local server in the background and add this repository to it."""
     from . import daemon
     d = daemon.start(_cairn().project)
-    console.print(f"[{MOSS}]✓[/] running at [{AMBER}]{d['url']}[/]")
+    console.print(f"[{MOSS}]✓[/] running at [{AMBER}]{d['project_url']}[/]")
 
 
 @app.command()
 def down():
-    """Stop the local server."""
+    """Stop the local server (it serves every registered repository)."""
     from . import daemon
-    console.print(f"[{MOSS}]✓[/] stopped" if daemon.stop(_cairn().project) else f"[{SLATE}]not running[/]")
+    console.print(f"[{MOSS}]✓[/] stopped" if daemon.stop() else f"[{SLATE}]not running[/]")
 
 
-@app.command(hidden=True)
-def serve(port: int = 4747):
+@app.command()
+def serve(host: Optional[str] = typer.Option(None, help="Bind address (team mode for anything but loopback)."),
+          port: Optional[int] = typer.Option(None, help="Port (default 4747)."),
+          team: bool = typer.Option(False, "--team", help="Team mode: sign-in and roles required.")):
+    """Run the server in the foreground: every registered project, the API, the MCP endpoint and the UI."""
     from .server import serve as run
-    run(_cairn(), port)
+    if team:
+        os.environ["CAIRN_SERVER_MODE"] = "team"
+    run(host=host, port=port)
 
 
 @app.command()
@@ -682,6 +878,19 @@ def agents_install(agents: Optional[str] = typer.Option(None, help="claude,codex
         console.print(f" [{MOSS}]✓[/] [{INK}]{a.AGENTS.get(agent, 'All agents')}[/] [{SLATE}]{', '.join(files)}[/]")
     if not changed:
         console.print(f"[{SLATE}]Everything already wired.[/]")
+
+
+@agents_app.command("connect")
+def agents_connect(server: str = typer.Option(..., help="Team server URL, e.g. https://cairn.example.com"),
+                   project: str = typer.Option(..., help="Project id on that server (see `cairn project list`)."),
+                   env_var: str = typer.Option("CAIRN_TOKEN", help="Environment variable holding the API token.")):
+    """Use a team server's shared memory from this repository's agents (token read from an env var)."""
+    from . import agents as a
+    changed = a.connect(_cairn().project, server, project, env_var)
+    for f in changed:
+        console.print(f" [{MOSS}]✓[/] {f}")
+    console.print(f"[{SLATE}]Each developer: create a token on the server (Team → Tokens, or `cairn token issue`) "
+                  f"and export {env_var}=<token>.[/]")
 
 
 @agents_app.command("list")
@@ -753,9 +962,16 @@ def hook(event: str):
 def uninstall(purge: bool = typer.Option(False, "--purge", help="Also delete .cairn/ state.")):
     """Remove Cairn's agent wiring and hooks (and state with --purge)."""
     import shutil
-    from . import agents as a, daemon, hooks
+
+    from . import agents as a
+    from . import hooks
+    from .platform import Platform, ServerConfig
     c = _cairn()
-    daemon.stop(c.project)
+    platform = Platform(config=ServerConfig.load())
+    rec = platform.project_by_root(c.project.root)
+    if rec:
+        platform.delete_project(rec.id, purge=False)  # unlists it; never deletes the repository
+    platform.close()
     removed = a.uninstall(c.project) + [f".git/hooks/{h}" for h in hooks.remove_git_hooks(c.project)]
     for r in removed:
         console.print(f" [{MOSS}]✓[/] removed {r}")

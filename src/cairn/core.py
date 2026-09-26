@@ -5,9 +5,12 @@ budget. Everything here is deterministic; a model only narrates on top (``ask``,
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import re
+import sqlite3
 import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +22,22 @@ from .linker import link_text
 from .project import Project
 from .router import Router, estimate_tokens
 from .store import Brain
+
+ASK_SYSTEM = ("You are Cairn, the engineering memory of this repository. Answer using ONLY the context "
+              "provided; cite ids in [brackets]; say what is unknown. Be brief and concrete.")
+NARRATE_SYSTEM = ("Summarise this engineering evidence for a developer about to change code. 4 bullets max: "
+                  "the real risk, what to check, who/what to consult. Cite ids in [brackets]. No preamble.")
+
+
+def in_repo(path: str) -> bool:
+    """A repository-relative path (not absolute, home-relative or climbing out of the repository)."""
+    p = (path or "").replace("\\", "/")
+    return bool(p) and not p.startswith(("/", "~")) and not re.match(r"^[A-Za-z]:", p) and ".." not in p.split("/")
+
+
+def ask_prompt(question: str, context: str) -> str:
+    return f"Question: {question}\n\nContext:\n{context}"
+
 
 SECTION_ORDER = ["Rationale", "Dependents", "Tests likely affected", "Changes together", "Historical warnings",
                  "Origin", "Recent changes", "Intent", "Memory", "Agent sessions", "Facts", "Active work"]
@@ -70,8 +89,10 @@ class Pack:
     header: list[str] = field(default_factory=list)
     budget: int = 1800
     data: dict = field(default_factory=dict)
+    # Called once, with the tokens actually sent, the first time the pack is rendered for a reader.
+    on_render: Callable[[Pack, int], None] | None = field(default=None, repr=False, compare=False)
 
-    def render(self) -> str:
+    def _select(self) -> tuple[dict[str, list[Item]], dict[str, list[Item]], int]:
         used = estimate_tokens(self.title) + sum(estimate_tokens(h) for h in self.header) + 12
         by_section: dict[str, list[Item]] = {}
         for it in self.items:
@@ -88,6 +109,10 @@ class Pack:
                 continue
             chosen[it.section].append(it)
             used += cost
+        return by_section, chosen, used
+
+    def render(self) -> str:
+        by_section, chosen, used = self._select()
         out = [f"## {self.title}", *self.header]
         for s in sorted(chosen, key=lambda s: SECTION_ORDER.index(s) if s in SECTION_ORDER else 99):
             items = chosen[s]
@@ -99,7 +124,20 @@ class Pack:
         if len(out) <= 1 + len(self.header):
             out.append("_Nothing recorded yet for this target. It will fill in as the project is used._")
         out.append(f"(budget used: {used}/{self.budget} tokens)")
+        self.mark_sent(used)
         return "\n".join(out)
+
+    def mark_sent(self, tokens: int) -> None:
+        """This pack reached a reader as ``tokens`` tokens. Only the first delivery is recorded."""
+        if self.on_render:
+            log, self.on_render = self.on_render, None
+            log(self, tokens)
+
+    def accounting(self) -> dict:
+        """What the budget kept and dropped, per section — the same selection `render` makes."""
+        by_section, chosen, used = self._select()
+        return {"used": used, "budget": self.budget,
+                "sections": {s: {"kept": len(chosen[s]), "total": len(v)} for s, v in by_section.items()}}
 
     def sections(self) -> dict[str, list[dict]]:
         out: dict[str, list[dict]] = {}
@@ -109,6 +147,8 @@ class Pack:
 
 
 class Cairn:
+    surface = "cli"  # who reads the packs: cli | mcp | ui | hook — set by each entry point
+
     def __init__(self, project: Project):
         self.project = project
         project.dir.mkdir(exist_ok=True)
@@ -116,8 +156,22 @@ class Cairn:
         self.router = Router(project, self.brain)
         self.memory = MemoryStore(project, self.brain, self.router)
 
+    def reconfigure(self) -> None:
+        """Re-read the project's settings into this instance (model provider, budgets, memory engine)."""
+        self.project.reload()
+        self.router = Router(self.project, self.brain)
+        self.memory.router = self.router
+        self.memory.semantic.router = self.router
+        self.memory.semantic.reset()
+
+    def close(self) -> None:
+        """Release open stores (read model, memory engine). The instance must not be used afterwards."""
+        with contextlib.suppress(Exception):
+            self.memory.semantic.reset()
+        self.brain.close()
+
     @classmethod
-    def here(cls, start: Path | None = None) -> "Cairn":
+    def here(cls, start: Path | None = None) -> Cairn:
         proj = Project.discover(start)
         if proj is None:
             raise SystemExit("Not inside a project folder.")
@@ -155,15 +209,52 @@ class Cairn:
             if f and f not in files:
                 files.append(f)
         if not nodes and not files:
+            wanted = {w for w in re.findall(r"[a-z0-9]+", raw.lower()) if len(w) > 2}
             for h in self.brain.search(raw, kinds=["symbol", "file"], limit=3):
                 ent = self.brain.entity(h["id"])
-                if ent and ent["path"]:
+                have = set(re.findall(r"[a-z0-9]+", f"{ent['name']} {ent['path']}".lower())) if ent else set()
+                if ent and ent["path"] and wanted <= have:  # every word asked for, not a loose text match
                     files.append(ent["path"])
                     if h["id"].startswith("symbol:"):
                         nodes.append(h["id"][7:])
                     break
         label = idx.label(nodes[0]) if nodes and not files[:1] == [norm] else (files[0] if files else raw)
         return Target(raw, label, nodes=nodes[:3], files=files[:4])
+
+    # ---- accounting -------------------------------------------------------------------------------
+    def source_cost(self, files) -> tuple[int, int]:
+        """Estimated tokens (bytes / 4, the same rule packs use) of the repo files behind an answer."""
+        total = n = 0
+        for f in dict.fromkeys(f for f in files if f):
+            try:
+                size = (self.project.root / f).stat().st_size
+            except OSError:
+                continue
+            total += max(1, size // 4)
+            n += 1
+        return total, n
+
+    def _logger(self, kind: str, target: str, files) -> Callable[[Pack, int], None] | None:
+        if self.surface == "ui":
+            return None  # the page shows a pack for inspection; nobody is handed it
+        files = list(files)
+
+        def log(_pack: Pack, sent: int) -> None:
+            src, n = self.source_cost(files)
+            with contextlib.suppress(sqlite3.Error):  # a busy database never gets in the way of an answer
+                self.brain.log_query(self.surface, kind, target, sent, src if n else None, n)
+        return log
+
+    def _cited_files(self, items: list[Item]) -> list[str]:
+        """Spec documents behind intent citations (task -> tasks.md, requirement/story -> spec.md)."""
+        out = []
+        for it in items:
+            kind = it.cite.split(":", 1)[0]
+            if kind in ("task", "req", "story", "spec"):
+                ent = self.brain.entity(it.cite)
+                if ent and ent["path"]:
+                    out.append(f"{ent['path']}/{'tasks.md' if kind == 'task' else 'spec.md'}")
+        return out
 
     # ---- shared gatherers -------------------------------------------------------------------------
     def _intent(self, files: list[str], limit: int = 6) -> list[Item]:
@@ -269,7 +360,7 @@ class Cairn:
         strong = [c for c in co_all if c["ratio"] >= 0.5]
         if strong:
             score += 0.4 * len(strong)
-            reasons.append(f"{len(strong)} files usually change with it")
+            reasons.append(f"{len(strong)} file{'s usually change' if len(strong) != 1 else ' usually changes'} with it")
         open_tasks = [i for i in intent if "(open)" in i.text]
         if open_tasks:
             score += 0.5
@@ -277,9 +368,13 @@ class Cairn:
         level = "HIGH" if score >= 4 else "MEDIUM" if score >= 1.5 else "LOW"
         where = f" ({', '.join(t.files[:2])})" if t.files and t.files[0] != t.label else ""
         header = [f"**Risk: {level}**" + (f" — {'; '.join(reasons)}" if reasons else " — no dependents or warnings recorded")]
+        evidence = [*t.files, *dep_files, *(c["path"] for c in co_all), *self._cited_files(intent)]
         return Pack(f"Impact: {t.label}{where}", items, header, budget,
                     data={"risk": level, "reasons": reasons, "files": t.files, "dependents": len(deps),
-                          "dependent_files": dep_files[:50], "target": t.raw})
+                          "dependent_files": dep_files[:50], "target": t.raw, "label": t.label,
+                          "target_nodes": [{"id": n, "label": idx.label(n), "file": idx.file_of(n)} for n in t.nodes],
+                          "traversal": deps, "evidence_files": list(dict.fromkeys(evidence))},
+                    on_render=self._logger("impact", t.raw, evidence))
 
     # ---- why --------------------------------------------------------------------------------------
     def why(self, target: str, budget: int | None = None) -> Pack:
@@ -314,7 +409,10 @@ class Cairn:
         items += self._sessions(t.files)
         items += self._facts(labels)
         where = f" ({', '.join(t.files[:2])})" if t.files and t.files[0] != t.label else ""
-        return Pack(f"Why: {t.label}{where}", items, [], budget, data={"files": t.files, "target": t.raw})
+        evidence = [*t.files, *self._cited_files(items)]
+        return Pack(f"Why: {t.label}{where}", items, [], budget,
+                    data={"files": t.files, "target": t.raw, "evidence_files": list(dict.fromkeys(evidence))},
+                    on_render=self._logger("why", t.raw, evidence))
 
     # ---- context for a task (the one call agents should make first) --------------------------------
     def infer_targets(self, text: str, limit: int = 3) -> list[str]:
@@ -340,9 +438,11 @@ class Cairn:
         items: list[Item] = []
         per = max(400, budget // max(1, len(targets) + 1))
         labels = []
+        evidence: list[str] = []
         for raw in targets[:3]:
             imp = self.impact(raw, depth=1, budget=per)
             wy = self.why(raw, budget=per)
+            evidence += imp.data.get("evidence_files", []) + wy.data.get("evidence_files", [])
             labels.append(imp.title.split(":", 1)[-1].strip())
             for it in imp.items + wy.items:
                 if it.section in ("Dependents", "Tests likely affected", "Historical warnings", "Changes together",
@@ -362,18 +462,18 @@ class Cairn:
             if k not in uniq or uniq[k].score < it.score:
                 uniq[k] = it
         head = [f"Targets: {', '.join(targets) if targets else 'none resolved — showing project memory'}"]
-        return Pack(f"Context: {task[:80]}", list(uniq.values()), head, budget, data={"targets": targets})
+        return Pack(f"Context: {task[:80]}", list(uniq.values()), head, budget,
+                    data={"targets": targets, "evidence_files": list(dict.fromkeys(evidence))},
+                    on_render=self._logger("context", task, evidence))
 
     def ask(self, question: str, budget: int | None = None, llm: bool = True) -> dict:
         pack = self.context(question, budget=budget)
         text = pack.render()
         out = {"pack": text, "answer": None, "model": None}
         if llm and self.router.available:
-            system = ("You are Cairn, the engineering memory of this repository. Answer using ONLY the context "
-                      "provided; cite ids in [brackets]; say what is unknown. Be brief and concrete.")
             try:
-                out["answer"] = self.router.complete("ask", f"Question: {question}\n\nContext:\n{text}",
-                                                     system=system, cached_context=self.brief(), max_tokens=900)
+                out["answer"] = self.router.complete("ask", ask_prompt(question, text), system=ASK_SYSTEM,
+                                                     cached_context=self.brief(), max_tokens=900)
                 out["model"] = self.router.model(self.router.tier_for("ask"))
             except Exception as exc:
                 out["answer"] = None
@@ -384,20 +484,65 @@ class Cairn:
         """Optional deep-tier summary on top of a deterministic pack."""
         if not self.router.available:
             return None
-        system = ("Summarise this engineering evidence for a developer about to change code. 4 bullets max: "
-                  "the real risk, what to check, who/what to consult. Cite ids in [brackets]. No preamble.")
         try:
-            return self.router.complete(task, pack.render(), system=system, cached_context=self.brief(),
+            return self.router.complete(task, pack.render(), system=NARRATE_SYSTEM, cached_context=self.brief(),
                                         max_tokens=500)
         except Exception:
             return None
 
+    def ask_stream(self, question: str, budget: int | None = None, cancel=None) -> Iterator[dict]:
+        """``ask`` for the page: the evidence first, then the answer as the model writes it."""
+        pack = self.context(question, budget=budget)
+        text = pack.render()
+        yield from self._narration("ask", ask_prompt(question, text), ASK_SYSTEM, 900, pack, cancel, evidence=text)
+
+    def narrate_stream(self, pack: Pack, task: str, cancel=None) -> Iterator[dict]:
+        """``narrate`` for the page, as the model writes it."""
+        yield from self._narration(task, pack.render(), NARRATE_SYSTEM, 500, pack, cancel)
+
+    def cite_labels(self, pack: Pack) -> dict[str, str]:
+        """A readable name for each citation in a pack, so the page can label what the model cites."""
+        idx, out = self.map, {}
+        for it in pack.items:
+            if not it.cite or it.cite in out:
+                continue
+            kind, _, ref = it.cite.partition(":")
+            if kind == "symbol" and ref in idx.nodes:
+                out[it.cite] = idx.label(ref)
+            elif kind == "file":
+                out[it.cite] = ref
+            else:
+                text = re.sub(r"^\[\w+\]\s*", "", it.text)
+                out[it.cite] = re.sub(r"^\W+", "", text)[:70].rstrip()
+        return out
+
+    def _narration(self, task: str, prompt: str, system: str, max_tokens: int, pack: Pack, cancel=None,
+                   evidence: str | None = None) -> Iterator[dict]:
+        """Events: ``start`` (model, a label for each citation, and the evidence for questions), ``text``
+        chunks, then ``done`` or ``error``. Setting ``cancel`` stops the model call."""
+        tier = self.router.tier_for(task)
+        start = {"type": "start", "model": self.router.model(tier), "tier": tier, "labels": self.cite_labels(pack)}
+        yield start if evidence is None else {**start, "pack": evidence}
+        try:
+            for chunk in self.router.stream(task, prompt, system=system, cached_context=self.brief(),
+                                            max_tokens=max_tokens, cancel=cancel):
+                yield {"type": "text", "text": chunk}
+        except Exception as exc:  # the page shows why; the ledger has already recorded the failed call
+            yield {"type": "error", "message": f"{type(exc).__name__}: {exc}"[:300]}
+            return
+        yield {"type": "done"}
+
     # ---- memory -----------------------------------------------------------------------------------
-    def remember(self, text: str, kind: str = "fact", supersedes: str | None = None, source: str = "user") -> dict:
+    def remember(self, text: str, kind: str = "fact", supersedes: str | None = None, source: str = "user",
+                 scope: str = "project") -> dict:
         idx = self.map
-        return self.memory.remember(text, kind=kind, supersedes=supersedes, source=source,
-                                    link_symbols=lambda mid, t: link_text(self.brain, idx, f"memory:{mid}", t,
-                                                                          "memory-links"))
+        res = self.memory.remember(text, kind=kind, supersedes=supersedes, source=source, scope=scope,
+                                   link_symbols=lambda mid, t: link_text(self.brain, idx, f"memory:{mid}", t,
+                                                                         "memory-links"))
+        with contextlib.suppress(Exception):  # agents that read memory from a file see it now, not at the next sync
+            from . import agents
+            agents.refresh_context(self.project, self)
+        return res
 
     # ---- overview ---------------------------------------------------------------------------------
     def active_spec(self) -> dict | None:
@@ -422,6 +567,7 @@ class Cairn:
             "project": self.project.name,
             "root": str(self.project.root),
             "last_sync": float(self.brain.get_kv("sync.last", "0") or 0),
+            "sync_failed": json.loads(self.brain.get_kv("sync.failed", "{}") or "{}"),
             "layers": {
                 "map": {"connected": len(idx) > 0, "nodes": len(idx), "edges": idx.edge_count(),
                         "files": len(idx.by_file), "areas": len({n.get("community") for n in idx.nodes.values()}),
@@ -434,8 +580,10 @@ class Cairn:
                                                         "meta LIKE '%\"risk\": [\"%'")["n"],
                              "facts": c.get("fact", 0), "deep": self.router.deep_enabled()},
                 "memory": {"connected": True, "memories": c.get("memory_active", 0),
-                           "semantic": self.router.deep_enabled()},
-                "sessions": {"connected": journal.available(), "observations": c.get("obs", 0),
+                           "semantic": bool(self.memory.semantic.enabled),
+                           "reconcile": bool(self.memory.semantic.can_reconcile)},
+                "sessions": {"connected": journal.installed(self.project) or journal.available(self.project),
+                             "observations": c.get("obs", 0),
                              "sessions": c.get("session", 0)},
             },
             "drift": len(drift),
@@ -458,8 +606,10 @@ class Cairn:
         const = L["specs"].get("constitution")
         if const:
             lines.append("Principles: " + "; ".join(const["principles"][:6]))
-        mems = self.brain.memories(limit=40)
+        mems = self.brain.memories(limit=200)
+        # rules first (how the team works), then the newest facts someone chose to remember
         key_mems = [m for m in mems if m["kind"] in ("convention", "decision", "gotcha")][:6]
+        key_mems += [m for m in mems if m["kind"] == "fact"][:4]
         if key_mems:
             lines.append("Team knowledge:")
             lines += [f"- [{m['kind']}] {m['text'][:160]} [memory:{m['id']}]" for m in key_mems]
@@ -468,16 +618,61 @@ class Cairn:
         sess = self.brain.events(kinds=["session"], limit=3)
         if sess:
             lines.append("Recent agent work: " + "; ".join(f"{s['title'][:70]} ({ago(s['ts'])})" for s in sess))
-        lines.append("Before editing: call cairn_context (or cairn_impact) for the files/symbols you will touch. "
-                     "Record durable learnings with cairn_remember.")
-        out, used = [], 0
+        closing = ("Before editing: call cairn_context (or cairn_impact) for the files/symbols you will touch. "
+                   "Record durable learnings with cairn_remember.")
+        out, used = [], estimate_tokens(closing)  # the instruction always fits; the rest fills the budget in order
         for ln in lines:
             cost = estimate_tokens(ln)
             if used + cost > max_tokens:
                 break
             out.append(ln)
             used += cost
-        return "\n".join(out)
+        return "\n".join([*out, closing])
+
+    # ---- views for the page ----------------------------------------------------------------------
+    def architecture(self) -> dict:
+        """The file graph, with what the other layers know about each file."""
+        g = self.map.file_graph()
+        agent: dict[str, dict[str, int]] = {}
+        for r in self.brain.q("SELECT dst, rel, COUNT(*) n FROM links WHERE rel IN ('reads','modifies') "
+                              "AND dst LIKE 'file:%' GROUP BY dst, rel"):
+            agent.setdefault(r["dst"][5:], {})[r["rel"]] = r["n"]
+        owned = {r["dst"][5:]: r["n"] for r in self.brain.q(
+            "SELECT dst, COUNT(DISTINCT src) n FROM links WHERE rel='owns' AND dst LIKE 'file:%' GROUP BY dst")}
+        stats = {r["path"]: dict(r) for r in self.brain.q("SELECT path, commits, risky FROM filestats")}
+        folder = g["level"] == "folder"
+
+        def roll(table: dict, path: str, key: str | None = None) -> int:
+            rows = [v for k, v in table.items() if (str(Path(k).parent) == path if folder else k == path)]
+            return sum((v.get(key, 0) if key else v) for v in rows) if rows else 0
+        for n in g["nodes"]:
+            u = n["id"]
+            n.update(commits=roll(stats, u, "commits"), fixes=roll(stats, u, "risky"),
+                     agent_reads=roll(agent, u, "reads"), agent_edits=roll(agent, u, "modifies"),
+                     tasks=roll(owned, u), test=bool(re.search(r"(^|/)tests?(/|$)|(^|/)test_|_test\.", u)))
+        return g
+
+    def agent_activity(self, limit: int = 80) -> dict:
+        """What agents did here, from Cairn's own session capture."""
+        obs = sorted(self.brain.entities("obs"), key=lambda e: -float(e["meta"].get("ts") or 0))[:limit]
+        files: dict[str, dict[str, int]] = {}
+        for r in self.brain.q("SELECT dst, rel, COUNT(*) n FROM links WHERE rel IN ('reads','modifies') "
+                              "AND dst LIKE 'file:%' GROUP BY dst, rel"):
+            path = r["dst"][5:]
+            if in_repo(path):  # agents also read their own config and scratch files: not this project's
+                files.setdefault(path, {"reads": 0, "modifies": 0})[r["rel"]] = r["n"]
+        return {
+            "source": {"path": ".cairn/sessions.db", "connected": journal.installed(self.project),
+                       "captured": journal.available(self.project)},
+            "observations": [{"id": e["id"], "title": e["name"], **e["meta"]} for e in obs],
+            "sessions": [{"id": e["id"], "title": e["name"], **e["meta"]} for e in self.brain.entities("session")],
+            "files": sorted(({"path": k, **v} for k, v in files.items()),
+                            key=lambda f: -(f["modifies"] * 2 + f["reads"]))[:40],
+        }
+
+    def savings(self, limit: int = 60) -> dict:
+        """Every pack handed out, with the size of the source files it summarised."""
+        return {"totals": self.brain.query_totals(), "recent": self.brain.queries(limit)}
 
     def search(self, q: str, kinds: list[str] | None = None, limit: int = 20) -> list[dict]:
         hits = self.brain.search(q, kinds=kinds, limit=limit)

@@ -1,17 +1,18 @@
-# ADR-0003: Embedded temporal store by default
+# ADR-0003: Embedded stores by default, servers for teams
 
-**Status:** Accepted · **Date:** 2026-09-24
+**Status:** Accepted · **Date:** 2026-09-25
 
 ## Context
-The temporal fact graph supports Neo4j, FalkorDB, Neptune and an embedded driver. Requiring a
-server (usually Docker) violates the one-command principle. The embedded driver is marked
-deprecated upstream.
+The fact graph, the memory index and session memory each need storage. Requiring a database server would
+break "one command on any repository"; a team server needs shared, scalable stores.
 
 ## Decision
-Default to the embedded store in `.cairn/timeline.kuzu`. Setting `deep.graph_url` to `falkor://`
-or `bolt://` switches to a server with no other change. Facts are always mirrored into the read
-model, so surfaces never depend on the timeline store's availability.
+Defaults are embedded and local: the fact graph in an embedded graph database at `.cairn/temporal/graph.kuzu`,
+memory vectors in `.cairn/memstore/`, sessions in `.cairn/sessions.db`. Teams can point the fact graph at
+Neo4j or FalkorDB (`[temporal] url`) and memory at Qdrant, pgvector or Chroma (`[memory] vector_store`) with no
+other change. The embedded graph database is a single-writer file: every process opens it per operation and
+releases it, so the server, `cairn sync` from git hooks and agents never lock each other out.
 
 ## Consequences
-Zero-setup deep tier today. When the embedded driver is removed upstream, the default moves to
-FalkorDB (Lite or server) with a migration note; mirrored facts keep working in the meantime.
+- Nothing to install or run for an individual.
+- Facts and memories are always mirrored into the read model, so surfaces never depend on a store being open.

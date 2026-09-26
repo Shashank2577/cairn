@@ -1,0 +1,13 @@
+# Machine-local Cairn state — not meant to be shared.
+# Managed by Cairn; safe to edit (your changes are preserved on refresh).
+
+# Local pointer to the current feature directory. Rewritten every time you
+# switch features, so it is per-checkout state rather than something to share.
+feature.json
+
+# Per-machine extension config overrides.
+extensions/*/local-config.yml
+
+# Catalog caches and workflow run state (per machine).
+**/.cache/
+workflows/runs/

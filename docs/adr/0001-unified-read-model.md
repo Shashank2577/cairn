@@ -1,24 +1,21 @@
 # ADR-0001: One read model for every surface
 
-**Status:** Accepted · **Date:** 2026-09-24
+**Status:** Accepted · **Date:** 2026-09-25
 
 ## Context
-Five engines each keep their own store: a node-link JSON map, spec Markdown, git, a session SQLite
-database, a vector store and a temporal graph. Surfaces (CLI, MCP, UI) need joined answers
-("callers + incidents + owning task + conventions") in well under a second.
+Each engine keeps the store that suits it: the code graph writes `graph.json`, the spec workflow keeps Markdown
+in `specs/`, git holds history, session memory keeps `sessions.db`, the fact graph lives in an embedded graph
+database and memory keeps a vector index. Answering "what breaks if I change this?" needs all of them at once,
+in milliseconds, with or without a model.
 
 ## Decision
-Engines write into one SQLite database (`.cairn/brain.db`: entities, links, events, memories,
-co-change, file stats, ledger, FTS5). Surfaces never query engine stores at request time. The map
-index is the one exception: it stays in memory, mtime-cached, for graph traversals.
-
-## Options considered
-| Option | Latency | Coupling | Offline |
-|---|---|---|---|
-| **Read model (chosen)** | ms | Surfaces depend on one schema | Yes |
-| Federated queries per request | 100s of ms to seconds | UI coupled to five schemas | Partly |
-| Put everything in a graph DB | ms | Requires a server; Docker | No |
+Engines write to their own stores; every surface (CLI, MCP tools, HTTP API, page) reads one SQLite read model,
+`.cairn/brain.db`: entities, typed links with provenance, events, memories, co-change, full-text search and the
+ledgers of model calls and served context. Sync mirrors each engine's output into it with canonical ids
+(`file:`, `symbol:`, `task:`, `commit:`, `obs:`, `memory:`, `fact:` …).
 
 ## Consequences
-Answers are fast and uniform. Sync must keep the read model fresh (incremental cursors). Stale rows
-are avoided by source-scoped `drop_source` before re-ingest.
+- Impact, why and context are dictionary and index lookups; they work offline.
+- Any surface can cross layers (a file's dependents, the spec task that owns it, the sessions that touched it
+  and the memories about it) without knowing which engine produced what.
+- The read model is rebuildable: delete `.cairn/brain.db` and sync.

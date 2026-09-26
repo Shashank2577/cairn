@@ -1,17 +1,19 @@
-# ADR-0004: Task-tiered model routing
+# ADR-0004: One model layer, task-tiered, any provider
 
-**Status:** Accepted · **Date:** 2026-09-24
+**Status:** Accepted · **Date:** 2026-09-25
 
 ## Context
-Model work ranges from thousands of tiny classifications to a handful of judgments. One model for
-everything is either too expensive or too weak.
+Five engines need models for different jobs, from thousands of small classifications to a few judgments. Each
+used to carry its own provider clients and keys. Most developers already have a signed-in coding agent.
 
 ## Decision
-Four tiers with configurable models: fast (Haiku 4.5), balanced (Sonnet 5), deep (Opus 5.5),
-frontier (Fable 5.1, opt-in only). Jobs map to tiers in `router.TASK_TIER`. Automatic escalation
-is limited to one step on oversized input and never reaches frontier. Stable prefixes are
-prompt-cached. Every call goes to the ledger.
+Every model call goes through `cairn.router`. Providers: `anthropic` (API key), `openai` (any OpenAI-compatible
+endpoint, including local ones) and `claude-code` (the signed-in Claude Code CLI, the developer's own plan, no
+key). `provider = "auto"` picks the first that works. Calls through the CLI run isolated: no user settings,
+hooks, plugins, MCP servers or tools, from an empty folder. Jobs map to tiers (fast, balanced, deep, frontier)
+in `TASK_TIER`; oversized input escalates one tier at most and never to frontier. Budgets cap each sync;
+every call is written to the ledger (`cairn models --ledger`).
 
 ## Consequences
-Predictable cost with most calls on the cheaper tiers; teams can pin tiers to other providers
-(`provider = "openai"` with a `base_url`) without code changes.
+- Model features work out of the box for anyone signed in to Claude Code.
+- Cost and quota are visible per task and per tier.

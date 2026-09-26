@@ -1,0 +1,35 @@
+# Cairn project configuration. Every key is optional; delete what you don't change.
+
+[server]
+port = 4747                      # first free port from here is used
+
+[context]
+budget = 1800                    # default token budget for agent-facing context packs
+
+[models]
+provider = "claude-code"         # auto | anthropic | openai | claude-code  (auto: API key, else your Claude Code login)
+fast = "claude-haiku-4-5-20251001"   # classification, summaries at volume
+balanced = "claude-sonnet-5"         # extraction, linking tie-breaks
+deep = "claude-opus-5-5"             # why / impact / drift synthesis, ask
+frontier = "claude-fable-5-1"        # opt-in whole-system reviews only
+# base_url = "http://localhost:11434/v1"
+
+[deep]
+enabled = "auto"                 # auto = on when a model key is present
+budget_tokens = 150000           # hard ceiling per deep sync
+graph_url = ""                   # falkor://host:6379 or bolt://host:7687 ; empty = embedded store
+
+[history]
+max_commits = 3000
+
+[sessions]
+project = ""                     # session-capture project name if it differs from the folder name
+
+[recall]
+worker_spawn = false
+
+[map]
+ignore = ["src/cairn/ui/mock/"]
+
+[temporal]
+backend = ""

@@ -1,0 +1,20 @@
+---
+description: Create a plan and store it in plan.md.
+---
+
+## User Input
+
+```text
+$ARGUMENTS
+```
+
+## Outline
+
+1. Read `.cairn/workflow/feature.json` to get the feature directory path.
+
+2. **Load context**: `.cairn/workflow/memory/constitution.md` and `<feature_directory>/spec.md`.
+
+3. Create an implementation plan and store it in `<feature_directory>/plan.md`.
+   - Technical context: tech stack, dependencies, project structure
+   - Design decisions, architecture, file structure
+   - Existing system: run `cairn ask "<one-line feature summary>" --no-llm` and list the touched code, its dependents and past incidents under an *Existing system* heading (skip if `cairn` is unavailable)

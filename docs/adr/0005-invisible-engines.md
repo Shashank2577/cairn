@@ -1,19 +1,20 @@
-# ADR-0005: One product, invisible engines
+# ADR-0005: One product, engines built in
 
-**Status:** Accepted · **Date:** 2026-09-24
+**Status:** Accepted · **Date:** 2026-09-25
 
 ## Context
-Cairn composes five open-source engines. Exposing each one's vocabulary, commands and folders
-would make users learn five tools.
+Cairn does five jobs that each deserve a full engine: a code and document knowledge graph, a spec-driven
+workflow, agent session memory, a temporal fact graph and self-reconciling memory. Installing and wiring five
+separate tools, each with its own names, folders, commands and model setup, is not a product.
 
 ## Decision
-Users and agents see five layers (Map, Specs, Timeline, Memory, Sessions), one CLI, eight MCP
-tools and one page. Engine names never appear in commands, UI copy or tool names. Adapters in
-`cairn/engines/` are the only place engine APIs are called. The map engine's own agent skill is
-not installed; agents use Cairn's MCP. Licence notices are kept in `THIRD_PARTY_NOTICES.md` as the
-licences require.
+All five engines are part of Cairn's source (`src/cairn/engines/{graph,workflow,recall,temporal,memstore}`),
+under Cairn's names, with their complete feature sets, sharing one model layer, one embedding and vector
+module, one read model, one CLI, one MCP server, one HTTP API and one page. Where two engines did the same job,
+one implementation serves both (one vector index, one router, one session store). Nothing is installed
+behind the user's back. Copyright notices required by the engines' licences are kept in `NOTICE` and
+`licenses/`, and nowhere else.
 
-## Exceptions, stated honestly
-The spec workflow's own slash commands (`/speckit-*`) and folders (`.specify/`, `specs/`) stay as
-they are: they are the workflow users run, and renaming them would break upstream updates. The map
-engine writes to `graphify-out/`. Session capture shows its own messages inside Claude Code.
+## Consequences
+- Users learn one vocabulary: Map, Specs, Timeline, Memory, Sessions.
+- Cairn is responsible for maintaining every engine.

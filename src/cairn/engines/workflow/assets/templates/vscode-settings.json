@@ -1,0 +1,13 @@
+{
+    "chat.promptFilesRecommendations": {
+        "cairn.constitution": true,
+        "cairn.specify": true,
+        "cairn.plan": true,
+        "cairn.tasks": true,
+        "cairn.implement": true
+    },
+    "chat.tools.terminal.autoApprove": {
+        ".cairn/workflow/scripts/bash/": true,
+        ".cairn/workflow/scripts/powershell/": true
+    }
+}

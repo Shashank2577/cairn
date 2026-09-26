@@ -5,6 +5,7 @@ a handful of requirements only — the ones whose code changed most recently —
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -16,7 +17,7 @@ SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
 def _finding(kind, severity, spec, title, evidence, cite=""):
-    fid = f"{kind}:{spec}:{abs(hash(title)) % 10**8}"
+    fid = f"{kind}:{spec}:{hashlib.sha1(title.encode()).hexdigest()[:8]}"  # stable across processes
     return {"id": fid, "kind": kind, "severity": severity, "spec": spec, "title": title, "evidence": evidence,
             "cite": cite}
 
@@ -103,7 +104,12 @@ def semantic(cairn, spec: str | None = None, max_reqs: int = 5, budget: Budget |
 def record(cairn, findings: list[dict]) -> None:
     cairn.brain.set_kv("drift.last", json.dumps(findings))
     now = time.time()
-    cairn.brain.add_events([{"id": f"drift:{d['id']}", "ts": now, "kind": "drift", "title": d["title"],
-                             "body": "\n".join(d["evidence"]), "refs": [d["cite"]] if d["cite"] else [],
+    ids = [f"drift:{d['id']}" for d in findings]
+    # a finding keeps the time it was first detected; re-running the check must not move it on the timeline
+    seen = {r["id"]: r["ts"] for r in cairn.brain.q(
+        f"SELECT id, ts FROM events WHERE id IN ({','.join('?' * len(ids))})", ids)} if ids else {}
+    cairn.brain.add_events([{"id": f"drift:{d['id']}", "ts": seen.get(f"drift:{d['id']}", now), "kind": "drift",
+                             "title": d["title"], "body": "\n".join(d["evidence"]),
+                             "refs": [d["cite"]] if d["cite"] else [],
                              "meta": {"severity": d["severity"], "spec": d["spec"]}, "source": "drift"}
                             for d in findings if d["severity"] != "low"])
