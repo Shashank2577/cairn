@@ -149,3 +149,26 @@ def test_version_check_and_help(tmp_path):
 def test_project_commands_need_a_workflow_folder(tmp_path):
     code, out = spec(tmp_path, "extension", "list")
     assert code != 0 and ".cairn/workflow" in out
+
+
+def test_init_dot_force_succeeds_and_shows_next_steps(tmp_path):
+    """`cairn spec init . --force` in a non-empty repo: exit 0, templates, where-specs-go."""
+    root = git_repo(tmp_path / "repo")
+    (root / "src").mkdir()
+    (root / "src" / "app.py").write_text("x = 1\n")
+    code, out = spec(root, "init", ".", "--force", "--non-interactive", "--ignore-agent-tools")
+    assert code == 0, out[-2000:]
+    assert (root / ".cairn" / "workflow" / "templates" / "spec-template.md").is_file()
+    assert (root / ".cairn" / "workflow" / "templates" / "tasks-template.md").is_file()
+    assert "Next Steps" in out
+    assert "specs/" in out and "cairn specs" in out and "cairn drift" in out
+
+
+def test_init_failure_is_reported_clearly(tmp_path):
+    """A failing init exits nonzero with a clear message, never silently."""
+    root = git_repo(tmp_path / "repo")
+    (root / ".cairn").write_text("not a directory\n")  # shared infra cannot be installed
+    code, out = spec(root, "init", ".", "--force", "--non-interactive", "--ignore-agent-tools")
+    assert code != 0
+    assert "did not complete" in out
+    assert "Next Steps" not in out

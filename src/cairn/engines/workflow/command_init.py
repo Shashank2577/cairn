@@ -662,6 +662,12 @@ def register(app: typer.Typer) -> None:
         # hangs when Rich tries to restore cursor state via VT escape sequences.
         _transient = sys.platform != "win32"
 
+        # Any failure inside the Live display is remembered here and reported
+        # once the display has closed: raising out of the ``with`` block skips
+        # the final tracker render and next steps, which made a failed init
+        # look silent (exit 1, agent commands installed, no explanation).
+        init_error: BaseException | None = None
+
         with Live(
             tracker.render(), console=console, refresh_per_second=8, transient=_transient
         ) as live:
@@ -937,43 +943,55 @@ def register(app: typer.Typer) -> None:
                 ensure_constitution_from_template(project_path, tracker=tracker)
 
                 tracker.complete("final", "project ready")
-            except (typer.Exit, SystemExit):
-                raise
+            except (typer.Exit, SystemExit) as exc:
+                # A step requested a deliberate exit (e.g. the shared-infrastructure
+                # installer already printed "Failed to install ..."). Report it below,
+                # after the Live display closes and the message cannot be lost.
+                init_error = exc
             except Exception as e:
                 tracker.error("final", str(e))
-                console.print(
-                    Panel(
-                        f"Initialization failed: {e}",
-                        title="Failure",
-                        border_style="red",
-                    )
-                )
-                if debug:
-                    _env_pairs = [
-                        ("Python", sys.version.split()[0]),
-                        ("Platform", sys.platform),
-                        ("CWD", str(Path.cwd())),
-                    ]
-                    _label_width = max(len(k) for k, _ in _env_pairs)
-                    env_lines = [
-                        f"{k.ljust(_label_width)} → [bright_black]{v}[/bright_black]"
-                        for k, v in _env_pairs
-                    ]
-                    console.print(
-                        Panel(
-                            "\n".join(env_lines),
-                            title="Debug Environment",
-                            border_style="magenta",
-                        )
-                    )
-                if not here and project_path.exists() and not dir_existed_before:
-                    shutil.rmtree(project_path)
-                raise typer.Exit(1)
-            finally:
-                pass
+                init_error = e
 
         if _transient:
             console.print(tracker.render())
+
+        if init_error is not None:
+            if isinstance(init_error, typer.Exit) and init_error.exit_code == 0:
+                raise init_error  # a deliberate clean stop inside setup
+            exit_code = init_error.exit_code if isinstance(init_error, typer.Exit) else 1
+            detail = "" if isinstance(init_error, (typer.Exit, SystemExit)) else str(init_error)
+            console.print(
+                Panel(
+                    "Initialization did not complete."
+                    + (f"\n[bold]What failed:[/bold] {_escape_markup(detail)}" if detail else "")
+                    + "\nFix the problem described above, then re-run this command.",
+                    title="[red]Failure[/red]",
+                    border_style="red",
+                    padding=(1, 2),
+                )
+            )
+            if detail and debug:
+                _env_pairs = [
+                    ("Python", sys.version.split()[0]),
+                    ("Platform", sys.platform),
+                    ("CWD", str(Path.cwd())),
+                ]
+                _label_width = max(len(k) for k, _ in _env_pairs)
+                env_lines = [
+                    f"{k.ljust(_label_width)} → [bright_black]{v}[/bright_black]"
+                    for k, v in _env_pairs
+                ]
+                console.print(
+                    Panel(
+                        "\n".join(env_lines),
+                        title="Debug Environment",
+                        border_style="magenta",
+                    )
+                )
+            if not here and project_path.exists() and not dir_existed_before:
+                shutil.rmtree(project_path)
+            raise typer.Exit(exit_code)
+
         console.print("\n[bold green]Project ready.[/bold green]")
 
         agent_config = AGENT_CONFIG.get(selected_ai)
@@ -1001,6 +1019,17 @@ def register(app: typer.Typer) -> None:
         else:
             steps_lines.append("1. You're already in the project directory!")
             step_num = 2
+
+        steps_lines.append(
+            f"{step_num}. Feature specs live in [cyan]specs/<NNN-feature>/[/cyan]: [cyan]spec.md[/cyan] holds the user"
+            " stories and requirements, [cyan]tasks.md[/cyan] the checkbox tasks, plus an optional [cyan]plan.md[/cyan]"
+        )
+        step_num += 1
+        steps_lines.append(
+            f"{step_num}. Start from the templates in [cyan].cairn/workflow/templates/[/cyan]; track progress with"
+            " [cyan]cairn specs[/cyan] and [cyan]cairn drift[/cyan] — [cyan]cairn status[/cyan] shows the active feature"
+        )
+        step_num += 1
 
         _is_skills_integration = resolved_integration.is_skills_mode(
             integration_parsed_options or None, project_root=project_path

@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ..project import Project
 from ..store import Brain
+from . import process_dialect
 
 WORKFLOW_DIR = Path(".cairn") / "workflow"
 CONSTITUTION = WORKFLOW_DIR / "memory" / "constitution.md"
@@ -302,9 +303,11 @@ def workflow_state(root: Path) -> dict:
 
 def features(root: Path) -> list[dict]:
     base = root / "specs"
-    if not base.is_dir():
-        return []
-    return [parse_feature(d, root) for d in sorted(base.iterdir()) if d.is_dir() and (d / "spec.md").exists()]
+    out = [parse_feature(d, root) for d in sorted(base.iterdir()) if d.is_dir() and (d / "spec.md").exists()] \
+        if base.is_dir() else []
+    if out or not process_dialect.detect(root):
+        return out
+    return process_dialect.features(root)  # a repo running its own process dialect (see that module)
 
 
 def ingest(project: Project, brain: Brain) -> dict:
@@ -317,10 +320,23 @@ def ingest(project: Project, brain: Brain) -> dict:
     brain.add_events({"id": f"wfrun:{r['id']}", "ts": _iso_ts(r.get("updated_at") or r.get("created_at")),
                       "kind": "workflow_run", "title": f"Workflow {r['workflow']} {r['status']}",
                       "meta": r, "source": "specs"} for r in wstate["runs"])
+
+    # One deterministic progress fact per feature, rewritten on every ingest: add_events
+    # replaces rows by id, so the newest sync wins and every consumer of the read model
+    # (overview, brief, drift, ask) sees current progress — never a stale per-count row.
+    def _mtime(f: dict) -> float:
+        return max(((project.root / f["path"] / a).stat().st_mtime for a in ("spec.md", "tasks.md", "plan.md")
+                    if (project.root / f["path"] / a).exists()), default=0)
+
+    brain.add_events({"id": f"spec:{f['id']}:progress", "ts": _mtime(f), "kind": "spec",
+                      "title": f"{f['title']} — {f['progress']['done']}/{f['progress']['total']} tasks",
+                      "refs": [f"spec:{f['id']}"], "meta": f["progress"], "source": "specs"} for f in feats)
+    with brain.tx() as db:
+        db.execute("DELETE FROM events WHERE id LIKE 'specstate:%'")  # superseded ids from older syncs
     if brain.get_kv("specs.digest") == digest:
         return {"features": len(feats), "note": "unchanged"}
     brain.drop_source("specs", kinds=("spec", "story", "req", "task"))
-    ents, links, events = [], [], []
+    ents, links = [], []
     for f in feats:
         sid = f"spec:{f['id']}"
         ents.append((sid, "spec", f["title"], f["path"], {k: f[k] for k in ("status", "progress", "clarifications",
@@ -346,14 +362,8 @@ def ingest(project: Project, brain: Brain) -> dict:
                 links.append((ent, f"req:{f['id']}/{rid}", "implements", "EXTRACTED", 1.0, "specs"))
             for path, exists in t["files"]:
                 links.append((ent, f"file:{path}", "owns", "EXTRACTED", 1.0 if exists else 0.5, "specs"))
-        mtime = max(((project.root / f["path"] / a).stat().st_mtime for a in ("spec.md", "tasks.md", "plan.md")
-                     if (project.root / f["path"] / a).exists()), default=0)
-        events.append({"id": f"specstate:{f['id']}:{f['progress']['done']}", "ts": mtime, "kind": "spec",
-                       "title": f"{f['title']} — {f['progress']['done']}/{f['progress']['total']} tasks",
-                       "refs": [sid], "meta": f["progress"], "source": "specs"})
     brain.put_entities(ents)
     brain.link(links)
-    brain.add_events(events)
     brain.set_kv("specs.digest", digest)
     brain.set_kv("specs.constitution", json.dumps(const))
     return {"features": len(feats), "tasks": sum(len(f["tasks"]) for f in feats)}

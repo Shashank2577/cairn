@@ -64,7 +64,12 @@ function FeatureStrip({ s, cur, findings }) {
 
 function Feature({ f, wf, findings, onTask }) {
   const { pid, route } = useApp();
+  // Process-dialect features (ids like "process:req-001") come from the repo's own requirement
+  // index, not the bundled workflow: they have no spec.md/plan.md/tasks.md, so the stepper and the
+  // Documents tab (the server only serves specs/<fid>/*.md) don't apply to them.
+  const dialect = (f.id || "").startsWith("process:");
   const tab = TABS.includes(route.rest[1]) ? route.rest[1] : route.q.get("tab") === "drift" ? "drift" : "overview";
+  const view = dialect && (tab === "docs" || tab === "checklists") ? "overview" : tab;
   const docs = (f.artifacts || []).filter(a => a.endsWith(".md") && !a.startsWith("checklists/"));
   const lists = (f.artifacts || []).filter(a => a.startsWith("checklists/") && a.endsWith(".md"));
   const open = f.tasks.filter(t => !t.done).length;
@@ -75,21 +80,24 @@ function Feature({ f, wf, findings, onTask }) {
       <div style="min-width:0;flex:1 1 420px"><h2>${f.title}</h2><p class="sub path" style="margin:3px 0 0">${f.path}/</p></div>
       <div class="row tight"><${Tag} tone="spec">${f.status || "Draft"}</${Tag}><span class="sub num">${f.progress.done} of ${f.progress.total} tasks done</span></div>
     </div>
-    ${wf ? html`<div class="stepwrap"><${Stepper} stages=${wf.stages} fid=${f.id} commands=${wf.commands}/></div>` : html`<${Skeleton} rows="2"/>`}
-    ${nextCmd ? html`<div class="nextstep"><${Icon} name="bolt" size="16"/><span><b>Next: ${STAGES[next][1].toLowerCase()}.</b> ${String(nextCmd.description || "").replace(/[.\s]+$/, "")}. Run it in your agent:</span><${Cmd}>${nextCmd.name} ${f.id}</${Cmd}></div>`
-      : next >= STAGES.length && open ? html`<div class="nextstep"><${Icon} name="bolt" size="16"/><span><b>Implementing.</b> ${plural(open, "task")} still open. Your agent ticks each one in tasks.md as it lands.</span></div>` : null}
-    <${Tabs} label="Feature sections" current=${tab} keyColor="var(--spec)" items=${[
+    ${dialect ? html`<p class="sub" style="margin:10px 0 0"><${Icon} name="info" size="14"/> This repo runs its own process: requirements live in <code>${f.path}/index.md</code> and each task below is a machine check against the repository — not a manual tick.</p>`
+      : wf ? html`<div class="stepwrap"><${Stepper} stages=${wf.stages} fid=${f.id} commands=${wf.commands}/></div>` : html`<${Skeleton} rows="2"/>`}
+    ${!dialect && nextCmd ? html`<div class="nextstep"><${Icon} name="bolt" size="16"/><span><b>Next: ${STAGES[next][1].toLowerCase()}.</b> ${String(nextCmd.description || "").replace(/[.\s]+$/, "")}. Run it in your agent:</span><${Cmd}>${nextCmd.name} ${f.id}</${Cmd}></div>`
+      : !dialect && next >= STAGES.length && open ? html`<div class="nextstep"><${Icon} name="bolt" size="16"/><span><b>Implementing.</b> ${plural(open, "task")} still open. Your agent ticks each one in tasks.md as it lands.</span></div>` : null}
+    <${Tabs} label="Feature sections" current=${view} keyColor="var(--spec)" items=${[
       { id: "overview", label: "Overview", href: link.project(pid, "specs", [f.id]) },
       { id: "tasks", label: "Tasks", n: open ? `${open} open` : f.tasks.length, href: link.project(pid, "specs", [f.id, "tasks"]) },
-      { id: "docs", label: "Documents", n: docs.length, href: link.project(pid, "specs", [f.id, "docs"]) },
-      { id: "checklists", label: "Checklists", n: lists.length, href: link.project(pid, "specs", [f.id, "checklists"]) },
+      ...(dialect ? [] : [
+        { id: "docs", label: "Documents", n: docs.length, href: link.project(pid, "specs", [f.id, "docs"]) },
+        { id: "checklists", label: "Checklists", n: lists.length, href: link.project(pid, "specs", [f.id, "checklists"]) },
+      ]),
       { id: "drift", label: "Drift", n: findings.length, href: link.project(pid, "specs", [f.id, "drift"]) },
     ]}/>
-    ${tab === "overview" ? html`<${FeatureOverview} f=${f} findings=${findings}/>`
-      : tab === "tasks" ? html`<${TaskBoard} f=${f} findings=${findings} onTask=${onTask}/>`
-      : tab === "docs" ? html`<${Docs} f=${f} names=${docs}/>`
-      : tab === "checklists" ? html`<${Checklists} f=${f} names=${lists}/>`
-      : html`<${DriftList} findings=${findings}/>`}
+    ${view === "overview" ? html`<${FeatureOverview} f=${f} findings=${findings}/>`
+      : view === "tasks" ? html`<${TaskBoard} f=${f} findings=${findings} onTask=${onTask}/>`
+      : view === "docs" ? html`<${Docs} f=${f} names=${docs}/>`
+      : view === "checklists" ? html`<${Checklists} f=${f} names=${lists}/>`
+      : html`<${DriftList} findings=${findings}/`}
   </section>`;
 }
 
@@ -106,14 +114,15 @@ function FeatureOverview({ f, findings }) {
   useEffect(() => { if (focus) document.getElementById("item-" + focus)?.scrollIntoView({ block: "center" }); }, [focus]);
   return html`<div class="fov">
     <div>
-      <h3>What it must do</h3>
+      ${f.stories.length ? html`<h3>What it must do</h3>
       <ul class="stories">${f.stories.map(s => html`<li id=${"item-" + s.id} class=${focus === s.id ? "focus" : ""}><span class="pri">${s.priority || ""}</span><span class="sid">${s.id}</span><span>${rich(s.title)}</span>
-        <span class="sub num nowrap">${plural(f.tasks.filter(t => t.story === s.id).length, "task")}</span></li>`)}</ul>
-      <h3 style="margin-top:26px">Requirements <span class="sub num" style="font-weight:500">${f.requirements.length}</span></h3>
-      ${!traced && f.requirements.length ? html`<p class="sub">No task cites a requirement id yet, so Cairn can't tell which requirements are built. Add ids such as <code>FR-003</code> to task lines to get coverage.</p>` : null}
+        <span class="sub num nowrap">${plural(f.tasks.filter(t => t.story === s.id).length, "task")}</span></li>`)}</ul>` : null}
+      <h3 style=${f.stories.length ? "margin-top:26px" : ""}>Requirements <span class="sub num" style="font-weight:500">${f.requirements.length}</span></h3>
+      ${!f.requirements.length ? html`<p class="sub">No requirement rows — these tasks are work items not linked to a requirement in the index.</p>` : html`
+      ${!traced ? html`<p class="sub">No task cites a requirement id yet, so Cairn can't tell which requirements are built. Add ids such as <code>FR-003</code> to task lines to get coverage.</p>` : null}
       <ul class="reqlist">${f.requirements.map(r => { const ts = cover.get(r.id) || []; const un = uncovered.has(r.id) || (traced && !ts.length && r.id.startsWith("FR"));
         return html`<li id=${"item-" + r.id} class=${focus === r.id ? "focus" : ""}><span class="id">${r.id}</span><span>${rich(r.text)}</span>
-          <span class="cov">${ts.length ? html`<span class="sub" title=${ts.map(t => t.id).join(", ")}>${ts.filter(t => t.done).length}/${ts.length} tasks</span>` : un ? html`<${Tag} tone="risk">no task</${Tag}>` : null}</span></li>`; })}</ul>
+          <span class="cov">${ts.length ? html`<span class="sub" title=${ts.map(t => t.id).join(", ")}>${ts.filter(t => t.done).length}/${ts.length} tasks</span>` : un ? html`<${Tag} tone="risk">no task</${Tag}>` : null}</span></li>`; })}</ul>`}
     </div>
     <aside>
       ${f.clarifications?.length ? html`<div class="panel"><h3>Clarifications</h3><p class="sub">Questions answered back into the spec.</p>
@@ -148,11 +157,15 @@ function TaskBoard({ f, findings, onTask }) {
   };
   useEffect(() => { if (focus) setTimeout(() => document.getElementById("task-" + focus)?.scrollIntoView({ block: "center", inline: "center" }), 60); }, [focus]);
   const stories = [...new Set(f.tasks.map(t => t.story).filter(Boolean))];
+  // Process-dialect tasks are derived from the repository (coverage checks, merged work items); the
+  // server rejects task edits for them (there is no tasks.md to tick), so they are read-only here.
+  const manual = !f.id.startsWith("process:");
   const card = t => {
     const probs = bad(t);
     return html`<li id=${"task-" + t.id} class=${`task${t.done ? " done" : ""}${probs.length ? " bad" : ""}${focus === t.id ? " focus" : ""}`}>
-      <label class="tcheck" title=${can.write ? (t.done ? "Mark as not done" : "Mark as done") : "Viewers can't change tasks"}>
-        <input type="checkbox" checked=${t.done} disabled=${!can.write || busy === t.id} onChange=${() => toggle(t)} aria-label=${`${t.id} done`}/></label>
+      <label class="tcheck" title=${!manual ? "Done = this task's check passes in the repository right now"
+        : can.write ? (t.done ? "Mark as not done" : "Mark as done") : "Viewers can't change tasks"}>
+        <input type="checkbox" checked=${t.done} disabled=${!manual || !can.write || busy === t.id} onChange=${manual ? () => toggle(t) : undefined} aria-label=${`${t.id} done`}/></label>
       <div class="tbody">
         <div class="tmeta"><span class="tid">${t.id}</span>${t.parallel ? html`<span class="tag outline" title="Can run in parallel with other [P] tasks">parallel</span>` : null}
           ${t.story ? html`<${Tag} tone="spec">${t.story}</${Tag}>` : null}${(t.reqs || []).map(r => html`<span class="tag outline">${r}</span>`)}</div>

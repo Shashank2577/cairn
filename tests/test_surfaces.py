@@ -100,7 +100,23 @@ def test_mcp_tools(cairn, monkeypatch):
     assert "cents" in mcp_server.cairn_recall("money")
     assert "missing" in mcp_server.cairn_specs(drift=True) or "does not exist" in mcp_server.cairn_specs(drift=True)
     server = mcp_server.build()
-    assert server is not None and len(mcp_server.TOOLS) == 9  # the compact core set
+    assert server is not None and len(mcp_server.TOOLS) == 10  # the compact core set
+
+
+def test_mcp_status_tool_reports_project_health(cairn, monkeypatch):
+    import asyncio
+
+    from cairn import mcp_server
+    mcp_server._cairn.cache_clear()
+    monkeypatch.setattr(mcp_server, "_cairn", lambda: cairn)
+    out = mcp_server.cairn_status()
+    assert cairn.project.name in out and "last sync" in out
+    assert "model" in out  # availability is always reported (none in tests)
+    assert "001" in out and "2/3" in out  # the active spec and its task progress
+    assert "drift" in out
+    assert "cairn_status" in {t.__name__ for t in mcp_server.CORE}
+    listed = asyncio.run(mcp_server.build(mode="core").list_tools())
+    assert len(listed) == 13  # tools/list grew 12 -> 13 with the status tool
 
 
 def test_statusline_shows_spec_number(cairn, monkeypatch):
@@ -127,6 +143,13 @@ def test_doctor_shows_model_hint_and_wired_agents(cairn, repo, monkeypatch):
     assert "sign in to Claude Code" in out  # tests run with no model: the fix names every way to get one
     wired = next(ln for ln in out.splitlines() if "Agents" in ln).split("also detected")[0]
     assert "Claude Code" in wired and "Codex" not in wired and "Gemini" not in wired
+
+
+def test_http_impact_and_why_reject_degenerate_targets(cairn, tmp_path):
+    c, p = _client(cairn, tmp_path)
+    assert c.get(f"{p}/impact", params={"target": "."}).status_code == 400
+    assert c.get(f"{p}/why", params={"target": "/"}).status_code == 400
+    assert c.get(f"{p}/impact", params={"target": "PaymentService"}).status_code == 200
 
 
 def test_http_views_for_the_page(cairn, tmp_path):

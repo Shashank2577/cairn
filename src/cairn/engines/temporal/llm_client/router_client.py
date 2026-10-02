@@ -1,10 +1,15 @@
 """The engine's one model client: every structured call goes through ``cairn.router.Router``.
 
 The router picks the provider (API key, OpenAI-compatible endpoint or the signed-in Claude Code
-CLI), the model tier, prompt caching, budgets and the cost ledger. This adapter only does what the
-engine needs on top: map each prompt to a router task, run the (synchronous) router call off the
-event loop, and parse/validate the JSON answer against the pydantic response model, retrying with
-the validation error when the model gets the shape wrong.
+CLI), the model tier, prompt caching and the cost ledger. This adapter does what the engine needs
+on top: map each prompt to a router task, run the (synchronous) router call off the event loop,
+parse/validate the JSON answer against the pydantic response model (retrying with the validation
+error when the model gets the shape wrong), and enforce the episode's token ``Budget`` on EVERY
+call — ``budget.check`` before the call, ``budget.charge`` of the measured prompt + completion
+after it. The charge is deliberate double-entry with the ledger, not against the router's budget
+accounting: the router only sees provider-reported input+output, which excludes the cached /
+re-sent prompt volume that dominates a fan-out episode's real burn, so the client charges what it
+actually sent and received and ``BudgetExceeded`` stops an episode mid-flight.
 """
 
 from __future__ import annotations
@@ -136,6 +141,8 @@ class RouterLLMClient(LLMClient):
             config = LLMConfig(max_tokens=8192, temperature=0)
         super().__init__(config, cache, cache_dir)
         self.router = router
+        # Shared episode Budget (cairn.router.Budget): checked before and charged after every
+        # call in ``_generate_response``; BudgetExceeded stops the episode mid-flight.
         self.budget = budget
         self.max_attempts = max(1, max_attempts)
         # The router is synchronous (and the CLI provider spawns a process per call); bound
@@ -166,9 +173,9 @@ class RouterLLMClient(LLMClient):
         return None if task in TASK_TIER else TASK_TIERS.get(task)
 
     def _complete(self, task: str, system: str, prompt: str, max_tokens: int) -> str:
+        # No ``budget`` kwarg here: this client checks and charges the Budget itself (see
+        # ``_generate_response``), so the router's coarser input+output charge can't double-charge.
         kwargs: dict[str, typing.Any] = {'system': system, 'max_tokens': max_tokens}
-        if self.budget is not None:
-            kwargs['budget'] = self.budget
         tier = self._tier_override(task)
         if tier is not None:
             kwargs['tier'] = tier
@@ -189,9 +196,20 @@ class RouterLLMClient(LLMClient):
         system = '\n\n'.join(m.content for m in messages if m.role == 'system')
         prompt = '\n\n'.join(m.content for m in messages if m.role != 'system')
         task = task_for_prompt(prompt_name, model_size)
+        input_tokens = len(system + prompt) // 4
+        if self.budget is not None:
+            # Per-call enforcement inside an episode: fail before spending when the estimate
+            # (prompt + the max_tokens ceiling, mirroring the router's own formula) no longer
+            # fits. BudgetExceeded is not transient, so neither retry loop re-runs it.
+            self.budget.check(input_tokens + max_tokens)
         async with self._slot():
             text = await asyncio.to_thread(self._complete, task, system, prompt, max_tokens)
-        self.token_tracker.record(prompt_name, len(system + prompt) // 4, len(text or '') // 4)
+        output_tokens = len(text or '') // 4
+        self.token_tracker.record(prompt_name, input_tokens, output_tokens)
+        if self.budget is not None:
+            # Charge what the call actually moved (measured prompt + completion; the re-sent
+            # prompt volume is the burn the router's input+output charge can't see).
+            self.budget.charge(input_tokens + output_tokens)
         return parse_json_object(text)
 
     async def generate_response(

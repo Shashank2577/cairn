@@ -5,7 +5,7 @@ a map of the code, the intent behind it, what happened to it, what the team lear
 agent sessions did. All of it comes through one CLI, one MCP server and one page.
 
 ```sh
-uv tool install cairn-brain        # or: pipx install cairn-brain
+uv tool install --python 3.12 git+https://github.com/Shashank2577/cairn.git
 cd your-repo
 cairn
 ```
@@ -20,10 +20,12 @@ commit, spec and session adds to it.
 ## Install
 
 ```sh
-uv tool install cairn-brain        # or: pipx install cairn-brain
+uv tool install --python 3.12 git+https://github.com/Shashank2577/cairn.git
+# or: pipx install --python 3.12 git+https://github.com/Shashank2577/cairn.git
 ```
 
-You need Python 3.11 or newer and git. You don't need Docker, a database server or an API key.
+PyPI publishing is pending, so Cairn installs from GitHub for now. You need Python 3.11, 3.12 or
+3.13 and git. You don't need Docker, a database server or an API key.
 The first sync downloads a small local embedding model (about 70 MB) once. Without network access,
 Cairn uses a built-in hashing embedder instead, so search still works, only less semantically.
 

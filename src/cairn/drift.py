@@ -47,6 +47,30 @@ def check(cairn, spec: str | None = None) -> list[dict]:
                                         [f"task last updated {time.strftime('%Y-%m-%d', time.localtime(tasks_ts))}",
                                          f"file last changed {time.strftime('%Y-%m-%d', time.localtime(st['last_ts']))}"],
                                         cite))
+        # cheap consistency: a progress fact recorded in the read model must match the tasks file.
+        # Normally the specs engine rewrites `spec:<feature>:progress` on every ingest and this
+        # never fires; it catches facts written by another path that the read model missed.
+        sid = f"spec:{f['id']}"
+        fresh = f["progress"]
+        for row in brain.q("SELECT id, refs, meta FROM events WHERE kind='spec' AND refs LIKE ?",
+                           (f'%"{sid}"%',)):
+            try:
+                refs = json.loads(row["refs"] or "[]")
+                meta = json.loads(row["meta"] or "{}")
+            except ValueError:
+                continue
+            if sid not in refs:  # the LIKE can over-match when the feature id contains '_' or '%'
+                continue
+            if not (isinstance(meta, dict) and isinstance(meta.get("done"), int) and isinstance(meta.get("total"), int)):
+                continue
+            if (meta["done"], meta["total"]) != (fresh["done"], fresh["total"]):
+                out.append(_finding(
+                    "stale-fact", "low", f["id"],
+                    f"Recorded progress is {meta['done']}/{meta['total']} but {tasks_rel} shows "
+                    f"{fresh['done']}/{fresh['total']} — run `cairn sync`",
+                    [f"{row['id']}: {meta['done']}/{meta['total']}",
+                     f"{tasks_rel}: {fresh['done']}/{fresh['total']}"], sid))
+                break  # one stale-fact finding per feature is enough
         if referenced:  # only when the feature uses requirement ids in plan/tasks
             for r in f["requirements"]:
                 if r["id"].startswith("FR") and r["id"] not in referenced:

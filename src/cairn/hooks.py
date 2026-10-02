@@ -131,6 +131,8 @@ def statusline(cairn, stdin_json: str = "") -> str:
         info = json.loads(stdin_json) if stdin_json.strip() else {}
     except json.JSONDecodeError:
         info = {}
+    if not isinstance(info, dict):  # Claude Code can pipe non-object payloads ("null", a list)
+        info = {}
     b = cairn.brain
     c = b.counts()
     drift = json.loads(b.get_kv("drift.last", "[]") or "[]")

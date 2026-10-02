@@ -54,10 +54,14 @@ Wherever a command takes a **target**, it accepts a path (`src/pay/service.py`),
   under `$CAIRN_HOME/graph/`).
 - **Plumbing:** `hook`, `merge-driver`, `merge-chunks`, `merge-semantic`, `cache-check`, `provider`.
 
-Extra inputs and languages need extras, for example `pip install 'cairn-brain[pdf,office,sql]'`.
+Extra inputs and languages need extras, for example
+`uv tool install --python 3.12 'git+https://github.com/Shashank2577/cairn.git[pdf,office]'`.
 The full list is in `pyproject.toml`.
 
 ## Specs
+
+The files and patterns the workflow parses — `specs/<feature>/spec.md`, `tasks.md` and the optional
+`plan.md` — are documented in [specs](specs.md).
 
 | Command | What it does |
 |---|---|

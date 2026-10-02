@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from cairn import agents, daemon, hooks, shellcmd
+from cairn import agents, daemon, hooks, shellcmd, sync
 from cairn.engines.recall import integrations as ig
 from cairn.project import Project
 
@@ -451,6 +451,86 @@ def test_cairn_down_stops_a_real_server_process(tmp_path, monkeypatch):
             proc.kill()
 
 
+# ---- sync lock on Windows: msvcrt.locking stands in for flock (flock is POSIX-only) -----------------------
+class _StubMsvcrt:
+    """Stand-in for the msvcrt module: one holder of byte 0 at a time; a second LK_NBLCK on the region
+    raises OSError exactly like the real thing when another handle holds it."""
+    LK_NBLCK, LK_UNLCK = "NBLCK", "UNLCK"
+
+    def __init__(self):
+        self.calls: list[tuple[int, str, int]] = []
+        self.held = False
+
+    def locking(self, fd: int, mode: str, nbytes: int) -> None:
+        self.calls.append((fd, mode, nbytes))
+        if mode == self.LK_NBLCK:
+            if self.held:
+                raise OSError(13, "Permission denied")  # EACCES: what a contended region raises
+            self.held = True
+        else:
+            self.held = False
+
+
+def _stub_msvcrt(monkeypatch):
+    import types
+    stub = _StubMsvcrt()
+    monkeypatch.setitem(sys.modules, "msvcrt",
+                        types.SimpleNamespace(LK_NBLCK=stub.LK_NBLCK, LK_UNLCK=stub.LK_UNLCK, locking=stub.locking))
+    return stub
+
+
+def test_windows_sync_lock_logic_with_a_stubbed_msvcrt(monkeypatch, tmp_path):
+    """The msvcrt path cannot execute on POSIX, so its logic is exercised by stubbing the module
+    `sync._windows_lock` imports: lock byte 0 non-blocking, treat OSError as contention, unlock on release."""
+    stub = _stub_msvcrt(monkeypatch)
+    lock = tmp_path / "sync.lock"
+    holder = open(lock, "w")
+    contender = open(lock, "w")
+    try:
+        release = sync._windows_lock(holder, 0)
+        assert release is not None
+        assert stub.calls == [(holder.fileno(), "NBLCK", 1)]  # byte 0 of the lock file, non-blocking
+        stub.held = True  # as if another process held the region now
+        assert sync._windows_lock(contender, 0) is None  # contended, no wait configured: skip at once
+        assert stub.held  # the contender never unlocked on the holder's behalf
+        release()  # what locked()'s finally does
+        assert stub.calls[-1] == (holder.fileno(), "UNLCK", 1)
+    finally:
+        contender.close()
+        holder.close()
+
+
+def test_windows_sync_lock_waits_for_release_with_a_stubbed_msvcrt(monkeypatch, tmp_path):
+    import threading
+    stub = _stub_msvcrt(monkeypatch)
+    lock = tmp_path / "sync.lock"
+    holder = open(lock, "w")
+    contender = open(lock, "w")
+    timer = threading.Timer(0.3, setattr, args=(stub, "held", False))
+    try:
+        assert sync._windows_lock(holder, 0) is not None
+        timer.start()
+        started = time.monotonic()
+        release = sync._windows_lock(contender, 5)  # contended: retries until the holder lets go
+        assert release is not None
+        assert time.monotonic() - started >= 0.2
+        release()
+    finally:
+        timer.join()
+        contender.close()
+        holder.close()
+
+
+@on_windows
+def test_real_windows_sync_lock_excludes_a_second_holder(tmp_path):
+    """For real on the Windows CI runner: a second handle in this process cannot take byte 0."""
+    lock = tmp_path / "sync.lock"
+    with sync.locked(lock) as first:
+        assert first is True
+        with sync.locked(lock) as second:
+            assert second is False
+
+
 # ---- real Windows (CI) -------------------------------------------------------------------------------------
 @on_windows
 def test_real_windows_shells_run_each_form(tmp_path):
@@ -490,7 +570,7 @@ def test_ci_runs_the_suite_on_all_three_systems():
     wf = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
     job = wf["jobs"]["test"]
     assert set(job["strategy"]["matrix"]["os"]) == {"ubuntu-latest", "macos-latest", "windows-latest"}
-    assert job["strategy"]["matrix"]["python-version"] == ["3.12"] and job["strategy"]["fail-fast"] is False
+    assert job["strategy"]["matrix"]["python-version"] == ["3.11", "3.12", "3.13"] and job["strategy"]["fail-fast"] is False
     steps = " ".join(str(s.get("run", "")) for s in job["steps"])
     assert 'pip install -e ".[dev]"' in steps and "pytest" in steps
     import tomllib

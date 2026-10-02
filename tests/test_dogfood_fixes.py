@@ -1,0 +1,208 @@
+"""Regression tests for the dogfood findings fixed on 002-dogfood-fixes.
+
+Each group maps to a failure observed in the 2026-09-27 real-world dogfood run
+(cairn-demo/FINDINGS.md): statusline crashes, bare-path timeline lookups, degenerate
+targets, question words becoming context targets, sync-lock contention, doctor
+contradicting the config, and the init flag that lets users skip the deep tier.
+"""
+import json
+import sys
+import threading
+import time
+
+import pytest
+from typer.testing import CliRunner
+
+from cairn import hooks, sync
+from cairn.cli import _statusline_cwd, _timeline_ref, app
+from cairn.core import _QUESTION_STOP
+
+runner = CliRunner()
+
+
+# ---- statusline: Claude Code pipes JSON here and it is not always an object ------------------------
+
+@pytest.mark.parametrize("payload", ["null", "[1, 2]", '"current_dir"', "not json at all", ""])
+def test_statusline_cwd_tolerates_non_object_json(payload):
+    assert _statusline_cwd(payload) is None
+
+
+def test_statusline_cwd_reads_a_valid_payload():
+    assert _statusline_cwd(json.dumps({"workspace": {"current_dir": "/tmp/x"}})) == "/tmp/x"
+    assert _statusline_cwd(json.dumps({"workspace": "not-a-dict"})) is None
+
+
+def test_hooks_statusline_never_crashes_on_weird_input(cairn):
+    for payload in ("null", "[1]", '{"workspace": 3}', "garbage{"):
+        assert "cairn" in hooks.statusline(cairn, payload)
+
+
+# ---- timeline --target: bare paths and symbols must resolve like impact ----------------------------
+
+def test_timeline_ref_resolves_a_bare_path(cairn):
+    assert _timeline_ref(cairn, "shop/payments.py") == "file:shop/payments.py"
+
+
+def test_timeline_ref_passes_prefixed_ids_through(cairn):
+    assert _timeline_ref(cairn, "file:shop/payments.py") == "file:shop/payments.py"
+    assert _timeline_ref(cairn, "spec:001-refunds") == "spec:001-refunds"
+
+
+def test_timeline_ref_leaves_unknown_targets_alone(cairn):
+    assert _timeline_ref(cairn, "no/such/file.py") == "no/such/file.py"
+    assert _timeline_ref(cairn, ".") == "."
+
+
+def test_timeline_command_shows_history_for_a_bare_path(cairn):
+    res = runner.invoke(app, ["timeline", "--target", "shop/payments.py", "--days", "365"])
+    assert res.exit_code == 0
+    assert "payments" in res.output
+
+
+# ---- degenerate targets: refuse them instead of garbage-matching -----------------------------------
+
+@pytest.mark.parametrize("target", [".", "", "..", "/", "-"])
+def test_resolve_rejects_degenerate_targets(cairn, target):
+    with pytest.raises(ValueError):
+        cairn.resolve(target)
+
+
+def test_impact_dot_exits_with_a_friendly_error(cairn):
+    res = runner.invoke(app, ["impact", "."])
+    assert res.exit_code == 2
+    assert "cairn search" in res.output
+
+
+def test_why_dot_exits_with_a_friendly_error(cairn):
+    res = runner.invoke(app, ["why", "."])
+    assert res.exit_code == 2
+
+
+# ---- sync lock: --wait waits for the hook's background sync instead of skipping --------------------
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no flock on Windows; the lock is best-effort there")
+def test_locked_skips_immediately_when_busy(repo):
+    lock = repo / ".cairn" / "sync.lock"
+    with sync.locked(lock) as first:
+        assert first
+        started = time.monotonic()
+        with sync.locked(lock) as busy:
+            assert busy is False
+            assert time.monotonic() - started < 0.2  # no wait configured: skip at once
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no flock on Windows; the lock is best-effort there")
+def test_locked_waits_for_the_holder_to_release(repo):
+    lock = repo / ".cairn" / "sync.lock"
+
+    def hold():
+        with sync.locked(lock):
+            time.sleep(1.0)
+
+    t = threading.Thread(target=hold, daemon=True)
+    t.start()
+    time.sleep(0.3)  # let the thread take the lock
+    started = time.monotonic()
+    with sync.locked(lock, wait=5) as ok:
+        assert ok is True
+        assert time.monotonic() - started >= 0.5  # it genuinely waited for the holder
+    t.join(timeout=5)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no flock on Windows; the lock is best-effort there")
+def test_locked_times_out_when_the_holder_keeps_holding(repo):
+    lock = repo / ".cairn" / "sync.lock"
+    with sync.locked(lock):
+        started = time.monotonic()
+        with sync.locked(lock, wait=0.5) as ok:
+            assert ok is False
+            assert time.monotonic() - started >= 0.4
+
+
+def test_locked_contract_holds_on_this_os(repo):
+    """First lock True, contended False — unskipped on every OS: flock on POSIX, the new msvcrt path on
+    Windows (the fixture repo above keeps the wait-timing coverage, which is flock-shaped)."""
+    lock = repo / ".cairn" / "sync.lock"
+    with sync.locked(lock) as first:
+        assert first is True
+        with sync.locked(lock) as busy:
+            assert busy is False
+
+
+# ---- deterministic ask: question words never become context targets --------------------------------
+
+def test_infer_targets_ignores_question_words(cairn):
+    targets = cairn.infer_targets("what owns the checkout flow and where is it tested")
+    assert not ({t.lower() for t in targets} & _QUESTION_STOP)
+    assert not ({t.lower() for t in targets} & {"owns", "tested"})
+
+
+# ---- doctor: must reflect the capture config, not contradict it ------------------------------------
+
+def test_doctor_reports_capture_off_when_config_disables_it(cairn):
+    (cairn.project.dir / "config.toml").write_text("[sessions]\ncapture = false\n")
+    res = runner.invoke(app, ["doctor"])
+    assert res.exit_code == 0
+    assert "off (config)" in res.output
+
+
+def test_doctor_does_not_claim_off_when_capture_is_enabled(cairn):
+    res = runner.invoke(app, ["doctor"])
+    assert res.exit_code == 0
+    assert "off (config)" not in res.output
+
+
+# ---- init --no-deep: the first sync can skip the deep tier -----------------------------------------
+
+def test_init_no_deep_forces_deep_off(monkeypatch, repo):
+    import cairn.sync as sync_mod
+    captured = {}
+
+    def fake_run(c, *, deep=None, progress=None, **kw):
+        captured["deep"] = deep
+        return {}
+
+    monkeypatch.setattr(sync_mod, "run", fake_run)
+    res = runner.invoke(app, ["init", "--no-deep", "--no-ui", "--no-hooks"])
+    assert res.exit_code == 0, res.output
+    assert captured["deep"] is False
+
+
+# ---- the search fallback in infer_targets must not surface content-free heading anchors ------------
+
+def test_infer_targets_skips_content_free_heading_anchors(tmp_path, monkeypatch):
+    (tmp_path / "README.md").write_text("# demo\n\n## what\n\nA section named after a question word.\n")
+    (tmp_path / "payments_core.py").write_text("def dispatch():\n    ...\n")
+    monkeypatch.chdir(tmp_path)
+    from cairn import sync as sync_mod
+    from cairn.core import Cairn
+    c = Cairn.here(tmp_path)
+    sync_mod.run(c, deep=False)
+    targets = c.infer_targets("what owns dispatch")
+    assert "what" not in {t.lower() for t in targets}
+
+
+# ---- sync shows long steps while they work (the deep tier used to be invisible for minutes) --------
+
+def test_sync_prints_start_states(cairn):
+    res = runner.invoke(app, ["sync", "--no-deep"])
+    assert res.exit_code == 0
+    assert "◌" in res.output  # a start line per step, not only the done summary
+
+
+# ---- active spec: process-dialect ids must print whole (strip only a real "spec:" prefix) -----------
+
+def test_status_active_spec_prints_process_dialect_ids_whole(repo):
+    import shutil
+
+    from cairn.core import Cairn
+    shutil.rmtree(repo / "specs")  # the fixture seeds a spec-kit feature; the dialect needs a clear field
+    (repo / "requirements").mkdir()
+    (repo / "requirements" / "index.md").write_text(
+        "| ID | Requirement |\n|---|---|\n| REQ-001 | Everything is traceable. |\n")
+    c = Cairn.here(repo)
+    sync.run(c)
+    res = runner.invoke(app, ["status"])
+    assert res.exit_code == 0, res.output
+    # the whole dialect id on the active-spec line, never a fixed-slice mangling ("ess:req-001")
+    assert "Active spec process:req-001" in res.output

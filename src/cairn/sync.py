@@ -22,30 +22,62 @@ from .router import Budget
 Progress = Callable[[str, str, str], None]  # (step, state: start|done|skip|fail, detail)
 
 
+def _windows_lock(fh, wait: float):
+    """Windows stand-in for flock: hold byte 0 of the lock file via msvcrt. Returns the unlock callable,
+    or None when another process held it past ``wait``. Never imported on POSIX; the logic is exercised
+    everywhere by stubbing the msvcrt module (see tests/test_windows.py), for real on the Windows CI runner."""
+    import msvcrt
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            return lambda: msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:  # contended (EACCES/EDEADLK): the BlockingIOError of this API
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.2)
+
+
 @contextmanager
-def locked(path):
+def locked(path, wait: float = 0.0):
+    """Hold the cross-process sync lock. With ``wait`` > 0, wait that many seconds for an
+    already-running sync (the post-commit hook's background sync) to finish instead of skipping."""
     path.parent.mkdir(exist_ok=True)
     fh = open(path, "w")
+    release = None
     try:
         try:
             import fcntl
-            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except ImportError:  # Windows: best effort
-            pass
-        except BlockingIOError:
-            yield False
-            return
+            deadline = time.monotonic() + wait
+            while True:
+                try:
+                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        yield False
+                        return
+                    time.sleep(0.2)
+        except ImportError:  # Windows: msvcrt byte-range lock, best effort (flock is POSIX-only)
+            release = _windows_lock(fh, wait)
+            if release is None:
+                yield False
+                return
         yield True
     finally:
+        if release:
+            with contextlib.suppress(OSError):  # close() drops the OS lock anyway
+                release()
         fh.close()
 
 
 def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_map: bool = True,
-        progress: Progress | None = None) -> dict:
+        progress: Progress | None = None, wait: float = 0.0) -> dict:
     project, brain = cairn.project, cairn.brain
     say = progress or (lambda *a: None)
     results: dict[str, dict] = {}
-    with locked(project.dir / "sync.lock") as ok:
+    with locked(project.dir / "sync.lock", wait=wait) as ok:
         if not ok:
             say("sync", "skip", "another sync is running")
             return {"skipped": True}
@@ -102,8 +134,16 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
             b = Budget(budget or int(project.cfg("deep.budget_tokens", 150000)))
 
             def do_deep():
-                res = asyncio.run(Chronicle(project, brain, cairn.router).ingest(
-                    b, on_progress=lambda m: say("timeline", "start", m)))
+                import faulthandler
+                # The deep tier has deadlocked in the field (asyncio loop + worker lock). If it hangs
+                # again, dump every thread's stack to stderr instead of silently spinning forever.
+                faulthandler.dump_traceback_later(600, exit=False)
+                try:
+                    res = asyncio.run(Chronicle(project, brain, cairn.router).ingest(
+                        b, on_progress=lambda m: say("timeline", "start", m),
+                        wall_seconds=float(project.cfg("deep.wall_seconds", 300))))
+                finally:
+                    faulthandler.cancel_dump_traceback_later()
                 linker.relink_memories(brain, cairn.map)
                 res["tokens"] = b.used
                 return res

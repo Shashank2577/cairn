@@ -18,12 +18,13 @@ from cairn.engines.temporal import TemporalService, TemporalSettings, ontology  
 from cairn.engines.temporal.api import TOOL_INDEX, TOOLS, call_tool, call_tool_sync  # noqa: E402
 from cairn.engines.temporal.embedder.local import HashingEmbedder, LocalEmbedder  # noqa: E402
 from cairn.engines.temporal.llm_client import RouterLLMClient, task_for_prompt  # noqa: E402
+from cairn.engines.temporal.llm_client.client import LLMClient, is_server_or_retry_error  # noqa: E402
 from cairn.engines.temporal.llm_client.config import ModelSize  # noqa: E402
+from cairn.engines.temporal.llm_client.errors import RateLimitError as LLMRateLimitError  # noqa: E402
 from cairn.engines.temporal.llm_client.router_client import parse_json_object  # noqa: E402
 from cairn.engines.temporal.prompts.extract_nodes import ExtractedEntities  # noqa: E402
 from cairn.engines.temporal.prompts.models import Message  # noqa: E402
-from cairn.router import Budget, BudgetExceeded  # noqa: E402
-from cairn.router import TASK_TIER
+from cairn.router import TASK_TIER, Budget, BudgetExceeded  # noqa: E402
 
 
 def run(coro):
@@ -133,7 +134,7 @@ def test_task_mapping_budget_and_availability():
     budget = Budget(10_000)
     router = ScriptRouter(json.dumps({'extracted_entities': []}))
     run(RouterLLMClient(router, budget=budget).generate_response(msgs(), response_model=ExtractedEntities))
-    assert router.calls[0]['budget'] is budget
+    assert budget.used > 0   # the call's measured usage was charged to the budget
     offline = RouterLLMClient(ScriptRouter(available=False))
     assert not offline.available
     with pytest.raises(RuntimeError):
@@ -145,6 +146,66 @@ def test_budget_exceeded_stops_immediately():
     with pytest.raises(BudgetExceeded):
         run(RouterLLMClient(router).generate_response(msgs(), response_model=ExtractedEntities))
     assert len(router.calls) == 1
+
+
+def test_exhausted_budget_fails_before_the_router_is_called():
+    """The per-call check fires before the call: an over-budget episode spends nothing."""
+    router = ScriptRouter(json.dumps({'extracted_entities': []}))
+    budget = Budget(1)
+    with pytest.raises(BudgetExceeded):
+        run(RouterLLMClient(router, budget=budget).generate_response(
+            msgs(), response_model=ExtractedEntities))
+    assert router.calls == [] and budget.used == 0
+
+
+def test_calls_charge_measured_usage_until_the_budget_stops_mid_episode():
+    """Every completed call charges the payload it actually moved (prompt + completion); once the
+    next call's estimate no longer fits, the budget stops the episode and nothing more is charged."""
+    answer = json.dumps({'extracted_entities': []})
+
+    def payload_charge(router):
+        call = router.calls[0]
+        return (len(call['system'] + call['prompt']) + len(answer)) // 4
+
+    router = ScriptRouter(answer)
+    probe = Budget(1_000_000)
+    run(RouterLLMClient(router, budget=probe).generate_response(
+        msgs(), response_model=ExtractedEntities, max_tokens=100))
+    charge = payload_charge(router)
+    assert probe.used == charge          # charged what the call moved, not a pre-call guess
+    # The client's admission estimate is the measured prompt + the max_tokens ceiling.
+    estimate = charge - len(answer) // 4 + 100
+    # A budget sized to admit exactly 3 identical calls (safely inside [2*charge + estimate,
+    # 3*charge + estimate)) and no fourth.
+    budget = Budget(2 * charge + estimate + charge // 2)
+    router = ScriptRouter(*[answer] * 4)
+    client = RouterLLMClient(router, budget=budget)
+    for _ in range(3):
+        run(client.generate_response(msgs(), response_model=ExtractedEntities, max_tokens=100))
+    assert budget.used == 3 * charge     # usage reflects the actual calls, exactly
+    with pytest.raises(BudgetExceeded):
+        run(client.generate_response(msgs(), response_model=ExtractedEntities, max_tokens=100))
+    assert budget.used == 3 * charge and len(router.calls) == 3
+
+
+def test_tenacity_never_retries_budget_exceeded():
+    """client.py's tenacity wrapper retries transient provider errors only; a BudgetExceeded
+    must surface on the first attempt, however many attempts the config allows."""
+    attempts: list[int] = []
+
+    class Dry(LLMClient):
+        async def _generate_response(self, messages, response_model=None,
+                                     max_tokens=8192, model_size=ModelSize.medium):
+            attempts.append(1)
+            raise BudgetExceeded('needs ~500 tokens, 0 left of 0')
+
+    with pytest.raises(BudgetExceeded):
+        asyncio.run(Dry(None)._generate_response_with_retry([], None))
+    assert len(attempts) == 1
+    # ...while the transient errors it is configured for stay retryable
+    assert is_server_or_retry_error(LLMRateLimitError('slow down'))
+    assert is_server_or_retry_error(json.decoder.JSONDecodeError('bad json', 'x', 0))
+    assert not is_server_or_retry_error(BudgetExceeded('over'))
 
 
 def test_response_cache(tmp_path):

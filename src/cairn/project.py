@@ -33,6 +33,7 @@ frontier = "claude-fable-5-1"        # opt-in whole-system reviews only
 [deep]
 enabled = "auto"                 # auto = on when a model key is present
 budget_tokens = 150000           # hard ceiling per deep sync
+wall_seconds = 300               # stop the deep tier after this many seconds; remaining days fill in on later syncs
 graph_url = ""                   # falkor://host:6379 or bolt://host:7687 ; empty = embedded store
 
 [memory]

@@ -120,6 +120,44 @@ def test_budget_stops_before_spending(cairn):
     assert cairn.brain.get_kv('chronicle.cursor', '0') == '0'
 
 
+def test_tiny_budget_stops_mid_episode_and_charged_usage_stays_bounded(cairn):
+    """Per-call enforcement inside an episode (the dogfood 468k-token burn): every model call the
+    engine makes checks the shared Budget before running and charges what it moved afterwards, so
+    one day's fan-out of resolve/dedupe calls can no longer spend without limit."""
+    seed_history(cairn.brain)
+    pending = Chronicle(cairn.project, cairn.brain, FakeRouter(repo_world())).pending_episodes()
+
+    class MeteredRouter(FakeRouter):
+        """Records the payload charge the client derives from each completed call, so the
+        overshoot bound below is measured from the run, not guessed."""
+
+        def __init__(self, world):
+            super().__init__(world)
+            self.charges: list[int] = []
+
+        def complete(self, task, prompt, *, system='', **kw):
+            text = super().complete(task, prompt, system=system, **kw)
+            # exactly what the client charges: prompt // 4 + completion // 4
+            self.charges.append(len(system + prompt) // 4 + len(text or '') // 4)
+            return text
+
+    router = MeteredRouter(repo_world())
+    budget = Budget(28_000)  # admits the first day's calls, stops partway through a later one
+    out = asyncio.run(Chronicle(cairn.project, cairn.brain, router).ingest(budget))
+    assert 'budget reached' in out['note']
+    done = out['episodes']
+    assert 0 < done < len(pending)
+    # the cursor advanced only over completed episodes, so the next sync resumes cleanly
+    assert float(cairn.brain.get_kv('chronicle.cursor', '0')) == pending[done - 1]['ts']
+    # every completed call was charged, exactly once
+    assert sum(router.charges) == budget.used
+    # Overshoot bound: a call is admitted while remaining >= its estimate (measured prompt +
+    # the 8192-token output ceiling) and charged afterwards; with concurrency 4 at most four
+    # calls can be in flight past the last admission, so the total charge can exceed the
+    # budget by no more than 4 x one completed call's charge.
+    assert budget.used <= budget.total + 4 * max(router.charges)
+
+
 def test_resync_mirror_rebuilds_from_the_graph(cairn):
     chron = Chronicle(cairn.project, cairn.brain, FakeRouter(repo_world()))
     asyncio.run(chron.ingest(Budget(1_000_000)))
@@ -175,3 +213,19 @@ def test_timeline_cli(cairn, monkeypatch):
     monkeypatch.setattr(cli, '_context', lambda: (cairn.project, cairn.brain, FakeRouter(available=False)))
     res = runner.invoke(cli.timeline_app, ['add', 'anything'])
     assert res.exit_code == 2 and 'needs a model' in res.output
+
+
+def test_wall_clock_stops_between_episodes_and_stays_resumable(cairn):
+    """The dogfood round-2 reframe: the deep tier grinds per-day, so the cap must stop between
+    episodes (cursor advanced, remaining days noted) instead of hanging past its welcome."""
+    seed_history(cairn.brain)
+    router = FakeRouter(repo_world())
+    out = asyncio.run(Chronicle(cairn.project, cairn.brain, router).ingest(Budget(1_000_000), wall_seconds=0))
+    assert out["episodes"] == 1
+    assert "later syncs" in out["note"]
+    assert router.calls  # the one episode genuinely ran
+    assert cairn.brain.get_kv("chronicle.cursor", "0") != "0"
+    # resume: a second ingest with no cap processes the remaining days
+    out2 = asyncio.run(Chronicle(cairn.project, cairn.brain, router).ingest(Budget(1_000_000)))
+    assert out2["episodes"] >= 1
+    assert "later syncs" not in out2.get("note", "")

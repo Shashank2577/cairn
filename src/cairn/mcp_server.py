@@ -15,7 +15,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
 
-from .core import Cairn
+from .core import Cairn, ago
 from .engines import mapper
 
 INSTRUCTIONS = ("Project memory for this repository. Call cairn_context with your task before editing; "
@@ -49,6 +49,28 @@ def _text(value: Any) -> str:
 def cairn_context(task: str, targets: list[str] | None = None, budget: int = 1800) -> str:
     """Call first. Ranked, cited context for a task: dependents, co-change, past incidents, owning spec, conventions, past agent work."""
     return _project().context(task, targets, budget).render()
+
+
+def cairn_status() -> str:
+    """Project health in one call: layer counts, active spec progress, drift findings, last sync, model availability. Read-only."""
+    c = _project()
+    o = c.overview()
+    L = o["layers"]
+    lines = [f"# {o['project']}",
+             f"model: {'available' if c.router.available else 'none (deterministic layers only)'}",
+             f"last sync: {ago(o['last_sync']) or 'never'}"
+             + (f" — failed: {', '.join(sorted(o['sync_failed']))}" if o["sync_failed"] else "")]
+    lines.append(f"map: {L['map']['nodes']} nodes, {L['map']['files']} files")
+    if L["specs"]["features"]:
+        lines.append(f"specs: {L['specs']['features']} features, {L['specs']['done']}/{L['specs']['tasks']} tasks done")
+    if o["active_spec"]:
+        a = o["active_spec"]
+        lines.append(f"active spec: {a['id'][5:]} — {a['name']} ({a['done']}/{a['total']} tasks)")
+    lines.append(f"timeline: {L['timeline']['commits']} commits, {L['timeline']['warnings']} risk warnings")
+    lines.append(f"memory: {L['memory']['memories']} memories; sessions: {L['sessions']['observations']} observations "
+                 f"in {L['sessions']['sessions']} sessions")
+    lines.append(f"drift: {o['drift']} open findings")
+    return "\n".join(lines)
 
 
 def cairn_impact(target: str, depth: int = 2, budget: int = 1500) -> str:
@@ -125,8 +147,8 @@ def cairn_facts(query: str, at: str = "", limit: int = 12) -> str:
                      f"{(f.get('invalid_at') or 'now')[:10]}) [fact:{f['uuid']}]" for f in rows)
 
 
-CORE: list[Callable[..., str]] = [cairn_context, cairn_impact, cairn_why, cairn_search, cairn_trace, cairn_specs,
-                                  cairn_remember, cairn_recall, cairn_facts]
+CORE: list[Callable[..., str]] = [cairn_context, cairn_status, cairn_impact, cairn_why, cairn_search, cairn_trace,
+                                  cairn_specs, cairn_remember, cairn_recall, cairn_facts]
 WRITES = {"cairn_remember", "cairn_build_corpus", "cairn_rebuild_corpus", "cairn_prime_corpus",
           "cairn_reprime_corpus", "cairn_query_corpus"}  # change stored data or spend the model budget
 # Pull-request tools run the host's GitHub CLI with the host's login: not offered over the network.

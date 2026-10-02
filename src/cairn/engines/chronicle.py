@@ -102,7 +102,7 @@ class Chronicle:
                              "tokens": estimate_tokens(body) * EPISODE_MULT + EPISODE_OVERHEAD})
         return episodes
 
-    async def ingest(self, budget: Budget, on_progress=None) -> dict:
+    async def ingest(self, budget: Budget, on_progress=None, wall_seconds: float | None = None) -> dict:
         if not getattr(self.router, "available", False):
             return {"episodes": 0, "facts": 0, "skipped": True, "note": "needs a model"}
         pending = self.pending_episodes()
@@ -113,6 +113,7 @@ class Chronicle:
         svc = self.service(budget)
         done, facts, ended = 0, 0, 0
         note = None
+        started = time.time()
         try:
             async with svc.session() as engine:
                 from .temporal.nodes import EpisodeType
@@ -156,6 +157,12 @@ class Chronicle:
                     done += 1
                     if on_progress:
                         on_progress(f"{ep['name']} → {facts} facts ({time.time() - t0:.0f}s)")
+                    # The cap is checked between episodes, so an in-flight day always completes and
+                    # the cursor (set above) keeps the run resumable — never more than one day lost.
+                    if wall_seconds is not None and time.time() - started > wall_seconds:
+                        note = (f"wall clock ({wall_seconds:.0f}s) reached — the remaining "
+                                f"{len(pending) - done} day(s) fill in on later syncs")
+                        break
         except Exception as exc:  # store unavailable (locked, broken server config)
             self.error = f"{type(exc).__name__}: {exc}"[:240]
             log.info("timeline engine unavailable: %s", self.error)

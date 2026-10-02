@@ -18,7 +18,7 @@ from pathlib import Path
 from .engines import history, journal, mapper
 from .engines.chronicle import facts_matching
 from .engines.memory import MemoryStore
-from .linker import link_text
+from .linker import GENERIC, link_text
 from .project import Project
 from .router import Router, estimate_tokens
 from .store import Brain
@@ -33,6 +33,17 @@ def in_repo(path: str) -> bool:
     """A repository-relative path (not absolute, home-relative or climbing out of the repository)."""
     p = (path or "").replace("\\", "/")
     return bool(p) and not p.startswith(("/", "~")) and not re.match(r"^[A-Za-z]:", p) and ".." not in p.split("/")
+
+
+# Question and filler words that must never become context targets on their own ("what owns dispatch"
+# used to resolve "what" against README headings); GENERIC covers code-y fillers, this covers prose ones.
+_QUESTION_STOP = frozenset((
+    "what", "where", "when", "who", "whose", "why", "how", "which", "owns", "owner", "owned",
+    "does", "did", "doing", "done", "the", "and", "or", "are", "was", "were", "is", "been", "being",
+    "has", "had", "have", "will", "shall", "may", "might", "must", "can", "could", "should", "would",
+    "about", "after", "before", "between", "during", "without", "within", "of", "to", "in", "on",
+    "at", "by", "as", "it", "its", "this", "that", "these", "those", "there", "here",
+    "please", "show", "tell", "give", "find", "list"))
 
 
 def ask_prompt(question: str, context: str) -> str:
@@ -188,6 +199,9 @@ class Cairn:
     # ---- resolution -------------------------------------------------------------------------------
     def resolve(self, raw: str) -> Target:
         raw = raw.strip()
+        if len(raw) < 2 or not re.search(r"[A-Za-z0-9]", raw):
+            # ".", "/", "…" and friends resolve to arbitrary first-matches; refuse them before map lookup
+            raise ValueError(f"'{raw}' is not a file, symbol or id — try `cairn search` to find a target.")
         idx = self.map
         if re.match(r"^(spec|task|req|story|memory|commit|obs|session|fact|file|symbol):", raw):
             ent = self.brain.entity(raw)
@@ -419,7 +433,7 @@ class Cairn:
         idx = self.map
         found: list[str] = []
         for tok in re.findall(r"[\w./-]+\.[A-Za-z0-9]{1,6}|[A-Za-z_][\w]*(?:\.[A-Za-z_]\w*)?", text):
-            if len(tok) < 4 or tok.lower() in {"this", "that", "with", "from", "into", "should", "would", "change"}:
+            if len(tok) < 4 or tok.lower() in _QUESTION_STOP or tok.lower() in GENERIC:
                 continue
             if tok.lstrip("./") in idx.by_file or (("_" in tok or re.search(r"[a-z][A-Z]", tok) or "." in tok)
                                                    and idx.resolve(tok, limit=1)):
@@ -428,7 +442,10 @@ class Cairn:
         if len(found) < limit:
             for h in self.brain.search(text, kinds=["symbol", "file"], limit=limit):
                 cand = h["title"] if h["kind"] == "file" else h["id"]
-                if cand not in found:
+                # a heading anchor named "what" (or any content-free label) is not a target, even
+                # when full-text search surfaced it for a question built out of question words
+                label_toks = set(re.findall(r"[a-z0-9]+", h["title"].lower()))
+                if cand not in found and (label_toks - _QUESTION_STOP - GENERIC):
                     found.append(cand)
         return found[:limit]
 

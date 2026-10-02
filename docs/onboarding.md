@@ -322,7 +322,8 @@ call `cairn_remember` for things the code already states — that's noise, not m
 ## Troubleshooting
 
 - **`cairn: command not found`** — it's installed in a project's own environment, not globally.
-  Either `uv tool install cairn-brain` / `pipx install cairn-brain` for a system-wide install, or run
+  Either `uv tool install --python 3.12 git+https://github.com/Shashank2577/cairn.git` for a
+  system-wide install (PyPI publishing is pending; the pin is for kuzu wheels), or run
   it as `./.venv/bin/cairn` from this checkout.
 - **An agent isn't getting context** — check `cairn doctor`'s per-agent row first. Most gaps are a
   one-time step the agent's own security model requires (Codex's `/hooks` approval), not a Cairn bug.

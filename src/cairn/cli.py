@@ -168,13 +168,14 @@ def init(yes: bool = typer.Option(True, "--yes/--ask", help="Zero prompts (defau
          no_hooks: bool = typer.Option(False, "--no-hooks", help="Skip git hooks."),
          no_ui: bool = typer.Option(False, "--no-ui", help="Don't start the local UI."),
          no_capture: bool = typer.Option(False, "--no-capture", help="Don't install agent session capture."),
-         no_specs: bool = typer.Option(False, "--no-specs", help="Don't add the spec workflow.")):
+         no_specs: bool = typer.Option(False, "--no-specs", help="Don't add the spec workflow."),
+         no_deep: bool = typer.Option(False, "--no-deep", help="Skip the deep tier (timeline facts) during the first sync.")):
     """One-command setup for a new or existing repository. Idempotent."""
-    run_init(agents=agents, no_hooks=no_hooks, no_ui=no_ui, no_capture=no_capture, no_specs=no_specs)
+    run_init(agents=agents, no_hooks=no_hooks, no_ui=no_ui, no_capture=no_capture, no_specs=no_specs, no_deep=no_deep)
 
 
 def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = False, no_capture: bool = False,
-             no_specs: bool = False) -> None:
+             no_specs: bool = False, no_deep: bool = False) -> None:
     from . import agents as agents_mod
     from . import daemon, hooks, sync
     from .core import Cairn
@@ -261,7 +262,11 @@ def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = Fa
         def prog(step, st, detail):
             label = labels.get(step, step)
             mark(label, {"start": "run", "done": "ok", "skip": "skip", "fail": "fail"}[st], detail or "working…")
-        sync.run(c, progress=prog)
+            if not console.is_terminal:
+                # rich's Live only emits the final frame when output isn't a terminal, so a piped or
+                # CI-run init would log nothing until the end (nothing at all, if it dies mid-way)
+                console.print(f" {label}: {st}" + (f" — {detail}" if detail else ""))
+        sync.run(c, progress=prog, deep=False if no_deep else None)
         # UI
         if no_ui:
             mark("Local UI", "skip", "skipped")
@@ -307,7 +312,9 @@ def status(as_json: bool = typer.Option(False, "--json", help="Machine-readable 
     bits = []
     if ov["active_spec"]:
         a = ov["active_spec"]
-        bits.append(f"[{INK}]Active spec[/] [{AMBER}]{a['id'][5:]}[/] {a['done']}/{a['total']} tasks")
+        # the read model stores feature ids as "spec:<id>" and dialect ids already carry their own
+        # "process:" prefix — strip only a real prefix, never a fixed slice
+        bits.append(f"[{INK}]Active spec[/] [{AMBER}]{a['id'].removeprefix('spec:')}[/] {a['done']}/{a['total']} tasks")
     if ov["drift"]:
         bits.append(f"[{ROSE}]{ov['drift']} drift findings[/] → cairn drift")
     bits.append(f"UI [{AMBER}]{srv['project_url']}[/]" if srv else "UI [dim]stopped[/] → cairn ui")
@@ -345,8 +352,11 @@ def doctor():
         "cairn init")
     legacy = specs.legacy_layout(c.project.root)
     row(not legacy, "Workflow layout", "current" if not legacy else "older layout", "cairn init (migrates it)")
-    row(journal.installed(c.project), "Session capture", "on (.cairn/sessions.db)" if journal.installed(c.project)
-        else "off", "cairn init --agents claude")
+    if c.project.cfg("sessions.capture", True):
+        row(journal.installed(c.project), "Session capture", "on (.cairn/sessions.db)" if journal.installed(c.project)
+            else "off", "cairn init --agents claude")
+    else:  # the config turned capture off; doctor must not report it as on
+        row(False, "Session capture", "off (config)", "set [sessions] capture = true in .cairn/config.toml")
     row(c.router.available, "Model", c.router.provider if c.router.available else "none (model features off)",
         "sign in to Claude Code (claude), or set ANTHROPIC_API_KEY / an OpenAI-compatible endpoint")
     from .engines import vectors
@@ -363,7 +373,7 @@ def doctor():
     srv = daemon.info()
     row(bool(srv), "Local UI", srv["url"] if srv else "stopped", "cairn ui")
     row(bool(shutil.which("cairn")), "cairn on PATH", "yes" if shutil.which("cairn") else "no",
-        "uv tool install cairn-brain")
+        "uv tool install --python 3.12 git+https://github.com/Shashank2577/cairn.git")
     from . import agents as agents_mod
     wired = agents_mod.installed(c.project)
     detected = agents_mod.detect(c.project)
@@ -391,6 +401,7 @@ def doctor():
 def sync_cmd(deep: Optional[bool] = typer.Option(None, "--deep/--no-deep", help="Force the deep tier on/off."),
              budget: Optional[int] = typer.Option(None, help="Token budget for the deep tier."),
              no_map_rebuild: bool = typer.Option(False, "--no-map-rebuild", help="Reuse the current map."),
+             wait: int = typer.Option(5, "--wait", help="Seconds to wait for an already-running sync (e.g. the post-commit hook's) before giving up."),
              quiet: bool = typer.Option(False, "--quiet", "-q"),
              as_json: bool = typer.Option(False, "--json")):
     """Refresh every layer in parallel (incremental), link, check drift."""
@@ -398,13 +409,16 @@ def sync_cmd(deep: Optional[bool] = typer.Option(None, "--deep/--no-deep", help=
     c = _cairn()
 
     def prog(step, st, detail):
-        if quiet or as_json or st == "start":
+        if quiet or as_json:
+            return
+        if st == "start":  # the deep tier and memory can run for minutes; they must be visible
+            console.print(f" [{SLATE}]◌[/] [{INK}]{step:<10}[/] [{SLATE}]{detail or 'working…'}[/]")
             return
         icon = {"done": f"[{MOSS}]✓[/]", "skip": f"[{SLATE}]–[/]", "fail": f"[{ROSE}]✗[/]"}[st]
         console.print(f" {icon} [{INK}]{step:<10}[/] [{SLATE}]{detail}[/]")
     if not quiet and not as_json:
         console.print(brand("sync"))
-    res = sync.run(c, deep=deep, budget=budget, rebuild_map=not no_map_rebuild, progress=prog)
+    res = sync.run(c, deep=deep, budget=budget, rebuild_map=not no_map_rebuild, progress=prog, wait=float(wait))
     if as_json:
         _emit_json(res)
     elif not quiet:
@@ -419,9 +433,14 @@ def impact(target: str = typer.Argument(..., help="File path, symbol, Class.meth
            explain: bool = typer.Option(False, "--explain", help="Add a deep-tier summary (needs a key)."),
            as_json: bool = typer.Option(False, "--json")):
     """What breaks if this changes."""
+    from rich.markup import escape
     c = _cairn()
     _need_init(c)
-    p = c.impact(target, depth, budget)
+    try:
+        p = c.impact(target, depth, budget)
+    except ValueError as exc:  # degenerate targets (".". "") — resolve refuses them
+        err.print(f"[{ROSE}]{escape(str(exc))}[/]")
+        raise typer.Exit(2)
     if as_json:
         _emit_pack(p)
         return
@@ -434,9 +453,14 @@ def impact(target: str = typer.Argument(..., help="File path, symbol, Class.meth
 def why(target: str = typer.Argument(...), budget: int = typer.Option(1800),
         explain: bool = typer.Option(False, "--explain"), as_json: bool = typer.Option(False, "--json")):
     """Why this code is the way it is."""
+    from rich.markup import escape
     c = _cairn()
     _need_init(c)
-    p = c.why(target, budget)
+    try:
+        p = c.why(target, budget)
+    except ValueError as exc:  # degenerate targets — resolve refuses them
+        err.print(f"[{ROSE}]{escape(str(exc))}[/]")
+        raise typer.Exit(2)
     if as_json:
         _emit_pack(p)
         return
@@ -796,14 +820,14 @@ from .engines.temporal.cli import timeline_app
 
 
 @timeline_app.callback(invoke_without_command=True)
-def timeline(ctx: typer.Context, target: Optional[str] = typer.Option(None, help="file:<path>, spec:<id>, …"),
+def timeline(ctx: typer.Context, target: Optional[str] = typer.Option(None, help="file:<path>, spec:<id>, … — a bare path or symbol works too"),
              days: int = typer.Option(30, help="How far back."), limit: int = 40):
     """What happened: commits, spec progress, sessions, decisions, facts, drift. Subcommands work the fact graph."""
     if ctx.invoked_subcommand:
         return
     from .core import day
     c = _cairn()
-    evs = c.brain.events(since=time.time() - days * 86400, ref=target, limit=limit)
+    evs = c.brain.events(since=time.time() - days * 86400, ref=_timeline_ref(c, target), limit=limit)
     col = {"commit": INK, "spec": AMBER, "session": MOSS, "memory": AMBER, "fact": MOSS, "fact_end": SLATE,
            "drift": ROSE, "workflow_run": AMBER}
     for e in evs:
@@ -813,6 +837,34 @@ def timeline(ctx: typer.Context, target: Optional[str] = typer.Option(None, help
 
 
 app.add_typer(timeline_app, name="timeline")
+
+
+def _timeline_ref(c, target: str | None) -> str | None:
+    """The event ref for a --target, accepting the same bare paths and symbols impact accepts —
+    events are keyed by ids like ``file:todo/cli.py``, which users never type from memory."""
+    if not target or re.match(r"^[a-z]+:", target):
+        return target
+    try:
+        t = c.resolve(target)
+    except ValueError:
+        return target  # let the empty result speak, like the other target-taking commands
+    if t.files:
+        return f"file:{t.files[0]}"
+    if t.nodes:
+        return f"symbol:{t.nodes[0]}"
+    return target
+
+
+@app.command()
+def standup(days: int = typer.Option(1, help="How far back: 1 = the last 24h, 2 adds yesterday."),
+            as_json: bool = typer.Option(False, "--json", help="Machine-readable output.")):
+    """What happened, from the event log: commits and their requirements, memories, facts, sessions."""
+    from . import standup as su
+    out = su.digest(_cairn().brain, days)
+    if as_json:
+        _emit_json(out)
+        return
+    su.render(out)
 
 
 @app.command("sessions", add_help_option=False,
@@ -932,16 +984,27 @@ def statusline():
     from .core import Cairn
     from .project import Project
     data = sys.stdin.read() if not sys.stdin.isatty() else ""
-    cwd = None
-    try:
-        cwd = json.loads(data).get("workspace", {}).get("current_dir") if data.strip() else None
-    except json.JSONDecodeError:
-        pass
+    cwd = _statusline_cwd(data)
     proj = Project.discover(Path(cwd) if cwd else None)
     if proj is None or not proj.db_path.exists():
         print("▲ cairn · not set up")
         return
     print(hooks.statusline(Cairn(proj), data))
+
+
+def _statusline_cwd(data: str) -> str | None:
+    """Claude Code pipes JSON here; any non-object payload (null, a list, a bare string) means no cwd."""
+    try:
+        info = json.loads(data) if data.strip() else None
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(info, dict):
+        return None
+    workspace = info.get("workspace")
+    if not isinstance(workspace, dict):
+        return None
+    cwd = workspace.get("current_dir")
+    return cwd if isinstance(cwd, str) else None
 
 
 @app.command(hidden=True)

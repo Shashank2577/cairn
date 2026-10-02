@@ -51,6 +51,7 @@ from cairn.engines.graph.extractors.fortran import _cpp_preprocess, extract_fort
 from cairn.engines.graph.extractors.go import _GO_PREDECLARED_FUNCS, extract_go  # noqa: F401
 from cairn.engines.graph.extractors.json_config import extract_json  # noqa: F401
 from cairn.engines.graph.extractors.commonlisp import extract_commonlisp  # noqa: F401
+from cairn.engines.graph.extractors.yaml import extract_yaml
 from cairn.engines.graph.extractors.markdown import extract_markdown, _MD_LINK_INDEX_CACHE  # noqa: F401
 from cairn.engines.graph.extractors.ocaml import extract_ocaml  # noqa: F401
 from cairn.engines.graph.extractors.pascal_forms import extract_delphi_form, extract_lazarus_form  # noqa: F401
@@ -6679,6 +6680,8 @@ _DISPATCH: dict[str, Any] = {
     ".mdx": extract_markdown,
     ".qmd": extract_markdown,
     ".skill": extract_markdown,
+    ".yaml": extract_yaml,
+    ".yml": extract_yaml,
     ".pas": extract_pascal,
     ".pp": extract_pascal,
     ".dpr": extract_pascal,

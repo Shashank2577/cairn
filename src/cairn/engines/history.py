@@ -73,7 +73,13 @@ def ingest(project: Project, brain: Brain, max_commits: int | None = None) -> di
         return {"commits": 0, "note": "up to date"}
     max_commits = max_commits or int(project.cfg("history.max_commits", 3000))
     fmt = f"--format={SEP_C}%H{SEP_F}%at{SEP_F}%an{SEP_F}%s{SEP_F}%b"
-    rng = [f"{cursor}..HEAD"] if cursor and _is_ancestor(project, cursor) else []
+    rewritten = bool(cursor) and not _is_ancestor(project, cursor)  # amend/rebase moved the cursor
+    if rewritten:  # the commits behind the cursor may be gone: drop this generation before the full
+        # re-read so the rebuild is exact, not additive (upsert-by-id only refreshes surviving shas)
+        brain.drop_source("history", ["commit"])  # entities + fts + links written by this source
+        with brain.tx() as db:
+            db.execute("DELETE FROM events WHERE source='history' AND kind='commit'")
+    rng = [f"{cursor}..HEAD"] if cursor and not rewritten else []
     raw = project.git("log", "--no-merges", "--numstat", fmt, f"-n{max_commits}", *rng, timeout=300)
     commits = _parse(raw)
     if not commits:
@@ -81,9 +87,10 @@ def ingest(project: Project, brain: Brain, max_commits: int | None = None) -> di
         return {"commits": 0}
 
     stats: dict[str, dict] = {}
-    for r in brain.q("SELECT * FROM filestats"):
-        stats[r["path"]] = {"commits": r["commits"], "risky": r["risky"], "last_ts": r["last_ts"],
-                            "authors": set(json.loads(r["authors"]))}
+    if not rewritten:  # the rebuild below re-reads the whole log: seeding here would double-count it
+        for r in brain.q("SELECT * FROM filestats"):
+            stats[r["path"]] = {"commits": r["commits"], "risky": r["risky"], "last_ts": r["last_ts"],
+                                "authors": set(json.loads(r["authors"]))}
     pairs: dict[tuple[str, str], list] = defaultdict(lambda: [0, 0.0])
     events, entities, links = [], [], []
     risky_count = 0
@@ -116,6 +123,9 @@ def ingest(project: Project, brain: Brain, max_commits: int | None = None) -> di
     brain.put_entities(entities)
     brain.link(links)
     with brain.tx() as db:
+        if rewritten:  # filestats/cochange are fully derived from git log: wipe, or cochange doubles
+            db.execute("DELETE FROM filestats")
+            db.execute("DELETE FROM cochange")
         db.executemany(
             "INSERT INTO filestats(path,commits,risky,last_ts,authors) VALUES(?,?,?,?,?) ON CONFLICT(path) DO UPDATE "
             "SET commits=excluded.commits,risky=excluded.risky,last_ts=excluded.last_ts,authors=excluded.authors",

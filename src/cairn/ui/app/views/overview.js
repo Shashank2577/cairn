@@ -180,7 +180,7 @@ function ActiveSpec({ specs, wf }) {
   return html`<div class="active-spec">
     <div class="row" style="justify-content:space-between"><h3 style="margin:0">Active spec</h3><a class="small" href=${link.project(pid, "specs", [f.id])}>Open</a></div>
     <a class="as-title" href=${link.project(pid, "specs", [f.id])}>${f.title}</a>
-    <${Stepper} stages=${wf.stages} fid=${f.id} compact/>
+    ${f.id.startsWith("process:") ? null : html`<${Stepper} stages=${wf.stages} fid=${f.id} compact/>`}
     <div class="row tight" style="margin-top:8px"><${Meter} value=${f.progress.done} max=${f.progress.total} tone="spec" label="Tasks done"/><span class="sub num nowrap">${f.progress.done} of ${f.progress.total} tasks</span></div>
   </div>`;
 }

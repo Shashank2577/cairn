@@ -149,6 +149,12 @@ def build(root: Path, force: bool = False, out_dir: Path | None = None) -> tuple
             target.mkdir(parents=True, exist_ok=True)
             fp.write_text(json.dumps(now))
         return True, res["summary"] or f"{res['nodes']:,} nodes, {res['edges']:,} edges"
+    if not (target / "graph.json").exists() and "no code files" in (res.get("summary") or "").lower():
+        # Nothing graphable in the repo (cairn init on a fresh, empty repo): an
+        # empty map is the correct result — cairn's own artifacts never self-map —
+        # not a build failure. The engine writes no graph.json for this case, so a
+        # later build re-derives it cheaply once real files appear.
+        return True, "0 files"
     return False, _user_facing_error(res["summary"], root) if res["summary"] else "map build failed"
 
 

@@ -339,12 +339,18 @@ def project_router(hub: Hub) -> APIRouter:
     @r.get("/impact", dependencies=read)
     def impact(pid: str, target: str, depth: int = 2, budget: int = 1500):
         cairn = c(pid)
-        return pack(cairn, cairn.impact(target, depth, budget))
+        try:
+            return pack(cairn, cairn.impact(target, depth, budget))
+        except ValueError as exc:  # resolve refuses degenerate targets ("." etc.)
+            raise HTTPException(400, str(exc)) from exc
 
     @r.get("/why", dependencies=read)
     def why(pid: str, target: str, budget: int = 1200):
         cairn = c(pid)
-        return pack(cairn, cairn.why(target, budget))
+        try:
+            return pack(cairn, cairn.why(target, budget))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @r.post("/ask", dependencies=read)
     def ask(pid: str, payload: AskIn):
