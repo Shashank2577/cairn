@@ -22,7 +22,7 @@ if ! command -v uv >/dev/null 2>&1; then
   }
 fi
 
-SRC="${CAIRN_SOURCE:-git+https://github.com/Shashank2577/cairn.git}"
+SRC="${CAIRN_SOURCE:-cairn-brain}"
 [ -n "${CAIRN_EXTRAS:-}" ] && SRC="${SRC}[${CAIRN_EXTRAS}]"
 say "Installing Cairn…"
 # --python 3.12: kuzu (the timeline store) has no 3.14 wheels on macOS and Windows, so uv must not pick a newer interpreter.

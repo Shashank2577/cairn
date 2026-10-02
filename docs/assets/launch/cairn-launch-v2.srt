@@ -1,0 +1,71 @@
+1
+00:00:00,500 --> 00:00:03,645
+Every morning, your coding agent wakes up brilliant.
+
+2
+00:00:03,900 --> 00:00:05,390
+And remembers nothing.
+
+3
+00:00:06,300 --> 00:00:08,209
+It re-reads the same files,
+
+4
+00:00:09,500 --> 00:00:11,591
+misses the caller three hops away,
+
+5
+00:00:12,800 --> 00:00:15,638
+and re-applies the fix you reverted last spring.
+
+6
+00:00:16,100 --> 00:00:18,400
+Every session starts back at the trailhead.
+
+7
+00:00:18,450 --> 00:00:20,233
+What if the trail remembered?
+
+8
+00:00:20,400 --> 00:00:21,587
+One command.
+
+9
+00:00:22,300 --> 00:00:25,860
+Meet Cairn. Institutional memory for coding agents.
+
+10
+00:00:26,400 --> 00:00:28,078
+A living map of your code.
+
+11
+00:00:30,400 --> 00:00:33,255
+The intent behind it, traced to every task.
+
+12
+00:00:34,400 --> 00:00:36,447
+What happened, and when it was true.
+
+13
+00:00:38,400 --> 00:00:40,618
+What your team learned, kept current.
+
+14
+00:00:42,400 --> 00:00:45,000
+And what every agent did, in one brief.
+
+15
+00:00:46,300 --> 00:00:49,672
+So tomorrow, your agent starts where today left off.
+
+16
+00:00:50,050 --> 00:00:53,750
+Three hundred sixty-nine times fewer tokens, for one answer.
+
+17
+00:00:53,800 --> 00:00:56,214
+Works with the agents you already use.
+
+18
+00:00:56,400 --> 00:00:58,551
+Cairn. Give your agents a memory.

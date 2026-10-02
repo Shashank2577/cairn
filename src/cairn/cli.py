@@ -373,7 +373,7 @@ def doctor():
     srv = daemon.info()
     row(bool(srv), "Local UI", srv["url"] if srv else "stopped", "cairn ui")
     row(bool(shutil.which("cairn")), "cairn on PATH", "yes" if shutil.which("cairn") else "no",
-        "uv tool install --python 3.12 git+https://github.com/Shashank2577/cairn.git")
+        "uv tool install --python 3.12 cairn-brain")
     from . import agents as agents_mod
     wired = agents_mod.installed(c.project)
     detected = agents_mod.detect(c.project)

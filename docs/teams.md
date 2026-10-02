@@ -247,8 +247,8 @@ vector_store = { provider = "qdrant", config = { url = "http://vectors.internal:
 
 Install the client libraries with extras: `cairn-brain[temporal-neo4j]`,
 `cairn-brain[temporal-falkordb]`, and `cairn-brain[memory-server]` (Qdrant, pgvector and Chroma).
-Until the package is on PyPI, extras install from git:
-`uv tool install --python 3.12 'git+https://github.com/Shashank2577/cairn.git[temporal-neo4j]'`.
+Extras install the same way:
+`uv tool install --python 3.12 'cairn-brain[temporal-neo4j]'`.
 Neptune (`neptune-db://…`) is supported too, but its AWS client libraries aren't part of any extra,
 so you install them yourself.
 Facts and memories are always mirrored into each project's read model, so the page and agents keep

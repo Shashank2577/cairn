@@ -55,7 +55,7 @@ Wherever a command takes a **target**, it accepts a path (`src/pay/service.py`),
 - **Plumbing:** `hook`, `merge-driver`, `merge-chunks`, `merge-semantic`, `cache-check`, `provider`.
 
 Extra inputs and languages need extras, for example
-`uv tool install --python 3.12 'git+https://github.com/Shashank2577/cairn.git[pdf,office]'`.
+`uv tool install --python 3.12 'cairn-brain[pdf,office]'`.
 The full list is in `pyproject.toml`.
 
 ## Specs
