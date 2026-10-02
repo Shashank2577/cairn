@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.2.1 — 2026-10-02
+
+### Added
+
+- **Standup:** `cairn standup` prints what happened over the last 24 hours (`--days` to go further
+  back), read entirely from the local store: commits with their requirement and work-item trailers,
+  the requirements they touch, memories, timeline facts, agent sessions and drift. No model calls.
+- **Status tool:** the MCP core set gains `cairn_status` — project health in one call: layer
+  counts, active spec progress, drift findings, last sync and model availability.
+- **Process dialect:** repositories that run their own spec process instead of the bundled workflow
+  (foundry-program style) are read as spec boards: the requirement table in
+  `requirements/index.md`, machine-checkable criteria in `requirements/coverage.yaml`, and work
+  items from `story/FDY-*` / `bug/FDY-*` branches and `Work-Item:` commit trailers.
+- **Deep-tier budget:** the timeline engine stops after `deep.wall_seconds` (default 300) and the
+  remaining days fill in on later syncs; a model call that overruns the token budget inside one
+  episode now ends the run cleanly instead of failing the whole sync.
+
+### Changed
+
+- **Sync progress:** every sync step reports a line when it starts, so a long sync shows where it
+  is instead of going quiet.
+
+### Fixed
+
+- **Install:** the quick start and the installer install from GitHub with `--python 3.12` (PyPI
+  publishing is pending, and kuzu has no 3.14 wheels on every platform), and the installer reports
+  download and PATH failures instead of continuing silently.
+- **Python support:** `requires-python` is capped at `<3.14` until kuzu ships 3.14 wheels for every
+  platform. CI now tests 3.11, 3.12 and 3.13.
+- **Windows sync lock:** the cross-process sync lock works on Windows (an `msvcrt` byte-range lock
+  stands in for `flock`), so concurrent syncs cannot interleave there.
+- **History rewrites:** after an amend or rebase moves the cursor, the history engine drops the
+  previous generation and rebuilds, so rows for commits that no longer exist are not left behind.
+- History rewrite no longer corrupts its stats.
+- `cairn init --no-deep` and deep-tier setup are hardened.
+- The Claude Code status line is guarded against missing or broken state.
+- `cairn timeline` and `cairn impact` resolve targets the same way.
+- `cairn spec init` has a smoother first-run UX and a documented format.
+- YAML files are included in the map.
+
 ## 0.2.0 — 2026-09-25
 
 Cairn is now one product. Five engines are built in, and one server serves every project for one

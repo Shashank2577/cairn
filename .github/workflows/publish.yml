@@ -1,0 +1,60 @@
+# Publishes cairn-brain to PyPI with trusted publishing (OIDC): PyPI trusts this workflow's
+# identity, so no API token is stored in GitHub secrets.
+#
+# One-time setup (repo owner):
+#   1. GitHub: create the environment `pypi` on this repository
+#      (Settings -> Environments -> New environment). No protection rules are required.
+#   2. pypi.org: on `cairn-brain`, add a pending publisher
+#      (Manage -> Publishing -> Add a new pending publisher) with exactly:
+#        PyPI project: cairn-brain
+#        Owner:        Shashank2577
+#        Repository:   cairn
+#        Workflow:     publish.yml
+#        Environment:  pypi
+#      (If the project does not exist yet, the first tagged run creates it from this
+#      pending publisher; no manual upload is needed.)
+#
+# Then push a `v*` tag (e.g. v0.2.1) or run it from the Actions tab.
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write  # trusted publishing: the OIDC token stands in for an API token
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false  # never cancel a publish in flight; queue a second one instead
+
+jobs:
+  publish:
+    name: build and publish to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"  # the version the quick start and installer use
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build
+
+      - name: Smoke-test the wheel
+        run: |
+          python -m pip install dist/*.whl
+          cairn --version
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

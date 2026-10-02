@@ -1,10 +1,11 @@
 [project]
 name = "cairn-brain"
-version = "0.2.0"
+version = "0.2.1"
 description = "Institutional memory for coding agents: map, specs, timeline, memory and sessions behind one command."
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.11"
+# Upper bound until kuzu ships 3.14 wheels for every platform.
+requires-python = ">=3.11,<3.14"
 authors = [{ name = "Cairn contributors" }]
 keywords = ["ai", "coding-agents", "mcp", "knowledge-graph", "memory", "spec-driven-development"]
 classifiers = [
@@ -119,3 +120,6 @@ addopts = "-q"
 [tool.ruff]
 line-length = 110
 target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
