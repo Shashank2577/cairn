@@ -1,0 +1,52 @@
+# Cairn team server, self-hosted.
+#
+# State lives under $CAIRN_HOME (default ~/.cairn) — here mounted as the named
+# volume `cairn-state` at /data: platform.db, secret.key, server.toml, repos/
+# (cloned projects with their .cairn/ brains), models/, graph/.
+services:
+  cairn:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # extras: "[memory-server,temporal-neo4j]"   # for the shared-store path below
+    image: cairn-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4747:4747"   # bind loopback; a reverse proxy terminates TLS
+    environment:
+      CAIRN_SERVER_MODE: team   # also set in the image; local mode cannot bind non-loopback
+      # The address people use — pins the allowed Host header/origin and builds
+      # invite and webhook links. Required behind a proxy. Leave the HOST/PORT
+      # variables at the image defaults unless you changed the CMD.
+      CAIRN_PUBLIC_URL: ${CAIRN_PUBLIC_URL:-https://cairn.example.com}
+      # CAIRN_SERVER_PORT: 4747
+      # Provider key for the server's own model work (bounded; see docs/multi-repo.md):
+      # ANTHROPIC_API_KEY: set via an env file or your secret manager, not committed
+    volumes:
+      - cairn-state:/data
+    healthcheck:
+      # GET /api/health returns {"ok": true, "version": ...}
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4747/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Optional: shared vector store for the memory engine (the memory-server extra).
+  # Uncomment, then set in each project's committed .cairn/config.toml:
+  #   [memory]
+  #   vector_store = { provider = "qdrant", config = { url = "http://qdrant:6333" } }
+  # and build the image with --build-arg EXTRAS="[memory-server]".
+  #
+  # qdrant:
+  #   image: qdrant/qdrant
+  #   restart: unless-stopped
+  #   volumes:
+  #     - qdrant-data:/qdrant/storage
+  #   # Qdrant is reached only by the server over the compose network; do not
+  #   # publish its ports unless you know you need to.
+
+volumes:
+  cairn-state:
+    name: cairn-state          # explicit, so backup commands can mount it by name
+  # qdrant-data:
