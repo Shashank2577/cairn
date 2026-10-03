@@ -149,7 +149,9 @@ def test_doctor_reports_capture_off_when_config_disables_it(cairn):
 def test_doctor_does_not_claim_off_when_capture_is_enabled(cairn):
     res = runner.invoke(app, ["doctor"])
     assert res.exit_code == 0
-    assert "off (config)" not in res.output
+    # scoped to the capture row: ambient context has its own "off (config)" state (it defaults to off)
+    capture = next(ln for ln in res.output.splitlines() if "Session capture" in ln)
+    assert "off (config)" not in capture
 
 
 # ---- init --no-deep: the first sync can skip the deep tier -----------------------------------------

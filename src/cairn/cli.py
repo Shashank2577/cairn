@@ -392,6 +392,12 @@ def doctor():
             + (" · hooks not approved yet" if pending else ""),
             "open codex here and approve Cairn's hooks once under /hooks" if pending
             else f"cairn agents install --agents {a}")
+    if c.project.cfg("context.ambient", False):  # the enforced read path: a nugget on every prompt
+        wired = agents_mod.ambient_wired(c.project)
+        row(wired, "Ambient context", "on (Claude Code prompt hook)" if wired else "on, prompt hook not wired",
+            "" if wired else "cairn agents install --agents claude")
+    else:  # the config keeps the nugget off; doctor must not report it as on
+        row(False, "Ambient context", "off (config)", "set [context] ambient = true in .cairn/config.toml")
     console.print(brand("doctor"))
     console.print(t)
 
@@ -867,6 +873,54 @@ def standup(days: int = typer.Option(1, help="How far back: 1 = the last 24h, 2 
     su.render(out)
 
 
+# ---- systems & review context ------------------------------------------------------------------------
+@app.command("system")
+def system_cmd():
+    """Sibling repos of this product, from system.yaml (zero-config cross-repo awareness)."""
+    from .engines import systems
+    from .project import Project
+    proj = Project.discover()
+    if proj is None:
+        err.print("[bold red]Not inside a project folder.[/]")
+        raise typer.Exit(3)
+    ctx = systems.system_context(proj.root)
+    console.print(brand("system"))
+    if ctx is None:
+        console.print(Text(" no system.yaml — declare sibling repos to unlock cross-repo review context",
+                           style=f"dim {SLATE}"))
+        return
+    console.print(f"  [{INK}]{ctx['system']}[/]  [{SLATE}]{ctx['root']}[/]")
+    for m in ctx["members"]:
+        stats = f"{m['files']} files · {m['symbols']} symbols · {m['memories']} memories"
+        console.print(f"  [{MOSS}]●[/] [{INK}]{m['repo']}[/]  [{SLATE}]{stats} — {m['path']}[/]")
+    for s in ctx["skipped"]:
+        console.print(f"  [{SLATE}]○ {s['path']} — skipped ({s['reason']})[/]")
+    if not ctx["members"]:
+        console.print(Text(" no valid sibling brains yet — each repo needs `cairn init`", style=f"dim {SLATE}"))
+    console.print(Text(" (file-local view; the heavier cross-repo graph is separate: `cairn graph global`)",
+                       style=f"dim {SLATE}"))
+
+
+@app.command("review-context")
+def review_context(files: str = typer.Option(..., "--files", help="Changed files, comma-separated."),
+                   ticket: Optional[str] = typer.Option(None, "--ticket",
+                                                        help="A ticket id to match (e.g. FDY-18, #509)."),
+                   budget: int = typer.Option(1500, help="Token budget for the rendered pack."),
+                   as_json: bool = typer.Option(False, "--json", help="Machine-readable output.")):
+    """A reviewer's context pack: ticket signals, local impact and sibling-repo hits. No model calls."""
+    from .engines import review_context as rc
+    from .project import Project
+    proj = Project.discover()
+    if proj is None:
+        err.print("[bold red]Not inside a project folder.[/]")
+        raise typer.Exit(3)
+    pack = rc.review_pack(proj.root, files=[f for f in files.split(",")], ticket=ticket, budget=budget)
+    if as_json:
+        _emit_json(pack)
+        return
+    sys.stdout.write(pack["text"] + "\n")
+
+
 @app.command("sessions", add_help_option=False,
              context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def sessions(ctx: typer.Context):
@@ -1019,6 +1073,11 @@ def hook(event: str):
         sync.spawn_background(proj)
     elif event == "session-start":
         print(hooks.session_start(Cairn(proj)))
+    elif event == "ambient":
+        data = sys.stdin.read() if not sys.stdin.isatty() else ""
+        out = hooks.ambient(Cairn(proj), data)
+        if out:  # empty stdout injects nothing (UserPromptSubmit adds any stdout to the model's context)
+            print(json.dumps(out))
 
 
 @app.command()

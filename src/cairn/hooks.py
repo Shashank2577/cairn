@@ -1,4 +1,5 @@
-"""Git hooks and agent hook entry points (session-start briefing, status line)."""
+"""Git hooks and agent hook entry points (session-start briefing, ambient context on prompt submit, status
+line)."""
 from __future__ import annotations
 
 import contextlib
@@ -123,6 +124,76 @@ def session_start(cairn) -> str:
         cairn.brain.log_query("hook", "brief", "session start", sum(estimate_tokens(ln) for ln in brief.splitlines()),
                               None)
     return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": brief}})
+
+
+# ---- ambient context (the enforced read path) --------------------------------------------------------------
+AMBIENT_CAP = 2000  # bytes/chars of nugget (~500 tokens): this runs on every prompt, so it must stay small
+_AMBIENT_MORE = "… (cairn: run `cairn context <task>` for more)"
+_AMBIENT_MIN = 20  # shorter prompts are chat ("hi", "ok done") — nothing to ground
+# A path-ish token (two chars, then an extension, or a path separator), CamelCase, snake_case or ANY-CAPS.
+_AMBIENT_CODEISH = re.compile(r"[A-Za-z0-9_][\w-]+\.[A-Za-z0-9]{1,6}\b|\w/\w|[a-z][A-Z]|\w_\w|\b[A-Z]{2,}\b")
+_AMBIENT_VERBS = frozenset(("add", "build", "change", "create", "debug", "delete", "extend", "extract", "fix",
+                            "implement", "make", "migrate", "patch", "refactor", "remove", "rework", "revert",
+                            "test", "update", "write"))
+
+
+def _prompt_of(payload: str) -> str:
+    """The prompt text in Claude Code's UserPromptSubmit payload (``{"prompt": …, "session_id": …, "cwd": …}``).
+    Defensive like `statusline`'s reader: a non-object payload or a missing prompt yields ''; a payload that is
+    not JSON at all is taken as the bare prompt itself."""
+    if not payload or not payload.strip():
+        return ""
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return payload
+    if not isinstance(data, dict):  # Claude Code can pipe non-object payloads ("null", a list)
+        return ""
+    prompt = data.get("prompt")
+    return prompt if isinstance(prompt, str) else ""
+
+
+def _plausibly_code(prompt: str) -> bool:
+    """A cheap deterministic gate: does the prompt plausibly touch code? Greetings, short chat and questions
+    like "what's the weather" stay out. No model calls."""
+    if len(prompt.strip()) < _AMBIENT_MIN:
+        return False
+    if _AMBIENT_CODEISH.search(prompt):
+        return True
+    words = set(re.findall(r"[a-z]+", prompt.lower()))
+    return any(w in _AMBIENT_VERBS
+               or (w.endswith("ing") and w[:-3] in _AMBIENT_VERBS)
+               or (w.endswith("ed") and w[:-2] in _AMBIENT_VERBS)
+               or (w.endswith("s") and w[:-1] in _AMBIENT_VERBS) for w in words)
+
+
+def ambient(cairn, payload: str = "") -> dict | None:
+    """Claude Code UserPromptSubmit hook: a small, budget-capped context nugget for the prompt just submitted.
+
+    UserPromptSubmit output is injected into the model's context, so this is the enforced read path: agents get
+    Cairn's memory without choosing to consult it. Guardrails: the ``[context] ambient`` kill-switch (off by
+    default), a code-relevance gate, a hard size cap, and strictly read-only access (no brain writes, no model
+    calls). Nothing resolves → None. Any exception → None: a hook must never block a prompt."""
+    try:
+        if not cairn.project.cfg("context.ambient", False):
+            return None
+        text = _prompt_of(payload)
+        if not text or not _plausibly_code(text):
+            return None
+        lines = []
+        targets = cairn.infer_targets(text, limit=2)  # already stopword-filtered and map-resolved
+        if targets:
+            lines.append(f"Targets: {', '.join(targets)}")
+        for m in cairn.memory.recall(text, limit=3):
+            lines.append(f"- [{m['kind']}] {' '.join(str(m['text']).split())[:160]} [memory:{m['id']}]")
+        if not lines:
+            return None
+        nugget = "Cairn context for this prompt:\n" + "\n".join(lines)
+        if len(nugget) > AMBIENT_CAP:
+            nugget = nugget[:AMBIENT_CAP - len(_AMBIENT_MORE)].rstrip() + _AMBIENT_MORE
+        return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": nugget}}
+    except Exception:  # noqa: BLE001 - a failing hook must never block the prompt
+        return None
 
 
 def statusline(cairn, stdin_json: str = "") -> str:

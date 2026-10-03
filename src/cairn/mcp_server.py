@@ -18,10 +18,11 @@ from typing import Any
 from .core import Cairn, ago
 from .engines import mapper
 
-INSTRUCTIONS = ("Project memory for this repository. Call cairn_context with your task before editing; "
-                "cairn_impact before changing a file or symbol; cairn_remember for durable learnings; "
-                "cairn_session_search (then cairn_session_timeline, cairn_session_observations) to find what earlier "
-                "agent sessions did.")
+INSTRUCTIONS = ("Project memory for this repository — route by trigger: cairn_context FIRST, before reading or editing "
+                "any file for a task; cairn_impact before changing a file or symbol; cairn_why to learn why code is the "
+                "way it is; cairn_search when a task names something unfamiliar. Afterwards: cairn_remember durable "
+                "learnings, cairn_recall to check them, cairn_session_search (then cairn_session_timeline, "
+                "cairn_session_observations) to mine earlier agent sessions.")
 
 # Which project a tool call is about: the repository the agent runs in (stdio), or the project an HTTP
 # endpoint serves (set per call by `bind`).
@@ -47,12 +48,15 @@ def _text(value: Any) -> str:
 
 # ---- core tools ------------------------------------------------------------------------------------------
 def cairn_context(task: str, targets: list[str] | None = None, budget: int = 1800) -> str:
-    """Call first. Ranked, cited context for a task: dependents, co-change, past incidents, owning spec, conventions, past agent work."""
+    """Call this FIRST, before reading or editing any file for a task: returns the relevant targets, dependents,
+    co-change partners, past incidents, owning spec, conventions and prior agent work in one cited pack
+    (~1-2k tokens — cheaper than grepping). targets: optional paths/symbols to bias the pack."""
     return _project().context(task, targets, budget).render()
 
 
 def cairn_status() -> str:
-    """Project health in one call: layer counts, active spec progress, drift findings, last sync, model availability. Read-only."""
+    """Call to check project health — before claiming work, after a sync, or when asked for status: layer counts,
+    active spec progress, open drift findings, last sync time and model availability. Read-only and cheap."""
     c = _project()
     o = c.overview()
     L = o["layers"]
@@ -74,23 +78,31 @@ def cairn_status() -> str:
 
 
 def cairn_impact(target: str, depth: int = 2, budget: int = 1500) -> str:
-    """What breaks if a file/symbol changes (e.g. 'src/pay.py', 'Client.send'): risk, dependents, tests, co-change, warnings, owners."""
+    """Call BEFORE changing a file or symbol: returns what breaks — dependents across code and docs, affected tests,
+    co-change partners, past fixes and warnings, with a risk score. target: a file path or symbol like
+    'src/pay.py' or 'Client.send' — NOT a bare question."""
     return _project().impact(target, depth, budget).render()
 
 
 def cairn_why(target: str, budget: int = 1200) -> str:
-    """Why code is the way it is: rationale comments, origin commits, spec task/requirement, decisions, sessions."""
+    """Call when you need to understand WHY code is the way it is: rationale comments, the commits that wrote or
+    changed it, the owning spec task, related decisions and past agent sessions. target: a file path or symbol,
+    not a question."""
     return _project().why(target, budget).render()
 
 
 def cairn_search(query: str, kinds: list[str] | None = None, limit: int = 12) -> str:
-    """Search across layers. kinds ⊆ symbol,file,spec,task,req,commit,memory,obs,fact."""
+    """Call to find anything in the memory graph when the task names a symbol, file, spec, task, commit, decision
+    or memory you don't recognise: returns a short hit list of ids and paths. kinds ⊆ symbol,file,spec,task,req,
+    commit,memory,obs,fact."""
     hits = _project().search(query, kinds, limit)
     return "\n".join(f"- {h['title']} [{h['id']}]" + (f" {h['path']}" if h.get("path") else "") for h in hits) or "No matches."
 
 
 def cairn_trace(mode: str, a: str, b: str = "") -> str:
-    """Explore the code map. mode: 'explain' (a node and its neighbours), 'path' (a→b), 'query' (question)."""
+    """Call to explore the code map's structure (not search): mode 'explain' shows a node with its neighbours,
+    'path' the route from a to b, 'query' answers a structural question within a small token budget.
+    a: node name or id."""
     c = _project()
     if mode == "path":
         return mapper.engine_text(c.project.root, "path", a, b)
@@ -100,7 +112,8 @@ def cairn_trace(mode: str, a: str, b: str = "") -> str:
 
 
 def cairn_specs(spec: str = "", drift: bool = False) -> str:
-    """Spec board (features, stories, task progress, file trace) or, with drift=true, where code disagrees with specs."""
+    """Call to read the spec board before claiming or closing work: features, stories and task progress, optionally
+    filtered by spec id; with drift=true, returns where code disagrees with the specs."""
     c = _project()
     if drift:
         from . import drift as d
@@ -120,13 +133,16 @@ def cairn_specs(spec: str = "", drift: bool = False) -> str:
 
 
 def cairn_remember(text: str, kind: str = "fact", supersedes: str = "", scope: str = "project") -> str:
-    """Store a durable learning. kind: convention|decision|gotcha|preference|fact. One precise sentence. scope: project|team|user."""
+    """Call when you learn something durable about this repo (a convention, decision, gotcha, preference) that
+    future agents should inherit; NOT for anything the code itself already states. One precise sentence.
+    kind: convention|decision|gotcha|preference|fact. scope: project|team|user."""
     res = _project().remember(text, kind, supersedes or None, source="agent", scope=scope)
     return json.dumps(res)
 
 
 def cairn_recall(query: str, limit: int = 8) -> str:
-    """Recall team memories (and related session learnings) about a topic."""
+    """Call to check whether the team already learned something about a topic before you derive it yourself:
+    matching memories plus related session learnings. query: a topic like 'refund limits', not a question."""
     c = _project()
     mems = c.memory.recall(query, limit)
     lines = [f"- [{m['kind']}] {m['text']} [memory:{m['id']}]" for m in mems]
@@ -136,7 +152,8 @@ def cairn_recall(query: str, limit: int = 8) -> str:
 
 
 def cairn_facts(query: str, at: str = "", limit: int = 12) -> str:
-    """What was true about something and when: facts with valid-from/until windows. at=YYYY-MM-DD answers 'as of that date'."""
+    """Call when you need what was true about something and when: temporal facts with valid-from/until windows;
+    at=YYYY-MM-DD answers 'as of that date'. query: a topic or entity, e.g. 'deployment process'."""
     from .engines.temporal import TemporalService, run_sync
     c = _project()
     svc = TemporalService(c.project, c.router, c.brain)

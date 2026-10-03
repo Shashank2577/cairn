@@ -21,6 +21,7 @@ DEFAULT_CONFIG = """\
 
 [context]
 budget = 1800                    # default token budget for agent-facing context packs
+ambient = false                  # inject a short Cairn context nugget on every prompt (Claude Code); set true to enable
 
 [models]
 provider = "auto"                # auto | anthropic | openai | claude-code  (auto: API key, else your Claude Code login)

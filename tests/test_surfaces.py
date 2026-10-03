@@ -62,6 +62,107 @@ def test_hooks_output(cairn):
     assert "cairn" in hooks.statusline(cairn, "{}")
 
 
+# ---- ambient context (the enforced read path) --------------------------------------------------------------
+PROMPT = "fix the double charge in PaymentService"
+
+
+def _ambient_payload(prompt: str) -> str:
+    return json.dumps({"prompt": prompt, "session_id": "s1", "cwd": "/repo"})
+
+
+def test_ambient_injects_a_nugget_for_code_prompts(cairn):
+    cairn.remember("PaymentService retries can double charge; always pass an idempotency key", kind="gotcha")
+    cairn.project.set_cfg("context.ambient", True)
+    out = hooks.ambient(cairn, _ambient_payload(PROMPT))
+    assert out["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    nugget = out["hookSpecificOutput"]["additionalContext"]
+    assert "PaymentService" in nugget and "[memory:" in nugget  # a resolved target and a memory id
+    assert len(nugget) <= hooks.AMBIENT_CAP
+
+
+def test_ambient_skips_chat_and_respects_the_kill_switch(cairn):
+    cairn.remember("PaymentService retries can double charge", kind="gotcha")
+    cairn.project.set_cfg("context.ambient", True)
+    for payload in ("what's the weather like today?", "hello there!", "ok done", ""):  # chat, short, empty
+        assert hooks.ambient(cairn, _ambient_payload(payload)) is None, payload
+    for payload in (json.dumps(["not", "an", "object"]), json.dumps({"session_id": "s1"})):  # no prompt in it
+        assert hooks.ambient(cairn, payload) is None, payload
+    assert hooks.ambient(cairn, _ambient_payload(PROMPT)) is not None
+    cairn.project.set_cfg("context.ambient", False)  # the kill-switch wins even for a code prompt
+    assert hooks.ambient(cairn, _ambient_payload(PROMPT)) is None
+
+
+def test_ambient_truncates_to_the_cap(cairn, monkeypatch):
+    cairn.project.set_cfg("context.ambient", True)
+    for i in range(6):
+        cairn.remember(f"Gotcha number {i}: " + "payments charge retries ledger idempotency " * 20, kind="gotcha")
+    monkeypatch.setattr(hooks, "AMBIENT_CAP", 300)
+    nugget = hooks.ambient(cairn, _ambient_payload("refactor the PaymentService charge flow now"))
+    nugget = nugget["hookSpecificOutput"]["additionalContext"]
+    assert len(nugget) == 300 and nugget.endswith(hooks._AMBIENT_MORE)
+
+
+def test_ambient_never_raises(cairn, monkeypatch):
+    cairn.project.set_cfg("context.ambient", True)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("the brain is busy")
+    monkeypatch.setattr(cairn, "infer_targets", boom)
+    monkeypatch.setattr(cairn.memory, "recall", boom)
+    assert hooks.ambient(cairn, _ambient_payload(PROMPT)) is None
+
+
+def test_hook_ambient_cli(cairn):
+    cairn.remember("PaymentService retries can double charge; always pass an idempotency key", kind="gotcha")
+    cairn.project.set_cfg("context.ambient", True)
+    runner = CliRunner()
+    r = runner.invoke(app, ["hook", "ambient"], input=_ambient_payload(PROMPT))
+    assert r.exit_code == 0, r.output
+    nugget = json.loads(r.output)["hookSpecificOutput"]["additionalContext"]
+    assert "PaymentService" in nugget
+    chat = runner.invoke(app, ["hook", "ambient"], input=_ambient_payload("hello there!"))
+    assert chat.exit_code == 0 and chat.output == ""  # empty stdout injects nothing
+
+
+def test_hook_ambient_without_a_project_prints_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # no git root and no .cairn/ anywhere above
+    r = CliRunner().invoke(app, ["hook", "ambient"], input=_ambient_payload(PROMPT))
+    assert r.exit_code == 0 and r.output == ""
+
+
+def test_claude_wiring_includes_the_ambient_prompt_hook(repo):
+    proj = Project.discover(repo)
+    proj.ensure_dir()
+    settings_path = repo / ".claude" / "settings.json"
+
+    def ambient_entries():
+        hooks_cfg = json.loads(settings_path.read_text())["hooks"]
+        return [h for g in hooks_cfg.get("UserPromptSubmit", []) for h in g["hooks"]
+                if "cairn hook ambient" in h.get("command", "")]
+
+    agents.install(proj, ["claude"])
+    entries = ambient_entries()
+    assert len(entries) == 1 and entries[0]["type"] == "command" and entries[0]["timeout"] == 10
+    agents.install(proj, ["claude"])  # idempotent: a re-init must not duplicate the prompt hook
+    assert len(ambient_entries()) == 1
+    agents.install(proj, ["claude"], capture=False)  # the ambient hook rides on its own, not on capture
+    assert len(ambient_entries()) == 1
+    agents.uninstall(proj)
+    assert "cairn hook ambient" not in json.dumps(json.loads(settings_path.read_text()).get("hooks", {}))
+
+
+def test_doctor_reports_the_ambient_switch(cairn, monkeypatch):
+    monkeypatch.setenv("COLUMNS", "260")
+    row = next(ln for ln in CliRunner().invoke(app, ["doctor"]).output.splitlines() if "Ambient context" in ln)
+    assert "off (config)" in row and "set [context] ambient = true" in row
+    cairn.project.set_cfg("context.ambient", True)
+    row = next(ln for ln in CliRunner().invoke(app, ["doctor"]).output.splitlines() if "Ambient context" in ln)
+    assert "on, prompt hook not wired" in row and "cairn agents install" in row
+    agents.install(cairn.project, ["claude"])
+    row = next(ln for ln in CliRunner().invoke(app, ["doctor"]).output.splitlines() if "Ambient context" in ln)
+    assert "●" in row and "on (Claude Code prompt hook)" in row
+
+
 def _client(cairn, tmp_path):
     from fastapi.testclient import TestClient
 
@@ -117,6 +218,15 @@ def test_mcp_status_tool_reports_project_health(cairn, monkeypatch):
     assert "cairn_status" in {t.__name__ for t in mcp_server.CORE}
     listed = asyncio.run(mcp_server.build(mode="core").list_tools())
     assert len(listed) == 13  # tools/list grew 12 -> 13 with the status tool
+
+
+def test_mcp_tool_descriptions_lead_with_the_trigger():
+    # Agents route by description: every tool must say WHEN to call it, first words, and stay cheap to read.
+    from cairn import mcp_server
+    for tool in mcp_server.CORE:
+        d = tool.__doc__ or ""
+        assert d.startswith("Call "), f"{tool.__name__}: description must open with the WHEN-trigger ('Call ...')"
+        assert len(d) <= 400, f"{tool.__name__}: description is {len(d)} chars, cap is 400"
 
 
 def test_statusline_shows_spec_number(cairn, monkeypatch):

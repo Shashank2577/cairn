@@ -178,11 +178,12 @@ def write_generated(path: Path, content: str) -> bool:
 
 
 def _is_ours(entry: object) -> bool:
-    """One hook entry Cairn wrote: its session-start brief or status line (the capture entries are recognised by
-    the session engine). Matched on the exact command shape, never on a path that merely contains "cairn"."""
+    """One hook entry Cairn wrote: its session-start brief, its ambient prompt hook or status line (the capture
+    entries are recognised by the session engine). Matched on the exact command shape, never on a path that
+    merely contains "cairn"."""
     cmd = str(entry.get("command") or "") if isinstance(entry, dict) else ""
-    return bool(re.search(r"(^|[\s\"'/])cairn( hook session-start| statusline)$|-m cairn (hook session-start|statusline)$",
-                          cmd.strip()))
+    return bool(re.search(r"(^|[\s\"'/])cairn( hook (?:session-start|ambient)| statusline)$"
+                          r"|-m cairn (hook (?:session-start|ambient)|statusline)$", cmd.strip()))
 
 
 def _without_ours(groups: list) -> list:
@@ -353,6 +354,16 @@ def memory_status(project: Project) -> dict[str, dict]:
     return out
 
 
+def ambient_wired(project: Project) -> bool:
+    """Whether Claude Code's UserPromptSubmit hook runs ``cairn hook ambient`` here (the enforced read path;
+    the ``[context] ambient`` config kill-switch decides whether it injects anything)."""
+    try:
+        hooks = json.loads((project.root / ".claude" / "settings.json").read_text()).get("hooks", {})
+        return "cairn hook ambient" in json.dumps(hooks.get("UserPromptSubmit", []))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def _hook_cmd(event: str) -> str:
     """Claude Code runs hook and status-line commands through sh (Git Bash on Windows, PowerShell there when Git
     Bash is missing): a bare ``cairn`` reads the same in all of them; otherwise the interpreter, spelled for them."""
@@ -379,17 +390,26 @@ def install(project: Project, agents: list[str] | None = None, capture: bool = T
 
         def settings(d):
             brief = {"hooks": [{"type": "command", "command": _hook_cmd("session-start")}]}
+            # ambient context: a UserPromptSubmit hook whose output is injected on every prompt; the hook
+            # itself no-ops unless `[context] ambient = true`, and its timeout stays small (it must not
+            # hold a prompt open if something hangs)
+            ambient = {"hooks": [{"type": "command", "command": _hook_cmd("ambient"), "timeout": 10}]}
             if capture:  # session memory: every lifecycle event, handled by the light `cairn.capture` entry
                 from .engines.recall import integrations as recall_hooks
                 current = dict(d.get("hooks") or {})
                 current["SessionStart"] = _without_ours(current.get("SessionStart", []))
+                current["UserPromptSubmit"] = _without_ours(current.get("UserPromptSubmit", []))
                 ours = recall_hooks.claude_code_hooks(python=sys.executable)
                 ours.setdefault("SessionStart", []).append(brief)  # one merge places every Cairn hook, idempotently
+                ours.setdefault("UserPromptSubmit", []).append(ambient)
                 d["hooks"] = recall_hooks.merge_hook_groups(current, ours)
             hooks = d.setdefault("hooks", {})
             ss = hooks.setdefault("SessionStart", [])
             if not any("cairn hook session-start" in json.dumps(h) for h in ss):
                 ss.append(brief)
+            ups = hooks.setdefault("UserPromptSubmit", [])
+            if not any("cairn hook ambient" in json.dumps(h) for h in ups):
+                ups.append(ambient)
             d.setdefault("statusLine", {"type": "command", "command": _hook_cmd("statusline").replace(
                 "hook statusline", "statusline"), "padding": 0})
             perms = d.setdefault("permissions", {}).setdefault("allow", [])
