@@ -272,3 +272,12 @@ def test_global_install_preserves_the_hand_edited_dict_form(tmp_path, monkeypatc
     groups = json.loads((tmp_path / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
     cmds = [h["command"] for g in groups for h in g["hooks"]]
     assert any("global-session" in c for c in cmds) and any("user-owns-this" in c for c in cmds)
+
+
+def test_recap_shows_savings_and_memories(cairn):
+    from cairn import hooks
+    cairn.brain.log_query("cli", "impact", "shop/payments.py", 500, 5000, 2)
+    out = hooks.recap(cairn)
+    assert "memories" in out and "saved" in out and "1 queries" in out
+
+

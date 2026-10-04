@@ -245,3 +245,30 @@ def global_session_hint(payload: str = "") -> dict | None:
             "Cairn (local project memory: impact, history, conventions for coding agents) is installed "
             "but not initialized in this repository. Offer the user, once: `cairn init --no-deep` sets it "
             "up in ~15s, entirely local — do not run it without their go-ahead."}}
+
+
+def recap(cairn) -> str:
+    """What cairn has done for this repo so far — the visible receipt. Pure reads, no model calls."""
+    import time as _t
+
+    from .core import ago
+    b = cairn.brain
+    n_mem = b.q("SELECT COUNT(*) FROM memories")[0]["COUNT(*)"]
+    n_commits = b.q("SELECT COUNT(*) FROM events WHERE kind='commit'")[0]["COUNT(*)"]
+    n_sessions = b.q("SELECT COUNT(*) FROM events WHERE kind='session'")[0]["COUNT(*)"]
+    first = b.q("SELECT MIN(ts) AS t FROM events")[0]["t"]
+    q = b.q("SELECT COUNT(*) AS n, COALESCE(SUM(sent_tokens),0) AS sent, "
+            "COALESCE(SUM(source_tokens),0) AS src FROM queries")[0]
+    drift = len(json.loads(b.get_kv("drift.last", "[]") or "[]"))
+    lines = [f"▲ cairn  recap — tracking since {ago(first)}" if first else "▲ cairn  recap",
+             f"  learned     {n_mem} memories from this repo's history",
+             f"  watched     {n_commits:,} commits, {n_sessions} agent sessions",
+             f"  watching    {drift} drift findings right now"]
+    if q["n"]:
+        saved = max(0, q["src"] - q["sent"])
+        pct = round(saved * 100 / q["src"]) if q["src"] else 0
+        lines.append(f"  answered    {q['n']} queries — saved ~{saved:,} tokens ({pct}% vs reading the files)")
+    else:
+        lines.append("  answered    no queries yet — the savings meter starts with your first impact/why/ask")
+    lines.append(f"  last activity {_t.strftime('%b %d', _t.localtime(first))}" if first else "")
+    return "\n".join(ln for ln in lines if ln)

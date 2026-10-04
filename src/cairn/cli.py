@@ -1089,6 +1089,13 @@ def hook(event: str):
             print(json.dumps(out))
 
 
+@app.command()
+def recap():
+    """What cairn has done for this repo: memories learned, commits watched, queries answered and saved."""
+    from . import hooks
+    console.print(hooks.recap(_cairn()))
+
+
 @app.command("global")
 def global_setup(action: str = typer.Argument("install", help="install | remove | status")):
     """Register the user-level SessionStart hook: in any git repo without cairn, the agent offers the
