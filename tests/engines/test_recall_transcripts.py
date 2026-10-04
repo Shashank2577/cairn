@@ -377,6 +377,7 @@ def test_cli_init_validate(tmp_path, capsys):
 
 def test_native_codex_watch_filtering(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "user"))  # Path.home() on Windows
     native = {"name": "codex", "path": "~/.codex/sessions/**/*.jsonl", "schema": "codex",
               "context": {"mode": "agents"}}
     custom = {"name": "codex", "path": "/elsewhere/**/*.jsonl", "schema": "codex"}

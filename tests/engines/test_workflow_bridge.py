@@ -15,6 +15,7 @@ PKG = Path(specs.__file__).resolve().parent / "workflow"
 
 def test_bootstrap_is_in_process_and_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     root = git_repo(tmp_path / "repo")
     (root / ".cairn").mkdir()
     (root / ".cairn" / "config.toml").write_text("[server]\nport = 4747\n", encoding="utf-8")
@@ -75,6 +76,7 @@ def test_workflow_state_for_the_ui(tmp_path, monkeypatch):
     from workflow_helpers import init, spec
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     root = git_repo(tmp_path / "repo")
     assert specs.workflow_state(root)["initialized"] is False
     init(root, "claude", "--extension", "git", "--preset", "lean")

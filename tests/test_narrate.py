@@ -32,6 +32,8 @@ def _fake_cli(tmp_path, monkeypatch, body: str):
     exe = bin_dir / "claude"
     exe.write_text(f"#!{sys.executable}\nimport json, sys, time\nsys.stdin.read()\n{body}\n", encoding="utf-8")
     exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    if os.name == "nt":  # Windows ignores the shebang: a .cmd shim runs the same file with this interpreter
+        (bin_dir / "claude.cmd").write_text(f'@"{sys.executable}" "%~dp0claude" %*\r\n', encoding="utf-8")
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.delenv("CAIRN_NO_CLI_MODELS", raising=False)
     for key in ("ANTHROPIC_API_KEY", "CAIRN_API_KEY", "OPENAI_API_KEY"):

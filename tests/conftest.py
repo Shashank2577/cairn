@@ -108,6 +108,7 @@ def repo(tmp_path, monkeypatch) -> Path:
     for k, v in ENV.items():
         monkeypatch.setenv(k, v)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     monkeypatch.chdir(root)
     return root
 

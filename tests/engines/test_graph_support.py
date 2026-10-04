@@ -90,6 +90,7 @@ def isolated_env(tmp_path, monkeypatch):
     monkeypatch.setenv("CAIRN_NO_CLI_MODELS", "1")
     monkeypatch.setenv("CAIRN_HOME", str(tmp_path / "cairn-home"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     from cairn.engines.graph import llm
     llm.set_router(None)
     yield

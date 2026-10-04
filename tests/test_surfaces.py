@@ -16,7 +16,7 @@ def test_init_is_zero_prompt_and_idempotent(repo):
     (repo / ".claude").mkdir()
     r = CliRunner().invoke(app, ["init", "--no-ui", "--no-specs", "--agents", "claude"], input="")
     assert r.exit_code == 0, r.output
-    snapshot = {p: p.read_text(encoding="utf-8") for p in repo.rglob("*") if p.is_file() and ".git/" not in str(p)
+    snapshot = {p: p.read_text(encoding="utf-8") for p in repo.rglob("*") if p.is_file() and ".git/" not in p.as_posix()
                 and ".cairn" not in str(p)}
     r2 = CliRunner().invoke(app, ["init", "--no-ui", "--no-specs", "--agents", "claude"])
     assert r2.exit_code == 0
@@ -849,7 +849,8 @@ def test_a_foreground_server_records_where_it_listens_without_taking_over(tmp_pa
             if proc:
                 proc.terminate()
                 proc.wait(10)
-    assert not state.exists()  # the server that wrote it removed it on the way out
+    if os.name != "nt":  # terminate() is a hard kill on Windows, so there is no way-out cleanup to observe
+        assert not state.exists()  # the server that wrote it removed it on the way out
 
 
 def test_a_stopped_server_exits_even_with_a_page_still_open(cairn, tmp_path):

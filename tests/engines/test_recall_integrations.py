@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from cairn import shellcmd
 from cairn.engines.recall import integrations as ig
 
 PY = "/opt/py env/bin/python3"  # a path with a space: quoting must survive it
@@ -22,10 +23,18 @@ def _isolated(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))  # Path.home() on Windows
     monkeypatch.setenv("CAIRN_HOME", str(tmp_path / "cairn-home"))
     monkeypatch.delenv("OPENCODE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("CAIRN_RECALL_MODES_DIR", raising=False)
     monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _posix_shell_shapes(monkeypatch):
+    """These tests pin the POSIX spelling of hook commands (`"<python>" -m ...`); the Windows spellings
+    (PowerShell call operator, forward slashes, 8.3 names) are pinned in tests/test_windows.py."""
+    monkeypatch.setattr(shellcmd, "is_windows", lambda: False)
 
 
 @pytest.fixture
@@ -80,7 +89,7 @@ def test_hook_command_shapes():
     assert ig.hook_command("windsurf", "observation", python="/p").startswith('"/p"')
     with pytest.raises(ValueError):
         ig.hook_command("claude-code", "nope")
-    assert ig.hook_command("codex", "file-edit").startswith(f'"{sys.executable}"')
+    assert ig.hook_command("codex", "file-edit").startswith(shellcmd.posix_quote(sys.executable))
 
 
 def test_claude_code_hooks_exact_entries():

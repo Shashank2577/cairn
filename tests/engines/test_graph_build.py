@@ -3,6 +3,7 @@ ignore rules and the output directory."""
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from test_graph_support import (  # noqa: F401  (fixtures)
     FILES,
@@ -210,9 +211,9 @@ def test_explicit_output_dir(tmp_path):
 def test_out_dir_helpers():
     from cairn.engines.graph import paths
     assert paths.is_out_dir("/r/.cairn/graph") and not paths.is_out_dir("/r/graph")
-    assert str(paths.out_root("/r/.cairn/graph")) == "/r"
-    assert str(paths.graph_root("/r/.cairn/graph/graph.json")) == "/r"
-    assert str(paths.out_root("/r/backup")) == "/r"
+    assert paths.out_root("/r/.cairn/graph") == Path("/r")
+    assert paths.graph_root("/r/.cairn/graph/graph.json") == Path("/r")
+    assert paths.out_root("/r/backup") == Path("/r")
     with paths.output_dir("/tmp/x/out"):
         assert paths.GRAPH_OUT == "/tmp/x/out" and paths.GRAPH_OUT_NAME == "out"
     assert paths.GRAPH_OUT == ".cairn/graph"

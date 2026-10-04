@@ -74,24 +74,24 @@ def seeded(repo):
 
 
 def test_git_helpers(repo):
-    main = str(repo["main"])
+    main = repo["main"].as_posix()
     assert wt.resolve_main_repo_path(repo["open"]) == main
     assert wt.resolve_main_repo_path(main) == main
     assert wt.resolve_main_repo_path(repo["base"]) is None
     entries = {e.path: e for e in wt.list_worktrees(main)}
-    assert set(entries) == {main, *(str(repo[k]) for k in ("merged", "open", "tip", "inspect"))}
-    assert entries[str(repo["merged"])].branch == "feature"
-    assert entries[str(repo["inspect"])].branch is None and entries[str(repo["inspect"])].head
+    assert set(entries) == {main, *(repo[k].as_posix() for k in ("merged", "open", "tip", "inspect"))}
+    assert entries[repo["merged"].as_posix()].branch == "feature"
+    assert entries[repo["inspect"].as_posix()].branch is None and entries[repo["inspect"].as_posix()].head
     oids = wt.resolve_candidate_oids(main)
     assert len(oids) == 1  # HEAD only: there is no remote
-    assert wt.has_proven_ancestry(main, entries[str(repo["merged"])].head, oids)
-    assert not wt.has_proven_ancestry(main, entries[str(repo["open"])].head, oids)
+    assert wt.has_proven_ancestry(main, entries[repo["merged"].as_posix()].head, oids)
+    assert not wt.has_proven_ancestry(main, entries[repo["open"].as_posix()].head, oids)
 
 
 def test_adopts_merged_worktrees(repo, seeded):
     main = repo["main"]
     res = wt.adopt_merged_worktrees(main)
-    assert res["repo_path"] == str(main) and res["parent_project"] == "parent-repo"
+    assert res["repo_path"] == main.as_posix() and res["parent_project"] == "parent-repo"
     assert res["scanned_worktrees"] == 4
     assert sorted(res["merged_branches"]) == ["feature", "tip"]  # the detached tip checkout is not merged work
     assert (res["adopted_observations"], res["adopted_summaries"]) == (3, 1)
@@ -143,7 +143,7 @@ def test_only_branch_adopts_regardless_of_ancestry(repo, seeded):
 
 def test_runs_from_inside_a_worktree(repo, seeded):
     res = wt.adopt_merged_worktrees(repo["open"])
-    assert res["repo_path"] == str(repo["main"]) and res["adopted_observations"] == 3
+    assert res["repo_path"] == repo["main"].as_posix() and res["adopted_observations"] == 3
 
 
 def test_vector_metadata_is_retagged(repo, seeded):
@@ -185,10 +185,10 @@ def test_per_worktree_errors_are_collected(repo, seeded, monkeypatch):
 
     monkeypatch.setattr(wt, "project_context", flaky)
     res = wt.adopt_merged_worktrees(repo["main"])
-    assert res["errors"] == [{"worktree": str(repo["merged"]), "error": "database is locked"}]
+    assert res["errors"] == [{"worktree": repo["merged"].as_posix(), "error": "database is locked"}]
     assert (res["adopted_observations"], res["adopted_summaries"]) == (1, 0)  # wt-tip still adopted
     assert merged_into(repo["main"], "observations", "parent-repo/wt-tip") == ["parent-repo"]
-    assert wt.format_adoption_errors(res["errors"]) == f"{repo['merged']}: database is locked"
+    assert wt.format_adoption_errors(res["errors"]) == f"{repo['merged'].as_posix()}: database is locked"
 
 
 def test_not_a_repository_or_no_store(tmp_path, repo):
@@ -223,7 +223,7 @@ def test_all_known_repositories(repo, seeded):
     main = repo["main"]
     seed(main, "parent-repo/wt-open", n=1, cwd=str(repo["open"]))
     results = wt.adopt_merged_worktrees_for_all_known_repos(main)
-    assert len(results) == 1 and results[0]["repo_path"] == str(main)
+    assert len(results) == 1 and results[0]["repo_path"] == main.as_posix()
     assert results[0]["adopted_observations"] == 3
     assert wt.adopt_merged_worktrees_for_all_known_repos(repo["base"] / "missing") == []
 
@@ -234,7 +234,7 @@ def test_cli_adopt(repo, seeded, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "Worktree adoption (dry-run)" in out
     assert "  Parent project:       parent-repo" in out
-    assert f"  Repo:                 {main}" in out
+    assert f"  Repo:                 {main.as_posix()}" in out
     assert "  Worktrees scanned:    4" in out
     assert "  Observations adopted: 3" in out and "  Summaries adopted:    1" in out
     assert "  Vector docs updated:  0" in out
@@ -262,5 +262,5 @@ def test_cli_reports_errors(repo, seeded, capsys, monkeypatch):
     monkeypatch.setattr(wt, "project_context", flaky)
     assert wt.cli_adopt(["--cwd", str(repo["main"])]) == 0
     out = capsys.readouterr().out
-    assert f"  ! {repo['tip']}: boom" in out
+    assert f"  ! {repo['tip'].as_posix()}: boom" in out
     assert "  Observations adopted: 2" in out

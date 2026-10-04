@@ -27,6 +27,7 @@ def no_network(monkeypatch):
 
 def test_full_setup_and_discovery_offline(tmp_path, monkeypatch, no_network):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     root = git_repo(tmp_path / "repo")
     init(root, "claude", "--preset", "lean", "--extension", "git")
     steps = [

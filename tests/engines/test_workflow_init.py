@@ -21,6 +21,7 @@ PAGE_TEMPLATES = ["checklist-template.md", "constitution-template.md", "plan-tem
 def _isolated_home(tmp_path, monkeypatch):
     # some agents keep skills in the user's home (e.g. ~/.hermes/skills): never touch the real one
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     (tmp_path / "home").mkdir()
 
 

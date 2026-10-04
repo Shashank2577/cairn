@@ -78,7 +78,7 @@ def test_every_agent_is_wired_and_unwired_without_touching_the_users_entries(wir
     assert cursor["stop"][0] == {"command": "./x.sh"}
     assert cursor["sessionStart"][0]["command"].endswith("--platform cursor context")
     plugin = (root / ".opencode" / "plugins" / "cairn.js").read_text(encoding="utf-8")
-    assert f'"{sys.executable}"' in plugin and "experimental.chat.system.transform" in plugin
+    assert json.dumps(sys.executable) in plugin and "experimental.chat.system.transform" in plugin
     assert "const CAPTURE = true;" in plugin
     copilot = _json(root / ".github" / "hooks" / "cairn.json")
     assert set(copilot["hooks"]) == {"userPromptSubmitted", "postToolUse", "agentStop", "sessionEnd"}
@@ -210,13 +210,14 @@ def test_codex_hook_approval_is_read_from_codex_config(wired):
     root = wired.project.root
     agents.install(wired.project, ["codex"])
     hooks_file = (root / ".codex" / "hooks.json").resolve()
+    toml_file = str(hooks_file).replace("\\", "\\\\")  # a basic TOML string escapes backslashes
     config = ig.codex_dir() / "config.toml"
     config.parent.mkdir(parents=True, exist_ok=True)
-    entries = [f'[hooks.state."{hooks_file}:{event}:0:0"]\ntrusted_hash = "sha256:x"\n'
+    entries = [f'[hooks.state."{toml_file}:{event}:0:0"]\ntrusted_hash = "sha256:x"\n'
                for event in ("session_start", "user_prompt_submit", "post_tool_use")]
     config.write_text("\n".join(entries), encoding="utf-8")
     assert agents.codex_hooks_approved(wired.project) is False  # Stop not approved yet
-    config.write_text("\n".join([*entries, f'[hooks.state."{hooks_file}:stop:0:0"]\ntrusted_hash = "sha256:y"\n']), encoding="utf-8")
+    config.write_text("\n".join([*entries, f'[hooks.state."{toml_file}:stop:0:0"]\ntrusted_hash = "sha256:y"\n']), encoding="utf-8")
     assert agents.codex_hooks_approved(wired.project) is True
     assert config.read_text(encoding="utf-8").count("trusted_hash") == 4  # read, never written
 

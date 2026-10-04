@@ -192,7 +192,8 @@ def test_install_into_a_hooks_path_with_spaces_simulating_windows(repo, tmp_path
     for ev in hooks.GIT_EVENTS:
         p = hooks_dir / ev
         assert p.read_bytes() == f"#!/bin/sh\n{line}\n".encode("utf-8")  # LF only, UTF-8, sh
-        assert p.stat().st_mode & stat.S_IXUSR
+        if os.name != "nt":  # Windows has no exec bit; git for Windows runs hooks through its own sh
+            assert p.stat().st_mode & stat.S_IXUSR
     assert hooks.install_git_hooks(proj) == []  # idempotent
     assert hooks.remove_git_hooks(proj) == list(hooks.GIT_EVENTS)
     assert not any((hooks_dir / ev).exists() for ev in hooks.GIT_EVENTS)
@@ -363,6 +364,7 @@ def test_gemini_install_writes_powershell_commands_on_windows(tmp_path, windows_
                             for c in commands)
 
 
+@not_windows
 def test_commands_elsewhere_keep_their_posix_shape(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda *a, **k: None)
     monkeypatch.setattr(sys, "executable", "/opt/py env/bin/python3")

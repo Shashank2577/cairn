@@ -175,9 +175,9 @@ def test_ingest_url_is_ssrf_guarded(tmp_path):
 
 def test_prs_command_without_gh_is_graceful(tmp_path, monkeypatch):
     from cairn.engines.graph import api
-    monkeypatch.setenv("PATH", str(tmp_path))  # no gh on PATH
     root = make_repo(tmp_path / "repo")
     assert api.build(root)["ok"]
+    monkeypatch.setenv("PATH", str(tmp_path))  # no gh on PATH (set after git is done with)
     res = api.run(["prs", "--graph", str(api.graph_json(root))])
     assert res["code"] != 0 or "gh" in (res["stdout"] + res["stderr"]).lower()
 

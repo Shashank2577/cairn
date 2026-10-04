@@ -29,6 +29,7 @@ def _run(cmd: list[str], root: Path) -> subprocess.CompletedProcess:
 @pytest.fixture()
 def project(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     root = git_repo(tmp_path / "repo")
     init(root, "claude", "--script", "sh")
     return root
@@ -88,6 +89,7 @@ def test_template_override_wins_over_core(project):
 
 def test_python_scripts_drive_a_feature(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     root = git_repo(tmp_path / "repo")
     init(root, "codex", "--script", "py")
     scripts = root / ".cairn" / "workflow" / "scripts" / "python"

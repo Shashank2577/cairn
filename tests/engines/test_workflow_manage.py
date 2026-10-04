@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from workflow_helpers import forbidden_hits, git_repo, init, spec
 @pytest.fixture()
 def root(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     repo = git_repo(tmp_path / "repo")
     init(repo, "claude")
     return repo
@@ -82,7 +84,7 @@ def test_preset_lifecycle(root):
     assert "lean" in out and "constitution-sync" in out
     ok(root, "preset", "add", "lean")
     assert "Lean Workflow" in ok(root, "preset", "list")
-    assert "presets/lean/commands/cairn.plan.md" in ok(root, "preset", "resolve", "cairn.plan").replace("\n", "")
+    assert "presets/lean/commands/cairn.plan.md" in ok(root, "preset", "resolve", "cairn.plan").replace("\n", "").replace("\\", "/")
     lean_plan = (root / ".claude" / "skills" / "cairn-plan" / "SKILL.md").read_text(encoding="utf-8")
     assert "Existing system constraints (from Cairn)" not in lean_plan  # the preset replaced the command
     assert "cairn ask" in lean_plan  # ...and its minimal version still consults the project memory
@@ -166,6 +168,7 @@ def test_artifact_inventory(root):
     assert "cairn.plan" in json.dumps(data)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="the fake agent CLI is a #!/bin/sh script; Windows cannot launch it")
 def test_bundled_sdd_workflow_dispatches_cairn_commands_to_the_agent(root, tmp_path, monkeypatch):
     """The full-cycle workflow hands `/cairn-specify …` to the agent CLI, then pauses at the review gate."""
     import os

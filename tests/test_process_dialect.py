@@ -92,6 +92,7 @@ def _offline_env(tmp_path, monkeypatch):
     for k, v in ENV.items():
         monkeypatch.setenv(k, v)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
 
 
 # ---- 1. detection -----------------------------------------------------------------------------------

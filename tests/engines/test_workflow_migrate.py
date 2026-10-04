@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -92,6 +93,7 @@ def _make_legacy_repo(root: Path) -> None:
 @pytest.fixture()
 def legacy(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     root = git_repo(tmp_path / "repo")
     _make_legacy_repo(root)
     assert specs.legacy_layout(root) and not specs.initialized(root)
@@ -119,8 +121,9 @@ def test_migrate_legacy_repository(legacy):
     # untouched generated files are the fresh Cairn versions
     plan_skill = (root / ".claude" / "skills" / "cairn-plan" / "SKILL.md").read_text(encoding="utf-8")
     assert "Existing system constraints (from Cairn)" in plan_skill
-    assert (new / "scripts" / "bash" / "create-new-feature.sh").read_text(encoding="utf-8") == (
-        Path(specs.__file__).parent / "workflow" / "assets" / "scripts" / "bash" / "create-new-feature.sh").read_text(encoding="utf-8")
+    variant = ("powershell", "create-new-feature.ps1") if sys.platform == "win32" else ("bash", "create-new-feature.sh")
+    assert (new / "scripts" / variant[0] / variant[1]).read_text(encoding="utf-8") == (
+        Path(specs.__file__).parent / "workflow" / "assets" / "scripts" / variant[0] / variant[1]).read_text(encoding="utf-8")
     assert (new / "integrations" / "claude.manifest.json").is_file()
 
     # a hand-made agent skill is renamed, not lost
@@ -155,6 +158,7 @@ def test_bootstrap_migrates_a_legacy_repository(legacy):
 
 def test_nothing_to_migrate(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))  # Path.home() on Windows
     root = git_repo(tmp_path / "repo")
     assert specs.migrate_legacy(root) == []
     init(root, "claude")

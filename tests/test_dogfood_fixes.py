@@ -229,11 +229,13 @@ def test_global_session_hint_silent_when_inited_non_git_or_home(tmp_path, monkey
     (tmp_path / ".cairn").mkdir()                                # any cairn state counts as initialized
     assert hooks.global_session_hint(payload) is None
     monkeypatch.setenv("HOME", str(tmp_path))                    # home itself is never suggested
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     assert hooks.global_session_hint(json.dumps({"cwd": str(tmp_path)})) is None
 
 
 def test_global_install_and_remove_wire_user_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     other = {"hooks": [{"type": "command", "command": "echo user-owns-this"}]}
     (tmp_path / ".claude").mkdir()
     (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"SessionStart": [other]}}), encoding="utf-8")
@@ -265,6 +267,7 @@ def test_global_session_hook_cli_end_to_end(tmp_path):
 
 def test_global_install_preserves_the_hand_edited_dict_form(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     (tmp_path / ".claude").mkdir()
     user_group = {"hooks": [{"type": "command", "command": "echo user-owns-this"}]}
     (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"SessionStart": user_group}}), encoding="utf-8")
