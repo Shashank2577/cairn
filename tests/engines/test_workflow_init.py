@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -80,7 +81,8 @@ def test_init_every_integration(tmp_path, key):
     assert (wf / "memory" / "constitution.md").is_file()
     for name in PAGE_TEMPLATES:
         assert (wf / "templates" / name).is_file()
-    assert (wf / "scripts" / "bash" / "create-new-feature.sh").is_file()
+    variant, script = ("powershell", "create-new-feature.ps1") if os.name == "nt" else ("bash", "create-new-feature.sh")
+    assert (wf / "scripts" / variant / script).is_file()
     assert (wf / "workflows" / "cairn" / "workflow.yml").is_file()
     opts = json.loads((wf / "init-options.json").read_text())
     assert opts["integration"] == key and opts["workflow_version"]

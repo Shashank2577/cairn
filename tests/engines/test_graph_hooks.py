@@ -6,7 +6,7 @@ import json
 import subprocess
 
 from test_graph_support import (  # noqa: F401  (fixtures)
-    FILES, git, isolated_env, load_graph, make_repo, node_ids, write,
+    FILES, GIT_ENV, git, isolated_env, load_graph, make_repo, node_ids, write,
 )
 
 
@@ -115,7 +115,8 @@ def test_git_merge_uses_driver_end_to_end(tmp_path):
     assert api.build(root)["ok"]
     git(root, "add", "-f", ".cairn/graph/graph.json")
     git(root, "commit", "-qm", "right graph")
-    env_ok = subprocess.run(["git", "-C", str(root), "merge", "-q", "--no-edit", "left"], capture_output=True, text=True)
+    env_ok = subprocess.run(["git", "-C", str(root), "merge", "-q", "--no-edit", "left"],
+                            capture_output=True, text=True, env=GIT_ENV)
     assert env_ok.returncode == 0, env_ok.stderr
     ids = node_ids(root)
     assert "shop_left_left_fn" in ids and "shop_right_right_fn" in ids

@@ -17,6 +17,9 @@ ENV = {**os.environ, "GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.
 # Every test runs offline, never calls the signed-in agent CLI, and never touches the real ~/.cairn.
 os.environ.setdefault("CAIRN_EMBEDDER", "hash")
 os.environ.setdefault("CAIRN_NO_CLI_MODELS", "1")
+# faiss and torch each bundle an OpenMP runtime; loading both aborts the process on macOS.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 
 @pytest.fixture(autouse=True, scope="session")

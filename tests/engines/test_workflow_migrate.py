@@ -48,7 +48,7 @@ def _make_legacy_repo(root: Path) -> None:
     shutil.move(wf / "cairn", wf / OLD_NS)
     skills = root / ".claude" / "skills"
     for d in sorted(skills.iterdir()):
-        (d / "SKILL.md").write_text(_to_legacy_text((d / "SKILL.md").read_text()))
+        (d / "SKILL.md").write_text(_to_legacy_text((d / "SKILL.md").read_text(encoding="utf-8")), encoding="utf-8")
         d.rename(skills / d.name.replace("cairn-", f"{OLD_NS}-"))
     # manifests record the hash of what the old tool wrote
     for mf in (old / "integrations").glob("*.manifest.json"):
