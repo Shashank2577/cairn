@@ -26,7 +26,7 @@ max_commits = 3000
 project = ""                     # session-capture project name if it differs from the folder name
 
 [recall]
-worker_spawn = false
+worker_spawn = true
 
 [map]
 ignore = ["src/cairn/ui/mock/"]
