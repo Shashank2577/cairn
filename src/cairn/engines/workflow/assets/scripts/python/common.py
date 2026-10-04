@@ -92,7 +92,7 @@ def read_feature_json_feature_directory(repo_root: Path) -> str:
 
 
 def _json_dump(data: dict[str, str]) -> str:
-    return json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n"
+    return json.dumps(data, ensure_ascii=True, separators=(",", ":")) + "\n"
 
 
 def persist_feature_json(repo_root: Path, feature_dir_value: str) -> None:

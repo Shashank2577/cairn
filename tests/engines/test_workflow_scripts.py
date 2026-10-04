@@ -61,7 +61,7 @@ def test_bash_scripts_are_executable_and_drive_a_feature(project):
 
     res = _run([BASH, str(scripts / "check-prerequisites.sh"), "--json", "--paths-only"], project)
     paths = _json(res.stdout)
-    assert paths["TASKS"].endswith("tasks.md") and paths["FEATURE_SPEC"] == str(spec_file)
+    assert paths["TASKS"].endswith("tasks.md") and Path(paths["FEATURE_SPEC"]) == spec_file
 
     res = _run([BASH, str(scripts / "setup-tasks.sh"), "--json"], project)
     assert res.returncode == 0, res.stderr

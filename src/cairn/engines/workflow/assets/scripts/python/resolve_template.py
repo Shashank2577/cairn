@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
                     "TEMPLATE_NAME": args.template_name,
                     "TEMPLATE_CONTENT": content,
                 },
-                ensure_ascii=False,
+                ensure_ascii=True,
                 separators=(",", ":"),
             )
         )
