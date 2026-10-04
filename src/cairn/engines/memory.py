@@ -878,7 +878,8 @@ def collect_seeds(project: Project, ledger: SeedLedger | None = None) -> tuple[l
 
 
 def seed_from_repo(project: Project, brain: Brain, router: Router | None = None, *,
-                   store: MemoryStore | None = None, progress: Callable[[str], None] | None = None) -> dict:
+                   store: MemoryStore | None = None, progress: Callable[[str], None] | None = None,
+                   wall_seconds: float | None = None) -> dict:
     """Mirror the repository's own decisions, clarifications, conventions and gotchas into memory.
 
     Deterministic and idempotent: an unchanged source changes nothing; an edited source supersedes
@@ -908,7 +909,7 @@ def seed_from_repo(project: Project, brain: Brain, router: Router | None = None,
         ledger = SeedLedger(project.dir / "memstore" / "seeds.db")
         try:
             with store.semantic.batch():
-                _apply_seeds(project, brain, store, ledger, stats, progress)
+                _apply_seeds(project, brain, store, ledger, stats, progress, wall_seconds=wall_seconds)
         finally:
             ledger.close()
     finally:
@@ -917,7 +918,8 @@ def seed_from_repo(project: Project, brain: Brain, router: Router | None = None,
 
 
 def _apply_seeds(project: Project, brain: Brain, store: MemoryStore, ledger: SeedLedger, stats: dict,
-                 progress: Callable[[str], None] | None) -> None:
+                 progress: Callable[[str], None] | None = None,
+                 wall_seconds: float | None = None) -> None:
     seeds, rewritten = collect_seeds(project, ledger)
     by_slot: dict[str, Seed] = {}
     for s in seeds:
@@ -952,8 +954,17 @@ def _apply_seeds(project: Project, brain: Brain, store: MemoryStore, ledger: See
                               provenance="EXTRACTED", confidence=seed.confidence, reconcile=use_model,
                               timestamp=seed.ts, metadata={"seed": seed.slot})
 
+    started = time.time()
+    processed = 0
     for slot in sorted(by_slot, key=lambda s: (by_slot[s].ts or 0, s)):
+        if wall_seconds is not None and time.time() - started > wall_seconds:
+            # a model call inside a seed can wedge (observed in the field); the cap bounds the damage to
+            # one in-flight call — the remaining seeds continue on the next sync, the ledger keeps state
+            stats["note"] = (f"wall clock ({int(wall_seconds)}s) reached — the remaining "
+                             f"{len(by_slot) - processed} seed(s) continue on the next sync")
+            break
         seed = by_slot[slot]
+        processed += 1
         row = rows.get(slot)
         if row is None and seed.replaces_slot and seed.replaces_slot in rows:
             row = rows[seed.replaces_slot]

@@ -118,8 +118,15 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
             for f in futs:
                 f.result()
         def do_memory():
-            from .engines.memory import seed_from_repo
-            return seed_from_repo(project, brain, cairn.router, store=cairn.memory)
+            import faulthandler
+            # the memory step makes model calls too; if one wedges, dump stacks instead of hanging forever
+            faulthandler.dump_traceback_later(600, exit=False)
+            try:
+                res = seed_from_repo(project, brain, cairn.router, store=cairn.memory,
+                                     wall_seconds=float(project.cfg("memory.wall_seconds", 300)))
+            finally:
+                faulthandler.cancel_dump_traceback_later()
+            return res
         step("memory", do_memory)
         step("links", lambda: {"links": linker.relink_memories(brain, cairn.map)})
 

@@ -38,7 +38,8 @@ wall_seconds = 300               # stop the deep tier after this many seconds; r
 graph_url = ""                   # falkor://host:6379 or bolt://host:7687 ; empty = embedded store
 
 [memory]
-add_mode = "reconcile"           # reconcile: merge/update/retire similar memories with a model | additive
+add_mode = "reconcile"
+wall_seconds = 300               # stop memory seeding after this many seconds; remaining seeds continue next sync           # reconcile: merge/update/retire similar memories with a model | additive
 seed = true                      # learn decisions, clarifications, conventions and gotchas from the repo on sync
 rerank = false                   # rerank recall results with a model
 graph = false                    # also write memories into the timeline fact graph

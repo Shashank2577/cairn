@@ -299,3 +299,13 @@ def test_cli_review_context_json_is_machine_readable(syst):
     assert data["system"] == "shop-system"
     assert "FDY-42" in data["ticket"]["ids"]
     assert "text" in data and "Local impact" in data["text"]
+
+
+def test_memory_seed_wall_clock_stops_between_seeds(cairn):
+    """The memory step wedged in the field (model call hang); the cap bounds it like the deep tier's."""
+    from cairn.engines.memory import seed_from_repo
+    # the cairn fixture already seeded once; force a re-run where every slot is a candidate
+    cairn.project.dir.joinpath("memstore/seeds.db").unlink(missing_ok=True)
+    out = seed_from_repo(cairn.project, cairn.brain, None, store=cairn.memory, wall_seconds=0)
+    assert out.get("candidates", 0) > 0
+    assert "next sync" in out.get("note", "")
