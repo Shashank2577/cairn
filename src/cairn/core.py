@@ -77,7 +77,7 @@ def cited_docs(root: Path, pack_text: str, question: str, *, max_files: int = 2,
             continue
         cap = per_file_tokens * 4
         if len(body) > cap and keywords:  # pull the densest keyword window, not the head
-            best, score, low = 0, -1, body.lower()
+            best, score = 0, -1
             step = max(1, (len(body) - cap) // 40)
             for off in range(0, max(1, len(body) - cap + 1), step):
                 win = body[off:off + cap].lower()
