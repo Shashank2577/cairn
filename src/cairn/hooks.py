@@ -222,3 +222,26 @@ def statusline(cairn, stdin_json: str = "") -> str:
     if model:
         parts.append(f"{dim}{model}{rst}")
     return f" {dim}·{rst} ".join(parts)
+
+
+def global_session_hint(payload: str = "") -> dict | None:
+    """User-level SessionStart hook (registered by ``cairn global install``): where Cairn is installed
+    but the repository is not initialised, hand the agent one line so it can offer the setup. Runs with
+    no project and must never create state — pure filesystem checks only."""
+    try:
+        data = json.loads(payload) if payload.strip() else {}
+    except json.JSONDecodeError:
+        data = {}
+    cwd = data.get("cwd") if isinstance(data, dict) else None
+    try:
+        root = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+        if root == Path.home().resolve():
+            return None
+    except OSError:
+        return None
+    if not (root / ".git").exists() or (root / ".cairn").exists():
+        return None  # not a repository, or already initialised (any cairn state counts)
+    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext":
+            "Cairn (local project memory: impact, history, conventions for coding agents) is installed "
+            "but not initialized in this repository. Offer the user, once: `cairn init --no-deep` sets it "
+            "up in ~15s, entirely local — do not run it without their go-ahead."}}

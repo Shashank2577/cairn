@@ -398,6 +398,10 @@ def doctor():
             "" if wired else "cairn agents install --agents claude")
     else:  # the config keeps the nugget off; doctor must not report it as on
         row(False, "Ambient context", "off (config)", "set [context] ambient = true in .cairn/config.toml")
+    global_wired = agents_mod.global_wired()
+    row(global_wired, "Global suggest hook",
+        "on — offers setup in non-initialized repos" if global_wired else "off",
+        "" if global_wired else "cairn global install")
     console.print(brand("doctor"))
     console.print(t)
 
@@ -1066,6 +1070,11 @@ def hook(event: str):
     from . import hooks, sync
     from .core import Cairn
     from .project import Project
+    if event == "global-session":  # may run where cairn isn't initialised — must not touch project state
+        out = hooks.global_session_hint(sys.stdin.read() if not sys.stdin.isatty() else "")
+        if out:
+            print(json.dumps(out))
+        return
     proj = Project.discover()
     if proj is None or not proj.db_path.exists():
         return
@@ -1078,6 +1087,23 @@ def hook(event: str):
         out = hooks.ambient(Cairn(proj), data)
         if out:  # empty stdout injects nothing (UserPromptSubmit adds any stdout to the model's context)
             print(json.dumps(out))
+
+
+@app.command("global")
+def global_setup(action: str = typer.Argument("install", help="install | remove | status")):
+    """Register the user-level SessionStart hook: in any git repo without cairn, the agent offers the
+    one-command setup. Opt-in; writes only ~/.claude/settings.json."""
+    from . import agents as a
+    if action == "install":
+        print(f"[{MOSS}]✓[/] user-level SessionStart hook installed (~/.claude/settings.json)"
+              if a.global_install() else f"[{ROSE}]✗[/] could not parse/write ~/.claude/settings.json — leaving it untouched")
+    elif action == "remove":
+        print(f"[{SLATE}]–[/] removed" if a.global_remove() else f"[{SLATE}]–[/] nothing to remove")
+    elif action == "status":
+        print("wired" if a.global_wired() else "not wired")
+    else:
+        print(f"[{ROSE}]unknown action:[/] {action}", file=sys.stderr)
+        raise typer.Exit(2)
 
 
 @app.command()

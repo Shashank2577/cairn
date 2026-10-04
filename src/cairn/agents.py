@@ -182,8 +182,8 @@ def _is_ours(entry: object) -> bool:
     entries are recognised by the session engine). Matched on the exact command shape, never on a path that
     merely contains "cairn"."""
     cmd = str(entry.get("command") or "") if isinstance(entry, dict) else ""
-    return bool(re.search(r"(^|[\s\"'/])cairn( hook (?:session-start|ambient)| statusline)$"
-                          r"|-m cairn (hook (?:session-start|ambient)|statusline)$", cmd.strip()))
+    return bool(re.search(r"(^|[\s\"'/])cairn( hook (?:session-start|ambient|global-session)| statusline)$"
+                          r"|-m cairn (hook (?:session-start|ambient|global-session)|statusline)$", cmd.strip()))
 
 
 def _without_ours(groups: list) -> list:
@@ -556,3 +556,54 @@ def uninstall(project: Project) -> list[str]:
     if shutil.which("codex"):
         subprocess.run(["codex", "mcp", "remove", "cairn"], capture_output=True, timeout=30)
     return removed
+
+
+# ---- user-level (global) wiring: offer setup in repos that have no cairn yet ------------------------
+
+def _user_settings_path() -> Path:
+    return Path.home() / ".claude" / "settings.json"
+
+
+def global_wired() -> bool:
+    p = _user_settings_path()
+    if not p.exists():
+        return False
+    try:
+        groups = (json.loads(p.read_text()).get("hooks") or {}).get("SessionStart", [])
+    except (OSError, ValueError):
+        return False
+    return any(_is_ours(h) for g in groups if isinstance(g, dict) for h in g.get("hooks", []))
+
+
+def _write_user_session_groups(include_ours: bool) -> bool:
+    """Rewrite ~/.claude/settings.json SessionStart with/without Cairn's global-suggest entry, preserving
+    everything else. A user file we cannot parse is never ours to rewrite."""
+    p = _user_settings_path()
+    data: dict = {}
+    if p.exists():
+        try:
+            data = json.loads(p.read_text())
+        except (OSError, ValueError):
+            return False
+    if not isinstance(data, dict):
+        return False
+    hooks = data.setdefault("hooks", {})
+    groups = hooks.get("SessionStart", [])
+    if isinstance(groups, dict):  # hand-edited files use the single-object form; preserve it rather than drop it
+        groups = [groups]
+    kept = _without_ours(groups if isinstance(groups, list) else [])
+    if include_ours:
+        kept.append({"hooks": [{"type": "command", "command": _hook_cmd("global-session"), "timeout": 10}]})
+    hooks["SessionStart"] = kept
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2))
+    return True
+
+
+def global_install() -> bool:
+    """Register the user-level SessionStart hook: in any git repo without cairn, the agent offers the setup."""
+    return _write_user_session_groups(include_ours=True)
+
+
+def global_remove() -> bool:
+    return _write_user_session_groups(include_ours=False)

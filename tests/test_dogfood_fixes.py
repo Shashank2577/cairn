@@ -13,6 +13,7 @@ import time
 import pytest
 from typer.testing import CliRunner
 
+from cairn import agents as agents_mod
 from cairn import hooks, sync
 from cairn.cli import _statusline_cwd, _timeline_ref, app
 from cairn.core import _QUESTION_STOP
@@ -208,3 +209,66 @@ def test_status_active_spec_prints_process_dialect_ids_whole(repo):
     assert res.exit_code == 0, res.output
     # the whole dialect id on the active-spec line, never a fixed-slice mangling ("ess:req-001")
     assert "Active spec process:req-001" in res.output
+
+
+# ---- global suggest hook: the harness offers setup in repos that have no cairn ----------------------
+
+def test_global_session_hint_offers_init_in_uninited_git_repo(tmp_path):
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    payload = json.dumps({"cwd": str(tmp_path)})
+    out = hooks.global_session_hint(payload)
+    assert out and "cairn init --no-deep" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_global_session_hint_silent_when_inited_non_git_or_home(tmp_path, monkeypatch):
+    import subprocess
+    payload = json.dumps({"cwd": str(tmp_path)})
+    assert hooks.global_session_hint(payload) is None            # not a git repo
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".cairn").mkdir()                                # any cairn state counts as initialized
+    assert hooks.global_session_hint(payload) is None
+    monkeypatch.setenv("HOME", str(tmp_path))                    # home itself is never suggested
+    assert hooks.global_session_hint(json.dumps({"cwd": str(tmp_path)})) is None
+
+
+def test_global_install_and_remove_wire_user_settings(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    other = {"hooks": [{"type": "command", "command": "echo user-owns-this"}]}
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"SessionStart": [other]}}))
+    assert agents_mod.global_install() is True
+    wired = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    groups = wired["hooks"]["SessionStart"]
+    ours = [h for g in groups for h in g["hooks"] if "global-session" in h["command"]]
+    theirs = [h for g in groups for h in g["hooks"] if "user-owns-this" in h["command"]]
+    assert ours and theirs                                       # ours added, the user's kept
+    assert agents_mod.global_install() is True                   # idempotent (no duplicate)
+    groups2 = json.loads((tmp_path / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
+    assert sum("global-session" in h["command"] for g in groups2 for h in g["hooks"]) == 1
+    assert agents_mod.global_remove() is True
+    groups3 = json.loads((tmp_path / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
+    assert not any("global-session" in h["command"] for g in groups3 for h in g["hooks"])
+    assert any("user-owns-this" in h["command"] for g in groups3 for h in g["hooks"])
+
+
+def test_global_session_hook_cli_end_to_end(tmp_path):
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    monkey_cwd = str(tmp_path)
+    payload = json.dumps({"cwd": monkey_cwd})
+    runner = CliRunner()
+    res = runner.invoke(app, ["hook", "global-session"], input=payload)
+    assert res.exit_code == 0
+    assert "cairn init --no-deep" in res.output
+
+
+def test_global_install_preserves_the_hand_edited_dict_form(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".claude").mkdir()
+    user_group = {"hooks": [{"type": "command", "command": "echo user-owns-this"}]}
+    (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"SessionStart": user_group}}))
+    assert agents_mod.global_install() is True
+    groups = json.loads((tmp_path / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
+    cmds = [h["command"] for g in groups for h in g["hooks"]]
+    assert any("global-session" in c for c in cmds) and any("user-owns-this" in c for c in cmds)
