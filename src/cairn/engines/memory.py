@@ -957,7 +957,7 @@ def _apply_seeds(project: Project, brain: Brain, store: MemoryStore, ledger: See
     started = time.time()
     processed = 0
     for slot in sorted(by_slot, key=lambda s: (by_slot[s].ts or 0, s)):
-        if wall_seconds is not None and time.time() - started > wall_seconds:
+        if wall_seconds is not None and time.time() - started >= wall_seconds:
             # a model call inside a seed can wedge (observed in the field); the cap bounds the damage to
             # one in-flight call — the remaining seeds continue on the next sync, the ledger keeps state
             stats["note"] = (f"wall clock ({int(wall_seconds)}s) reached — the remaining "
