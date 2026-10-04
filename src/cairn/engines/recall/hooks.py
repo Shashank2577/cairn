@@ -28,6 +28,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from ... import filelock
 from . import ingest, remote, schema
 from .adapters import AdapterRejectedInput, format_output, normalize, parse_stdin
 from .context import inject_context, viewer_url
@@ -430,16 +431,10 @@ def _lock_held(path: Path) -> bool:
     if not path.exists():
         return False
     try:
-        import fcntl
-    except ImportError:
-        return False
-    try:
         with open(path, "a", encoding="utf-8") as fh:
-            try:
-                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
+            if not filelock.try_lock(fh):
                 return True
-            fcntl.flock(fh, fcntl.LOCK_UN)
+            filelock.unlock(fh)
     except OSError:
         return False
     return False

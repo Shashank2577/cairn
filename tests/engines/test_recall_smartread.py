@@ -330,7 +330,7 @@ def test_search_ranks_name_match_first(code_tree):
     res = sr.search_codebase(str(code_tree), "parse_config")
     assert res.total_files_scanned == 3  # config.py, reader.py, user.ts (ignored/hidden/big/empty/binary skipped)
     assert res.matching_symbols[0].symbol_name == "parse_config"
-    assert res.matching_symbols[0].file_path == os.path.join("src", "config.py")
+    assert res.matching_symbols[0].file_path == "src/config.py"
     assert res.matching_symbols[0].match_reason == "name match + signature"
     names = [m.symbol_name for m in res.matching_symbols]
     assert "load_file" in names  # doc-comment match ranks after the name match
@@ -366,7 +366,7 @@ def test_format_search_results(code_tree):
     assert lines[1] == f"   Scanned 3 files, found {res.total_symbols_found} symbols"
     assert lines[2] == f"   1 matches across 1 files (~{res.token_estimate} tokens for folded view)"
     assert "── Matching Symbols ──" in lines
-    assert f"  function parse_config ({os.path.join('src', 'config.py')}:10)" in lines
+    assert f"  function parse_config (src/config.py:10)" in lines
     assert "    💬 # Parse the configuration file." in lines
     assert "── Folded File Views ──" in lines
     assert lines[-1] == "  To see full implementation: use smart_unfold with file path and symbol name"

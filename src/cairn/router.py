@@ -334,6 +334,8 @@ class Router:
                 proc.wait(timeout=30)
             finally:
                 if proc.poll() is None:  # the reader went away (or we failed): stop the model call
+                    if os.name == "nt":  # claude.cmd is a shim: kill the whole tree, not just cmd.exe
+                        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
                     proc.kill()
                     proc.wait()
             if result is None:
