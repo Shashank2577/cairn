@@ -79,7 +79,7 @@ def default_file() -> Path:
 
 def git(args: list[str], cwd: str | None = None) -> str | None:
     try:
-        res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+        res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False, encoding="utf-8", errors="replace")
     except OSError:
         return None
     return res.stdout if res.returncode == 0 else None
@@ -296,7 +296,7 @@ def gh_prs() -> list | None:
     try:
         res = subprocess.run(["gh", "pr", "list", "--state", "open", "--limit", "200", "--json",
                               "number,title,headRefName,updatedAt,author,isDraft"], capture_output=True, text=True,
-                             check=False)
+                             check=False, encoding="utf-8", errors="replace")
     except OSError:
         return None
     if res.returncode != 0:

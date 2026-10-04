@@ -41,7 +41,7 @@ def _git(root: Path, *args: str) -> str:
     """Git output from ``root``; '' when git is missing, the tree is not a repo, or nothing matches."""
     try:
         res = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=60,
-                             check=False)
+                             check=False, encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return ""
     return res.stdout if res.returncode == 0 else ""
@@ -93,7 +93,7 @@ def _check_result(check: dict, root: Path) -> tuple[bool, str, list[tuple[str, b
             pattern, needle = str(spec["glob"]), str(spec["pattern"])
             for path in _glob(root, pattern):
                 try:
-                    if needle in path.read_text():
+                    if needle in path.read_text(encoding="utf-8"):
                         return True, f"`{needle}` found in `{pattern}`", [(_rel(root, path), True)]
                 except (OSError, UnicodeDecodeError):
                     continue
@@ -117,7 +117,7 @@ def _requirements(root: Path) -> list[dict]:
     """Rows of the index table: ``[{"id": "REQ-001", "text": "..."}]`` in file order."""
     out = []
     try:
-        text = (root / INDEX).read_text(errors="replace")
+        text = (root / INDEX).read_text(errors="replace", encoding="utf-8")
     except OSError:
         return out
     for line in text.splitlines():

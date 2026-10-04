@@ -194,7 +194,7 @@ def prior_session_message(observations: list[dict], cfg: ContextConfig, current_
     sid = prior.get("content_session_id") or prior.get("memory_session_id")
     path = claude_config_dir() / "projects" / cwd_to_dashed(cwd) / f"{sid}.jsonl"
     try:
-        content = path.read_text(errors="replace").strip()
+        content = path.read_text(errors="replace", encoding="utf-8").strip()
     except OSError:
         return ""
     return _last_assistant_text([ln for ln in content.split("\n") if ln.strip()]) if content else ""
@@ -523,7 +523,7 @@ def viewer_url(root: Path | str | None) -> str:
     if root:
         try:
             import tomllib
-            port = int(tomllib.loads((Path(root) / ".cairn" / "config.toml").read_text())
+            port = int(tomllib.loads((Path(root) / ".cairn" / "config.toml").read_text(encoding="utf-8"))
                        .get("server", {}).get("port", port))
         except (OSError, ValueError, TypeError, Exception):  # noqa: BLE001 - config issues never block context
             pass

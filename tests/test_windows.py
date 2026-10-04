@@ -95,7 +95,7 @@ def wait_for(path: Path, timeout: float = 15.0) -> str:
 def run_sh(shell: str, script: Path, cwd: Path, out: Path, delay: float = 0) -> subprocess.CompletedProcess:
     env = {**os.environ, "SHIM_OUT": str(out), "SHIM_DELAY": str(delay)}
     return subprocess.run([shell, str(script)], cwd=cwd, env=env, capture_output=True, text=True, timeout=30,
-                          check=False)
+                          check=False, encoding="utf-8", errors="replace")
 
 
 # ---- shell quoting primitives ------------------------------------------------------------------------------
@@ -174,7 +174,7 @@ def test_windows_git_hook_is_valid_sh_and_never_waits(monkeypatch, tmp_path, she
 def test_git_hook_with_a_missing_interpreter_is_silent(tmp_path, shell):
     script = tmp_path / "post-commit"
     script.write_bytes(hooks.with_hook_line(None, hooks.hook_line(str(tmp_path / "gone" / "python"))).encode())
-    res = subprocess.run([shell, str(script)], capture_output=True, text=True, timeout=30, check=False)
+    res = subprocess.run([shell, str(script)], capture_output=True, text=True, timeout=30, check=False, encoding="utf-8", errors="replace")
     assert (res.returncode, res.stdout, res.stderr) == (0, "", "")
 
 
@@ -204,17 +204,17 @@ def test_existing_hooks_are_upgraded_preserved_or_left_alone(repo, tmp_path, win
     _set_hooks_path(repo, hooks_dir)
     user_bytes = "#!/bin/sh\r\necho 'mine – ü'\r\nexit 0\r\n".encode("utf-8") + b"\xff raw\r\n"
     (hooks_dir / "post-commit").write_bytes(user_bytes)
-    (hooks_dir / "post-merge").write_text("#!/bin/sh\ncairn hook git >/dev/null 2>&1 & # cairn-hook\n")  # old line
+    (hooks_dir / "post-merge").write_text("#!/bin/sh\ncairn hook git >/dev/null 2>&1 & # cairn-hook\n", encoding="utf-8")  # old line
     python_hook = "#!/usr/bin/env python3\nprint('not sh')\n"
-    (hooks_dir / "post-checkout").write_text(python_hook)
+    (hooks_dir / "post-checkout").write_text(python_hook, encoding="utf-8")
     proj = Project.discover(repo)
     assert hooks.install_git_hooks(proj) == ["post-commit", "post-merge", "post-rewrite"]
     line = hooks.hook_line()
     commit = (hooks_dir / "post-commit").read_bytes()
     # Cairn's line goes right after the shebang (an `exit` further down can't skip it), in the file's CRLF style
     assert commit == b"#!/bin/sh\r\n" + line.encode() + b"\r\n" + user_bytes[len(b"#!/bin/sh\r\n"):]
-    assert (hooks_dir / "post-merge").read_text() == f"#!/bin/sh\n{line}\n"  # upgraded, not duplicated
-    assert (hooks_dir / "post-checkout").read_text() == python_hook  # another interpreter: untouched
+    assert (hooks_dir / "post-merge").read_text(encoding="utf-8") == f"#!/bin/sh\n{line}\n"  # upgraded, not duplicated
+    assert (hooks_dir / "post-checkout").read_text(encoding="utf-8") == python_hook  # another interpreter: untouched
     hooks.remove_git_hooks(proj)
     assert (hooks_dir / "post-commit").read_bytes() == user_bytes  # byte-exact
     assert not (hooks_dir / "post-merge").exists()
@@ -235,12 +235,12 @@ def test_git_itself_runs_the_installed_hook(repo, tmp_path, monkeypatch):
     the hook runs the interpreter at a path with spaces and non-ASCII, and `-m cairn hook git` reaches Python."""
     fake = tmp_path / "fake site"
     (fake / "cairn").mkdir(parents=True)
-    (fake / "cairn" / "__init__.py").write_text("")
+    (fake / "cairn" / "__init__.py").write_text("", encoding="utf-8")
     (fake / "cairn" / "__main__.py").write_text(
         "import json, os, sys\n"
         "out = os.environ['CAIRN_FAKE_OUT']\n"
         "open(out + '.tmp', 'w', encoding='utf-8').write(json.dumps(sys.argv[1:]))\n"
-        "os.replace(out + '.tmp', out)\n")
+        "os.replace(out + '.tmp', out)\n", encoding="utf-8")
     python = sys.executable
     if os.name != "nt":  # a spaced, non-ASCII interpreter path (symlinks need privileges on Windows)
         link_dir = tmp_path / "Py Thon – ü $x"
@@ -290,11 +290,11 @@ def test_git_bash_detection(monkeypatch, tmp_path):
     monkeypatch.delenv("CLAUDE_CODE_GIT_BASH_PATH", raising=False)
     root = tmp_path / "Git"
     (root / "cmd").mkdir(parents=True)
-    (root / "cmd" / "git.exe").write_text("")
+    (root / "cmd" / "git.exe").write_text("", encoding="utf-8")
     monkeypatch.setattr(shellcmd.shutil, "which", lambda name: str(root / "cmd" / "git.exe"))
     assert shellcmd.has_git_bash() is False
     (root / "bin").mkdir()
-    (root / "bin" / "bash.exe").write_text("")
+    (root / "bin" / "bash.exe").write_text("", encoding="utf-8")
     assert shellcmd.has_git_bash() is True
     monkeypatch.setenv("CLAUDE_CODE_GIT_BASH_PATH", str(tmp_path / "elsewhere" / "bash.exe"))
     assert shellcmd.has_git_bash() is False  # the override wins, and must exist
@@ -425,7 +425,7 @@ def test_cairn_down_survives_windows_kill_semantics(tmp_path, monkeypatch):
     """On Windows os.kill(pid, SIGTERM) is TerminateProcess, and a process that just exited raises a plain
     OSError (WinError 87), not ProcessLookupError."""
     monkeypatch.setenv("CAIRN_HOME", str(tmp_path))
-    (tmp_path / "server.json").write_text(json.dumps({"pid": 4321, "port": 1}))
+    (tmp_path / "server.json").write_text(json.dumps({"pid": 4321, "port": 1}), encoding="utf-8")
     monkeypatch.setattr(daemon, "_is_cairn_server", lambda pid: True)
     sent = []
 
@@ -442,7 +442,7 @@ def test_cairn_down_stops_a_real_server_process(tmp_path, monkeypatch):
     monkeypatch.setenv("CAIRN_HOME", str(tmp_path))
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "cairn", "serve"])
     try:
-        (tmp_path / "server.json").write_text(json.dumps({"pid": proc.pid, "port": 1}))
+        (tmp_path / "server.json").write_text(json.dumps({"pid": proc.pid, "port": 1}), encoding="utf-8")
         assert daemon._is_cairn_server(proc.pid)
         assert daemon.stop() is True
         assert proc.wait(timeout=30) is not None
@@ -484,8 +484,8 @@ def test_windows_sync_lock_logic_with_a_stubbed_msvcrt(monkeypatch, tmp_path):
     `sync._windows_lock` imports: lock byte 0 non-blocking, treat OSError as contention, unlock on release."""
     stub = _stub_msvcrt(monkeypatch)
     lock = tmp_path / "sync.lock"
-    holder = open(lock, "w")
-    contender = open(lock, "w")
+    holder = open(lock, "w", encoding="utf-8")
+    contender = open(lock, "w", encoding="utf-8")
     try:
         release = sync._windows_lock(holder, 0)
         assert release is not None
@@ -504,8 +504,8 @@ def test_windows_sync_lock_waits_for_release_with_a_stubbed_msvcrt(monkeypatch, 
     import threading
     stub = _stub_msvcrt(monkeypatch)
     lock = tmp_path / "sync.lock"
-    holder = open(lock, "w")
-    contender = open(lock, "w")
+    holder = open(lock, "w", encoding="utf-8")
+    contender = open(lock, "w", encoding="utf-8")
     timer = threading.Timer(0.3, setattr, args=(stub, "held", False))
     try:
         assert sync._windows_lock(holder, 0) is not None
@@ -549,11 +549,11 @@ def test_real_windows_shells_run_each_form(tmp_path):
     def via_sh(cmd: str) -> subprocess.CompletedProcess:
         script = tmp_path / "cmd.sh"  # a file: sh's own command-line parsing never sees the quotes
         script.write_bytes((cmd + "\n").encode("utf-8"))
-        return subprocess.run([sh, str(script)], capture_output=True, text=True, timeout=60, check=False)
+        return subprocess.run([sh, str(script)], capture_output=True, text=True, timeout=60, check=False, encoding="utf-8", errors="replace")
 
     def via_powershell(cmd: str) -> subprocess.CompletedProcess:
         return subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", cmd],
-                              capture_output=True, text=True, timeout=60, check=False)
+                              capture_output=True, text=True, timeout=60, check=False, encoding="utf-8", errors="replace")
 
     runs = [("posix", via_sh), ("gitbash", via_sh), ("powershell", via_powershell), ("unknown", via_powershell)]
     gitbash = shellcmd.python_prefix(python, "gitbash")

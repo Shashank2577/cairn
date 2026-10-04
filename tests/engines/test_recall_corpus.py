@@ -306,7 +306,7 @@ def test_prime_query_carries_the_conversation_and_reprime_clears_it(repo):
     assert "Why idempotency keys?" in q2["prompt"] and "answer one" in q2["prompt"]
     assert q2["prompt"].index("ACK payments themes") < q2["prompt"].index("answer one")
     assert q2["prompt"].endswith("And the retries?")
-    session = json.loads(cp.session_path(root, "pay").read_text())
+    session = json.loads(cp.session_path(root, "pay").read_text(encoding="utf-8"))
     assert [t["question"] for t in session["turns"]] == ["Why idempotency keys?", "And the retries?"]
 
     fresh = cp.reprime_corpus(root, "pay", router=router)
@@ -329,7 +329,7 @@ def test_query_reprimes_a_lost_session(repo):
     result = cp.query_corpus(root, "pay", "What changed?", router=router)
     assert result["answer"] == "the answer" and result["session_id"] != old
     assert [c["prompt"] == cp.PRIME_REQUEST for c in router.calls] == [True, True, False]
-    assert len(json.loads(cp.session_path(root, "pay").read_text())["turns"]) == 1
+    assert len(json.loads(cp.session_path(root, "pay").read_text(encoding="utf-8"))["turns"]) == 1
 
 
 def test_query_history_is_bounded(repo):
@@ -338,9 +338,9 @@ def test_query_history_is_bounded(repo):
     router = FakeRouter(["the ack"])
     cp.prime_corpus(root, "pay", router=router)
     path = cp.session_path(root, "pay")
-    session = json.loads(path.read_text())
+    session = json.loads(path.read_text(encoding="utf-8"))
     session["turns"] = [{"question": f"question {i}?", "answer": f"answer {i}"} for i in range(20)]
-    path.write_text(json.dumps(session))
+    path.write_text(json.dumps(session), encoding="utf-8")
     cp.query_corpus(root, "pay", "latest?", router=router)
     prompt = router.calls[-1]["prompt"]
     kept = cp.MAX_HISTORY_EXCHANGES

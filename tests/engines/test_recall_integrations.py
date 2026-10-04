@@ -41,7 +41,7 @@ def repo(tmp_path) -> Path:
 
 
 def _load(path: Path):
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _commands(obj) -> list[str]:
@@ -124,16 +124,16 @@ def test_bmp_safe_and_context_blocks(tmp_path):
     assert ig.to_bmp_safe("\U0001F534 fix \U0001F600 x\ud800y") == "\u25CF fix \u2022 xy"
     assert ig.to_bmp_safe("") == ""
     f = tmp_path / "AGENTS.md"
-    f.write_text("# Mine\n\nkeep this\n")
+    f.write_text("# Mine\n\nkeep this\n", encoding="utf-8")
     ig.inject_context_into_markdown_file(f, "one \U0001F7E3")
     ig.inject_context_into_markdown_file(f, "two")
-    text = f.read_text()
+    text = f.read_text(encoding="utf-8")
     assert text.count("<cairn-context>") == 1 and "two" in text and "keep this" in text
     assert ig.remove_context_block(f)
-    assert f.read_text() == "# Mine\n\nkeep this\n"
+    assert f.read_text(encoding="utf-8") == "# Mine\n\nkeep this\n"
     new = tmp_path / "sub" / "NEW.md"
     ig.inject_context_into_markdown_file(new, "ctx", "# Header")
-    assert new.read_text().startswith("# Header\n\n<cairn-context>\nctx\n</cairn-context>")
+    assert new.read_text(encoding="utf-8").startswith("# Header\n\n<cairn-context>\nctx\n</cairn-context>")
     assert ig.remove_context_block(new, header_line="# Header") and not new.exists()
 
 
@@ -141,7 +141,7 @@ def test_bmp_safe_and_context_blocks(tmp_path):
 def test_cursor_project_round_trip(repo, home):
     cfg = repo / ".cursor" / "hooks.json"
     cfg.parent.mkdir()
-    cfg.write_text(json.dumps({"version": 1, "hooks": {"stop": [{"command": "./mine.sh"}]}}))
+    cfg.write_text(json.dumps({"version": 1, "hooks": {"stop": [{"command": "./mine.sh"}]}}), encoding="utf-8")
     res = ig.install_cursor(repo, python=PY)
     assert res["ok"], res
     data = _load(cfg)
@@ -154,8 +154,8 @@ def test_cursor_project_round_trip(repo, home):
     assert data["hooks"]["stop"][1]["command"].endswith("--platform cursor summarize")
     assert data["hooks"]["sessionEnd"][0]["command"].endswith("--platform cursor session-end")
     assert not (repo / ".cursor" / "rules").exists() and repo.name not in ig.read_cursor_registry()
-    first = cfg.read_text()
-    assert ig.install_cursor(repo, python=PY)["ok"] and cfg.read_text() == first  # idempotent
+    first = cfg.read_text(encoding="utf-8")
+    assert ig.install_cursor(repo, python=PY)["ok"] and cfg.read_text(encoding="utf-8") == first  # idempotent
     status = ig.cursor_status(repo)
     proj = next(r for r in status["locations"] if r["name"] == "project")
     assert proj["installed"] and "beforeSubmitPrompt" in proj["events"]
@@ -178,45 +178,45 @@ def test_cursor_user_target_and_cleanup(home):
 def test_cursor_refuses_corrupt_hooks(repo):
     cfg = repo / ".cursor" / "hooks.json"
     cfg.parent.mkdir()
-    cfg.write_text("{not json")
+    cfg.write_text("{not json", encoding="utf-8")
     res = ig.install_cursor(repo, python=PY)
     assert not res["ok"] and "refusing" in res["error"]
-    assert cfg.read_text() == "{not json"
-    assert ig.uninstall_cursor(repo)["ok"] and cfg.read_text() == "{not json"
+    assert cfg.read_text(encoding="utf-8") == "{not json"
+    assert ig.uninstall_cursor(repo)["ok"] and cfg.read_text(encoding="utf-8") == "{not json"
 
 
 def test_cursor_install_retires_the_generated_context_rule(repo):
     rules = repo / ".cursor" / "rules"
     rules.mkdir(parents=True)
-    (rules / "cairn-context.mdc").write_text(ig.CURSOR_PLACEHOLDER)  # written by an earlier version
+    (rules / "cairn-context.mdc").write_text(ig.CURSOR_PLACEHOLDER, encoding="utf-8")  # written by an earlier version
     res = ig.install_cursor(repo, python=PY)
     assert str(rules / "cairn-context.mdc") in res["removed"] and not (rules / "cairn-context.mdc").exists()
-    (rules / "cairn-context.mdc").write_text("---\nalwaysApply: true\n---\nmy own rule\n")  # same name, the user's
+    (rules / "cairn-context.mdc").write_text("---\nalwaysApply: true\n---\nmy own rule\n", encoding="utf-8")  # same name, the user's
     ig.install_cursor(repo, python=PY)
     ig.uninstall_cursor(repo)
-    assert (rules / "cairn-context.mdc").read_text().endswith("my own rule\n")
+    assert (rules / "cairn-context.mdc").read_text(encoding="utf-8").endswith("my own rule\n")
 
 
 def test_cursor_mcp_config(repo):
     mcp = repo / ".cursor" / "mcp.json"
     mcp.parent.mkdir()
-    mcp.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}))
+    mcp.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}), encoding="utf-8")
     assert ig.configure_cursor_mcp(repo, command="cairn", args=["mcp"])["ok"]
     assert _load(mcp)["mcpServers"] == {"other": {"command": "x"}, "cairn": {"command": "cairn", "args": ["mcp"]}}
     assert ig.configure_cursor_mcp(repo)["written"] == []  # idempotent
     assert ig.remove_cursor_mcp(repo)["ok"]
     assert _load(mcp) == {"mcpServers": {"other": {"command": "x"}}}
-    mcp.write_text("oops")
-    assert not ig.configure_cursor_mcp(repo)["ok"] and mcp.read_text() == "oops"
+    mcp.write_text("oops", encoding="utf-8")
+    assert not ig.configure_cursor_mcp(repo)["ok"] and mcp.read_text(encoding="utf-8") == "oops"
 
 
 # ---- Windsurf ----------------------------------------------------------------------------------------------
 def test_windsurf_round_trip(repo, home):
     path = home / ".codeium" / "windsurf" / "hooks.json"
     path.parent.mkdir(parents=True)
-    path.write_text("\ufeff" + json.dumps({"hooks": {"post_run_command": [{"command": "mine", "show_output": True}]}}))
+    path.write_text("\ufeff" + json.dumps({"hooks": {"post_run_command": [{"command": "mine", "show_output": True}]}}), encoding="utf-8")
     assert ig.install_windsurf(repo, python=PY)["ok"]
-    hooks = _load(path)["hooks"] if not path.read_text().startswith("\ufeff") else None
+    hooks = _load(path)["hooks"] if not path.read_text(encoding="utf-8").startswith("\ufeff") else None
     assert hooks is not None
     assert set(hooks) == set(ig.WINDSURF_EVENTS)
     assert hooks["post_run_command"][0] == {"command": "mine", "show_output": True}
@@ -225,9 +225,9 @@ def test_windsurf_round_trip(repo, home):
     assert hooks["post_write_code"][0]["command"].endswith("file-edit")
     assert all(h["command"].endswith("observation") for ev in ("post_mcp_tool_use", "post_cascade_response")
                for h in hooks[ev])
-    first = path.read_text()
+    first = path.read_text(encoding="utf-8")
     ig.install_windsurf(repo, python=PY)
-    assert path.read_text() == first
+    assert path.read_text(encoding="utf-8") == first
     assert (repo / ".windsurf" / "rules" / "cairn-context.md").exists()
     st = ig.windsurf_status(repo)
     assert st["installed"] and len(st["events"]) == 5 and st["context"]
@@ -242,12 +242,12 @@ def test_windsurf_round_trip(repo, home):
 def test_windsurf_corrupt_and_truncation(repo, home):
     path = ig.windsurf_hooks_path()
     path.parent.mkdir(parents=True)
-    path.write_text("[broken")
-    assert not ig.install_windsurf(repo)["ok"] and path.read_text() == "[broken"
+    path.write_text("[broken", encoding="utf-8")
+    assert not ig.install_windsurf(repo)["ok"] and path.read_text(encoding="utf-8") == "[broken"
     res = ig.uninstall_windsurf(repo)
-    assert res["ok"] and path.read_text() == "[broken" and res["notes"]
+    assert res["ok"] and path.read_text(encoding="utf-8") == "[broken" and res["notes"]
     out = ig.write_windsurf_context_file(repo, "x" * 10_000)
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
     assert len(text) <= ig.WINDSURF_CONTEXT_CHAR_LIMIT and "Truncated" in text
 
 
@@ -281,13 +281,13 @@ def test_codex_install_uninstall(home, tmp_path):
     codex = home / ".codex"
     codex.mkdir()
     (codex / "config.toml").write_text('model = "o4"\n\n[mcp_servers.cairn]\ncommand = "cairn"\nargs = ["mcp"]\n\n'
-                                       '[mcp_servers.other]\ncommand = "x"\n')
-    (codex / "AGENTS.md").write_text("# Mine\n\n<cairn-context>\nold\n</cairn-context>\n")
+                                       '[mcp_servers.other]\ncommand = "x"\n', encoding="utf-8")
+    (codex / "AGENTS.md").write_text("# Mine\n\n<cairn-context>\nold\n</cairn-context>\n", encoding="utf-8")
     watch = tmp_path / "cairn-home" / "transcript-watch.json"
     watch.parent.mkdir(parents=True)
     legacy = {"mode": "agents", "updateOn": ["session_start", "session_end"]}
     watch.write_text(json.dumps({"watches": [{"name": "codex", "context": legacy},
-                                             {"name": "other", "context": {"mode": "agents"}}]}))
+                                             {"name": "other", "context": {"mode": "agents"}}]}), encoding="utf-8")
     fake = FakeCodex()
     res = ig.install_codex(python=PY, runner=fake, mcp_command="cairn", mcp_args=["mcp"])
     assert res["ok"], res
@@ -306,23 +306,23 @@ def test_codex_install_uninstall(home, tmp_path):
     assert (root / "plugin" / "skills" / "cairn-recall-search" / "SKILL.md").exists()
     assert ["plugin", "marketplace", "add", str(root)] in fake.calls
     assert fake.calls[-1] == ["plugin", "add", "cairn@cairn-local"]
-    cfg = (codex / "config.toml").read_text()
+    cfg = (codex / "config.toml").read_text(encoding="utf-8")
     assert "[features]\nhooks = true" in cfg and '[plugins."cairn@cairn-local"]\nenabled = true' in cfg
     assert "[mcp_servers.cairn]" not in cfg and "[mcp_servers.other]" in cfg and 'model = "o4"' in cfg
-    assert (codex / "AGENTS.md").read_text() == "# Mine\n"
+    assert (codex / "AGENTS.md").read_text(encoding="utf-8") == "# Mine\n"
     watches = _load(watch)["watches"]
     assert "context" not in watches[0] and "context" in watches[1]
     st = ig.codex_status()
     assert st["installed"] and st["plugin_enabled"] and st["hooks_feature"]
     # idempotent
     assert ig.install_codex(python=PY, runner=FakeCodex())["ok"]
-    assert (codex / "config.toml").read_text() == cfg
+    assert (codex / "config.toml").read_text(encoding="utf-8") == cfg
 
     fake2 = FakeCodex()
     res = ig.uninstall_codex(runner=fake2)
     assert res["ok"], res
     assert ["plugin", "marketplace", "remove", "cairn-local"] in fake2.calls
-    assert '[plugins."cairn@cairn-local"]\nenabled = false' in (codex / "config.toml").read_text()
+    assert '[plugins."cairn@cairn-local"]\nenabled = false' in (codex / "config.toml").read_text(encoding="utf-8")
     assert not root.exists() and not ig.codex_status()["installed"]
 
 
@@ -354,12 +354,12 @@ def test_toml_helpers():
 def test_opencode_round_trip(home, repo):
     cfg_dir = home / ".config" / "opencode"
     cfg_dir.mkdir(parents=True)
-    (cfg_dir / "opencode.json").write_text(json.dumps({"$schema": "x", "plugin": "other-plugin", "theme": "dark"}))
-    (cfg_dir / "AGENTS.md").write_text("# My rules\n")
+    (cfg_dir / "opencode.json").write_text(json.dumps({"$schema": "x", "plugin": "other-plugin", "theme": "dark"}), encoding="utf-8")
+    (cfg_dir / "AGENTS.md").write_text("# My rules\n", encoding="utf-8")
     res = ig.install_opencode(python=PY)
     assert res["ok"], res
     plugin = cfg_dir / "plugins" / "cairn.js"
-    js = plugin.read_text()
+    js = plugin.read_text(encoding="utf-8")
     assert f"const PYTHON = {json.dumps(PY)};" in js and 'const PLATFORM = "opencode";' in js
     assert '["-m", "cairn.capture", "--platform", PLATFORM, event]' in js
     for hook in ("tool.execute.after", "chat.message", "experimental.session.compacting", "session.idle",
@@ -367,17 +367,17 @@ def test_opencode_round_trip(home, repo):
         assert hook in js
     config = _load(cfg_dir / "opencode.json")
     assert config["plugin"] == ["other-plugin", "./plugins/cairn.js"] and config["theme"] == "dark"
-    agents = (cfg_dir / "AGENTS.md").read_text()
+    agents = (cfg_dir / "AGENTS.md").read_text(encoding="utf-8")
     assert agents.startswith("# My rules") and "<cairn-context>" in agents
     ig.install_opencode(python=PY)
     assert _load(cfg_dir / "opencode.json")["plugin"].count("./plugins/cairn.js") == 1
-    assert (cfg_dir / "AGENTS.md").read_text().count("<cairn-context>") == 1
+    assert (cfg_dir / "AGENTS.md").read_text(encoding="utf-8").count("<cairn-context>") == 1
     assert ig.opencode_status()["installed"]
 
     assert ig.uninstall_opencode()["ok"]
     assert not plugin.exists()
     assert _load(cfg_dir / "opencode.json") == {"$schema": "x", "plugin": ["other-plugin"], "theme": "dark"}
-    assert (cfg_dir / "AGENTS.md").read_text() == "# My rules\n"
+    assert (cfg_dir / "AGENTS.md").read_text(encoding="utf-8") == "# My rules\n"
     assert not ig.opencode_status()["installed"]
 
 
@@ -388,16 +388,16 @@ def test_opencode_fresh_and_corrupt(home, repo, monkeypatch):
     assert ig.install_opencode(python=PY, root=repo)["ok"]
     assert _load(custom / "opencode.json") == {"$schema": "https://opencode.ai/config.json",
                                                "plugin": ["./plugins/cairn.js"]}
-    assert project in (custom / "AGENTS.md").read_text()
+    assert project in (custom / "AGENTS.md").read_text(encoding="utf-8")
     assert ig.uninstall_opencode()["ok"]
     assert not (custom / "AGENTS.md").exists()  # only the header + block were ours
     assert _load(custom / "opencode.json") == {"$schema": "https://opencode.ai/config.json"}
-    (custom / "opencode.json").write_text("{bad")
-    assert not ig.install_opencode()["ok"] and (custom / "opencode.json").read_text() == "{bad"
+    (custom / "opencode.json").write_text("{bad", encoding="utf-8")
+    assert not ig.install_opencode()["ok"] and (custom / "opencode.json").read_text(encoding="utf-8") == "{bad"
     foreign = custom / "plugins" / "cairn.js"
     foreign.parent.mkdir(parents=True, exist_ok=True)
-    foreign.write_text("// someone else's plugin\n")
-    (custom / "opencode.json").write_text("{}")
+    foreign.write_text("// someone else's plugin\n", encoding="utf-8")
+    (custom / "opencode.json").write_text("{}", encoding="utf-8")
     assert not ig.install_opencode()["ok"]
     ig.uninstall_opencode()
     assert foreign.exists()
@@ -406,8 +406,8 @@ def test_opencode_fresh_and_corrupt(home, repo, monkeypatch):
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_opencode_plugin_is_valid_javascript(tmp_path):
     f = tmp_path / "cairn.mjs"
-    f.write_text(ig.opencode_plugin_source(PY))
-    res = subprocess.run(["node", "--check", str(f)], capture_output=True, text=True, check=False)
+    f.write_text(ig.opencode_plugin_source(PY), encoding="utf-8")
+    res = subprocess.run(["node", "--check", str(f)], capture_output=True, text=True, check=False, encoding="utf-8", errors="replace")
     assert res.returncode == 0, res.stderr
 
 
@@ -415,10 +415,10 @@ def test_opencode_plugin_is_valid_javascript(tmp_path):
 def test_antigravity_round_trip(home):
     gem = home / ".gemini"
     (gem / "config").mkdir(parents=True)
-    (gem / "config" / "mcp_config.json").write_text("")  # agy's empty placeholder
+    (gem / "config" / "mcp_config.json").write_text("", encoding="utf-8")  # agy's empty placeholder
     user_group = {"matcher": "*", "hooks": [{"name": "mine", "type": "command", "command": "echo", "timeout": 5}]}
-    (gem / "config" / "hooks.json").write_text(json.dumps({"Stop": [user_group]}))
-    (gem / "GEMINI.md").write_text("Gemini Added Memories\n- likes tea")
+    (gem / "config" / "hooks.json").write_text(json.dumps({"Stop": [user_group]}), encoding="utf-8")
+    (gem / "GEMINI.md").write_text("Gemini Added Memories\n- likes tea", encoding="utf-8")
     res = ig.install_antigravity(python="/opt/py/bin/python", mcp_command="cairn", mcp_args=["mcp"])
     assert res["ok"], res
     hooks = _load(gem / "config" / "hooks.json")
@@ -430,17 +430,17 @@ def test_antigravity_round_trip(home):
     assert hooks["Stop"][1]["hooks"][0]["command"].endswith("summarize")
     for p in ig.antigravity_mcp_paths():
         assert _load(p)["mcpServers"]["cairn"] == {"command": "cairn", "args": ["mcp"]}
-    assert (gem / "GEMINI.md").read_text().startswith("Gemini Added Memories\n- likes tea\n\n<cairn-context>")
+    assert (gem / "GEMINI.md").read_text(encoding="utf-8").startswith("Gemini Added Memories\n- likes tea\n\n<cairn-context>")
     assert ig.has_context_block(ig.antigravity_rules_path())
-    first = (gem / "config" / "hooks.json").read_text()
+    first = (gem / "config" / "hooks.json").read_text(encoding="utf-8")
     ig.install_antigravity(python="/opt/py/bin/python")
-    assert (gem / "config" / "hooks.json").read_text() == first
+    assert (gem / "config" / "hooks.json").read_text(encoding="utf-8") == first
     st = ig.antigravity_status()
     assert st["installed"] and len(st["events"]) == 5 and all(st["mcp"].values())
 
     assert ig.uninstall_antigravity()["ok"]
     assert _load(gem / "config" / "hooks.json") == {"Stop": [user_group]}
-    assert (gem / "GEMINI.md").read_text() == "Gemini Added Memories\n- likes tea\n"
+    assert (gem / "GEMINI.md").read_text(encoding="utf-8") == "Gemini Added Memories\n- likes tea\n"
     assert not ig.antigravity_rules_path().exists()
     for p in ig.antigravity_mcp_paths():
         assert "cairn" not in json.dumps(_load(p))
@@ -450,10 +450,10 @@ def test_antigravity_spaces_warning_and_corrupt(home):
     res = ig.install_antigravity(python=PY)
     assert res["ok"] and any("spaces" in n for n in res["notes"])
     path = ig.antigravity_hooks_path()
-    path.write_text("{corrupt")
-    assert not ig.install_antigravity(python=PY)["ok"] and path.read_text() == "{corrupt"
+    path.write_text("{corrupt", encoding="utf-8")
+    assert not ig.install_antigravity(python=PY)["ok"] and path.read_text(encoding="utf-8") == "{corrupt"
     res = ig.uninstall_antigravity()
-    assert res["ok"] and path.read_text() == "{corrupt"
+    assert res["ok"] and path.read_text(encoding="utf-8") == "{corrupt"
 
 
 def test_gemini_cli_round_trip_and_shared_context(home):
@@ -462,7 +462,7 @@ def test_gemini_cli_round_trip_and_shared_context(home):
     settings.write_text(json.dumps({"theme": "Dracula", "mcpServers": {"x": {"command": "y"}},
                                     "hooks": {"AfterTool": [{"matcher": "write_file",
                                                              "hooks": [{"name": "fmt", "type": "command",
-                                                                        "command": "prettier"}]}]}}))
+                                                                        "command": "prettier"}]}]}}), encoding="utf-8")
     assert ig.install_gemini_cli(python=PY)["ok"]
     data = _load(settings)
     assert data["theme"] == "Dracula" and data["mcpServers"] == {"x": {"command": "y"}}
@@ -472,9 +472,9 @@ def test_gemini_cli_round_trip_and_shared_context(home):
     assert ours["name"] == "cairn" and ours["command"] == f'"{PY}" -m cairn.capture --platform gemini session-init'
     assert data["hooks"]["AfterAgent"][0]["hooks"][0]["command"].endswith("summarize")
     assert data["hooks"]["SessionEnd"][0]["hooks"][0]["command"].endswith("session-end")
-    first = settings.read_text()
+    first = settings.read_text(encoding="utf-8")
     ig.install_gemini_cli(python=PY)
-    assert settings.read_text() == first
+    assert settings.read_text(encoding="utf-8") == first
     assert ig.gemini_cli_status()["installed"]
 
     ig.install_antigravity(python="/p/python")
@@ -489,9 +489,9 @@ def test_gemini_cli_round_trip_and_shared_context(home):
 def test_gemini_cli_corrupt_settings(home):
     settings = ig.gemini_settings_path()
     settings.parent.mkdir(parents=True)
-    settings.write_text("{nope")
-    assert not ig.install_gemini_cli()["ok"] and settings.read_text() == "{nope"
-    assert not ig.uninstall_gemini_cli()["ok"] and settings.read_text() == "{nope"
+    settings.write_text("{nope", encoding="utf-8")
+    assert not ig.install_gemini_cli()["ok"] and settings.read_text(encoding="utf-8") == "{nope"
+    assert not ig.uninstall_gemini_cli()["ok"] and settings.read_text(encoding="utf-8") == "{nope"
 
 
 # ---- MCP-only IDEs -----------------------------------------------------------------------------------------
@@ -499,7 +499,7 @@ def test_mcp_ides_json_round_trips(home, repo):
     for ide, path, key in (("copilot-cli", home / ".github/copilot/mcp.json", "servers"),
                            ("roo-code", repo / ".roo/mcp.json", "mcpServers")):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({key: {"keep": {"command": "k"}}, "other": 1}))
+        path.write_text(json.dumps({key: {"keep": {"command": "k"}}, "other": 1}), encoding="utf-8")
         res = ig.install_mcp_ide(ide, root=repo, command="cairn", args=["mcp"])
         assert res["ok"], res
         assert _load(path)[key]["cairn"] == {"command": "cairn", "args": ["mcp"]}
@@ -511,39 +511,39 @@ def test_mcp_ides_json_round_trips(home, repo):
 
 
 def test_mcp_ide_warp_and_context(home, repo):
-    (repo / "WARP.md").write_text("# Warp rules\n")
+    (repo / "WARP.md").write_text("# Warp rules\n", encoding="utf-8")
     res = ig.install_mcp_ide("warp", root=repo)
     assert res["ok"] and not (home / ".warp" / "mcp.json").exists() and "Warp Drive" in res["notes"][0]
-    assert "<cairn-context>" in (repo / "WARP.md").read_text()
+    assert "<cairn-context>" in (repo / "WARP.md").read_text(encoding="utf-8")
     (home / ".warp").mkdir()
     ig.install_mcp_ide("warp", root=repo)
     assert ig.mcp_ide_status("warp", root=repo)["installed"]
     ig.uninstall_mcp_ide("warp", root=repo)
-    assert (repo / "WARP.md").read_text() == "# Warp rules\n"
+    assert (repo / "WARP.md").read_text(encoding="utf-8") == "# Warp rules\n"
     assert not ig.install_mcp_ide("nope")["ok"]
 
 
 def test_goose_yaml(home):
     cfg = home / ".config" / "goose" / "config.yaml"
     assert ig.install_mcp_ide("goose", command="/usr/bin/cairn", args=["mcp"])["ok"]
-    assert cfg.read_text() == "mcpServers:\n  cairn:\n    command: /usr/bin/cairn\n    args:\n      - mcp\n"
+    assert cfg.read_text(encoding="utf-8") == "mcpServers:\n  cairn:\n    command: /usr/bin/cairn\n    args:\n      - mcp\n"
     assert ig.uninstall_mcp_ide("goose")["ok"] and not cfg.exists()
     original = "GOOSE_MODEL: x\nmcpServers:\n  other:\n    command: o\n\nextensions: {}\n"
-    cfg.write_text(original)
+    cfg.write_text(original, encoding="utf-8")
     ig.install_mcp_ide("goose", command="cairn", args=["mcp"])
-    text = cfg.read_text()
+    text = cfg.read_text(encoding="utf-8")
     assert "  cairn:\n    command: cairn\n    args:\n      - mcp\n" in text and "  other:\n    command: o" in text
     ig.install_mcp_ide("goose", command="cairn2", args=[])
-    text = cfg.read_text()
+    text = cfg.read_text(encoding="utf-8")
     assert text.count("  cairn:") == 1 and "command: cairn2\n    args: []" in text
     assert ig.mcp_ide_status("goose")["installed"]
     ig.uninstall_mcp_ide("goose")
-    assert cfg.read_text() == original
-    cfg.write_text("GOOSE_MODEL: x\n")
+    assert cfg.read_text(encoding="utf-8") == original
+    cfg.write_text("GOOSE_MODEL: x\n", encoding="utf-8")
     ig.install_mcp_ide("goose")
-    assert cfg.read_text().startswith("GOOSE_MODEL: x\n\nmcpServers:\n  cairn:")
+    assert cfg.read_text(encoding="utf-8").startswith("GOOSE_MODEL: x\n\nmcpServers:\n  cairn:")
     ig.uninstall_mcp_ide("goose")
-    assert cfg.read_text() == "GOOSE_MODEL: x\n"
+    assert cfg.read_text(encoding="utf-8") == "GOOSE_MODEL: x\n"
 
 
 # ---- metadata, dispatch, search ----------------------------------------------------------------------------
@@ -605,9 +605,9 @@ def test_skills_listing_and_content():
     assert {"references/mode-authoring.md", "scripts/install_mode.py"} <= set(skills["cairn-mode-creator"]["files"])
     for f in ig.skills_dir().rglob("*"):
         if f.is_file() and f.suffix in (".md", ".py", ".json"):
-            hits = FORBIDDEN.findall(f.read_text())
+            hits = FORBIDDEN.findall(f.read_text(encoding="utf-8"))
             assert not hits, (f, hits)
-    search = (ig.skills_dir() / "cairn-recall-search" / "SKILL.md").read_text()
+    search = (ig.skills_dir() / "cairn-recall-search" / "SKILL.md").read_text(encoding="utf-8")
     assert "recall_search(" in search and "recall_timeline(" in search and "get_observations(" in search
     assert not re.search(r"(?<![_\w])search\(query", search) and not re.search(r"(?<![_\w])timeline\(anchor", search)
 
@@ -616,10 +616,10 @@ def test_install_skills_round_trip(repo):
     dest = repo / ".claude" / "skills"
     mine = dest / "cairn-do"
     mine.mkdir(parents=True)
-    (mine / "SKILL.md").write_text("---\nname: do\n---\nmine\n")
+    (mine / "SKILL.md").write_text("---\nname: do\n---\nmine\n", encoding="utf-8")
     installed = ig.install_skills(dest)
     assert set(installed) == EXPECTED_SKILLS - {"cairn-do"}
-    assert (mine / "SKILL.md").read_text().endswith("mine\n")
+    assert (mine / "SKILL.md").read_text(encoding="utf-8").endswith("mine\n")
     assert (dest / "cairn-recall-search" / "SKILL.md").exists()
     assert set(ig.install_skills(dest, ["cairn-standup"])) == {"cairn-standup"}
     removed = ig.uninstall_skills(dest)
@@ -633,7 +633,7 @@ def _standup(tmp_path, *args, agent=None, cwd=None):
     if agent:
         env["CAIRN_STANDUP_AGENT"] = agent
     return subprocess.run([sys.executable, str(ig.skills_dir() / "cairn-standup" / "standup.py"), *args], env=env,
-                          capture_output=True, text=True, cwd=cwd or tmp_path, check=False)
+                          capture_output=True, text=True, cwd=cwd or tmp_path, check=False, encoding="utf-8", errors="replace")
 
 
 def test_standup_chat_flow(tmp_path):
@@ -653,7 +653,7 @@ def test_standup_chat_flow(tmp_path):
     assert _standup(tmp_path, "read", "--tail", "1").stdout.count("### ") == 1
     r = _standup(tmp_path, "summation", "--text", "Build on feat-a.", agent="facilitator")
     assert r.returncode == 0
-    text = (tmp_path / "room" / "STANDUP.md").read_text()
+    text = (tmp_path / "room" / "STANDUP.md").read_text(encoding="utf-8")
     assert "status: agreed" in text and text.rstrip().endswith("Build on feat-a.") and "## SUMMATION" in text
     w = _standup(tmp_path, "watch", "--timeout", "0.2", "--interval", "0.1", agent="feat-a")
     assert w.returncode == 2 and "TIMEOUT" in w.stdout
@@ -670,7 +670,7 @@ def test_standup_worktrees(tmp_path):
     for args in (["init", "-q", "-b", "main"], ["-c", "user.email=a@b", "-c", "user.name=n", "commit", "-q",
                                                "--allow-empty", "-m", "init"]):
         subprocess.run(["git", *args], cwd=repo, check=True)
-    (repo / "new.txt").write_text("x")
+    (repo / "new.txt").write_text("x", encoding="utf-8")
     rows = json.loads(_standup(tmp_path, "worktrees", "--since", "1h", "--json", cwd=repo).stdout)
     assert rows[0]["branch"] == "main" and rows[0]["current"] and rows[0]["lastActivityMs"] > 0
     out = _standup(tmp_path, "worktrees", "--since", "bogus", cwd=repo)
@@ -678,7 +678,7 @@ def test_standup_worktrees(tmp_path):
 
 
 def _mode_draft() -> dict:
-    ref = (ig.skills_dir() / "cairn-mode-creator" / "references" / "mode-authoring.md").read_text()
+    ref = (ig.skills_dir() / "cairn-mode-creator" / "references" / "mode-authoring.md").read_text(encoding="utf-8")
     draft = json.loads(re.search(r"```json\n([\s\S]*?)\n```", ref).group(1))
     types = ["design-decision", "constraint", "client-direction", "coordination-issue", "site-discovery", "approval"]
     draft["observation_types"] = [{"id": t, "label": t, "description": t, "emoji": "\u25B2", "work_emoji": "\u25B3"}
@@ -688,14 +688,14 @@ def _mode_draft() -> dict:
 
 def _install_mode(*args, cwd):
     return subprocess.run([sys.executable, str(ig.skills_dir() / "cairn-mode-creator" / "scripts" / "install_mode.py"),
-                           *args], capture_output=True, text=True, cwd=cwd, env=dict(os.environ), check=False)
+                           *args], capture_output=True, text=True, cwd=cwd, env=dict(os.environ), check=False, encoding="utf-8", errors="replace")
 
 
 def test_install_mode_script(tmp_path, repo):
     (repo / ".cairn").mkdir()
-    (repo / ".cairn" / "config.toml").write_text('[server]\nport = 4747\n\n[recall]\nmode = "code"\n')
+    (repo / ".cairn" / "config.toml").write_text('[server]\nport = 4747\n\n[recall]\nmode = "code"\n', encoding="utf-8")
     draft = tmp_path / "draft.json"
-    draft.write_text(json.dumps(_mode_draft()))
+    draft.write_text(json.dumps(_mode_draft()), encoding="utf-8")
     dry = _install_mode("--mode", str(draft), "--mode-id", "code--architecture-practice", "--dry-run", cwd=repo)
     assert dry.returncode == 0, dry.stderr
     assert json.loads(dry.stdout)["dryRun"] is True
@@ -707,7 +707,7 @@ def test_install_mode_script(tmp_path, repo):
     out = json.loads(res.stdout)
     assert out["ok"] and out["modeName"] == "Architecture Practice" and out["activated"]
     assert (modes_dir / "code--architecture-practice.json").exists()
-    cfg = (repo / ".cairn" / "config.toml").read_text()
+    cfg = (repo / ".cairn" / "config.toml").read_text(encoding="utf-8")
     assert 'mode = "code--architecture-practice"' in cfg and "[server]\nport = 4747" in cfg
     assert out["backups"]["config"] and Path(out["backups"]["config"]).exists()
     from cairn.engines.recall.modes import clear_cache, load_mode
@@ -723,11 +723,11 @@ def test_install_mode_validation(tmp_path, repo):
     bad = _mode_draft()
     bad["prompts"]["type_guidance"] = "type must be design-decision"
     draft = tmp_path / "bad.json"
-    draft.write_text(json.dumps(bad))
+    draft.write_text(json.dumps(bad), encoding="utf-8")
     r = _install_mode("--mode", str(draft), "--mode-id", "code--arch", "--dry-run", cwd=repo)
     assert r.returncode == 1 and "does not mention type: constraint" in r.stderr
     ok = tmp_path / "ok.json"
-    ok.write_text(json.dumps(_mode_draft()))
+    ok.write_text(json.dumps(_mode_draft()), encoding="utf-8")
     r = _install_mode("--mode", str(ok), "--mode-id", "code--chill", "--dry-run", cwd=repo)
     assert r.returncode == 1 and "collides with bundled mode" in r.stderr
     r = _install_mode("--mode", str(ok), "--mode-id", "Bad_ID", "--dry-run", cwd=repo)

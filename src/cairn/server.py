@@ -479,7 +479,7 @@ def project_router(hub: Hub) -> APIRouter:
         page = (wiki / f"{slug}.md").resolve()
         if not page.is_relative_to(wiki) or not page.is_file():
             raise HTTPException(404, "no such page")
-        return {"slug": slug, "title": _title(page), "markdown": page.read_text(errors="replace")}
+        return {"slug": slug, "title": _title(page), "markdown": page.read_text(errors="replace", encoding="utf-8")}
 
     @r.post("/graph/wiki", dependencies=syncing)
     def graph_wiki_build(pid: str):
@@ -527,7 +527,7 @@ def project_router(hub: Hub) -> APIRouter:
         if base.parent != (root / "specs").resolve() or not target.is_relative_to(base) or target.suffix != ".md" \
                 or not target.is_file():
             raise HTTPException(404, "no such document")
-        return {"name": name, "markdown": target.read_text(errors="replace")}
+        return {"name": name, "markdown": target.read_text(errors="replace", encoding="utf-8")}
 
     @r.patch("/specs/{fid}/tasks/{tid}")
     def set_task(pid: str, fid: str, tid: str, payload: dict = Body(...), principal=Depends(require("project.write"))):
@@ -934,7 +934,7 @@ GRAPH_ASSETS = "/assets/graph/"  # public, versioned library files for the sandb
 
 
 def _title(page: Path) -> str:
-    first = next((ln for ln in page.read_text(errors="replace").splitlines() if ln.startswith("# ")), "")
+    first = next((ln for ln in page.read_text(errors="replace", encoding="utf-8").splitlines() if ln.startswith("# ")), "")
     return first[2:].strip() or page.stem.replace("-", " ")
 STAGES = ("constitution", "specify", "clarify", "plan", "tasks", "analyze", "implement")
 KIND_NAMES = {"req": "requirement", "obs": "observation", "rationale": "doc"}
@@ -946,7 +946,7 @@ def clarifications(spec_md: Path) -> list[dict]:
     if not spec_md.is_file():
         return []
     out = []
-    for line in specs_engine._unwrap(spec_md.read_text(errors="replace")):
+    for line in specs_engine._unwrap(spec_md.read_text(errors="replace", encoding="utf-8")):
         s = line.strip()
         if s.startswith("- Q:") and "→" in s:
             q, a = s[4:].split("→", 1)
@@ -958,7 +958,7 @@ def workflow_commands() -> list[dict]:
     base = Path(specs_engine.__file__).resolve().parent / "workflow" / "assets" / "commands"
     out = []
     for f in sorted(base.glob("*.md")):
-        text = f.read_text(errors="replace")
+        text = f.read_text(errors="replace", encoding="utf-8")
         desc = next((ln.split(":", 1)[1].strip().strip('"') for ln in text.splitlines()[:12]
                      if ln.startswith("description:")), "")
         out.append({"name": f"/cairn.{f.stem}", "description": desc})
@@ -1214,10 +1214,10 @@ def serve(*, host: str | None = None, port: int | None = None, register: list[Pa
     if daemon.info() is None:
         state.parent.mkdir(parents=True, exist_ok=True)
         state.write_text(json.dumps({"pid": os.getpid(), "host": config.host, "port": config.port,
-                                     "started": time.time()}))
+                                     "started": time.time()}), encoding="utf-8")
 
         def forget_state() -> None:
-            if json.loads(state.read_text()).get("pid") == os.getpid():
+            if json.loads(state.read_text(encoding="utf-8")).get("pid") == os.getpid():
                 state.unlink()
         app.state.on_shutdown.append(forget_state)
     # Open live-update streams never end by themselves: give them a moment, then stop, so a stopped server

@@ -52,41 +52,41 @@ def _make_legacy_repo(root: Path) -> None:
         d.rename(skills / d.name.replace("cairn-", f"{OLD_NS}-"))
     # manifests record the hash of what the old tool wrote
     for mf in (old / "integrations").glob("*.manifest.json"):
-        data = json.loads(mf.read_text())
+        data = json.loads(mf.read_text(encoding="utf-8"))
         data["files"] = {_to_legacy_text(rel): _sha(root / _to_legacy_text(rel)) for rel in data["files"]}
-        mf.write_text(json.dumps(data))
+        mf.write_text(json.dumps(data), encoding="utf-8")
     # --- user edits ------------------------------------------------------------------------------
-    (old / "memory" / "constitution.md").write_text(CONSTITUTION)
+    (old / "memory" / "constitution.md").write_text(CONSTITUTION, encoding="utf-8")
     plan_t = old / "templates" / "plan-template.md"
-    plan_t.write_text(plan_t.read_text() + "\n## Our extra section\n")
+    plan_t.write_text(plan_t.read_text(encoding="utf-8") + "\n## Our extra section\n", encoding="utf-8")
     (old / "templates" / "overrides").mkdir()
-    (old / "templates" / "overrides" / "spec-template.md").write_text("# House spec\n")
-    (old / "feature.json").write_text(json.dumps({"feature_directory": "specs/001-refunds"}))
+    (old / "templates" / "overrides" / "spec-template.md").write_text("# House spec\n", encoding="utf-8")
+    (old / "feature.json").write_text(json.dumps({"feature_directory": "specs/001-refunds"}), encoding="utf-8")
     mine = skills / f"{OLD_NS}-mycmd"
     mine.mkdir()
-    (mine / "SKILL.md").write_text(f"---\nname: {OLD_NS}-mycmd\n---\nRead {OLD_DIR}/memory/constitution.md\n")
+    (mine / "SKILL.md").write_text(f"---\nname: {OLD_NS}-mycmd\n---\nRead {OLD_DIR}/memory/constitution.md\n", encoding="utf-8")
     # --- Cairn's former add-on extension ------------------------------------------------------------
     addon = old / "extensions" / "cairn"
     (addon / "commands").mkdir(parents=True)
-    (addon / "extension.yml").write_text("schema_version: '1.0'\n")
-    (addon / "commands" / "context.md").write_text("context\n")
+    (addon / "extension.yml").write_text("schema_version: '1.0'\n", encoding="utf-8")
+    (addon / "commands" / "context.md").write_text("context\n", encoding="utf-8")
     (old / "extensions" / ".registry").write_text(json.dumps({"schema_version": "1.0", "extensions": {
         "cairn": {"version": "0.1.0", "enabled": True,
-                  "registered_commands": {"claude": [f"{OLD_NS}.cairn.context"]}}}}))
+                  "registered_commands": {"claude": [f"{OLD_NS}.cairn.context"]}}}}), encoding="utf-8")
     (old / "extensions.yml").write_text(yaml.safe_dump({
         "installed": ["cairn"], "settings": {"auto_execute_hooks": True},
         "hooks": {"before_plan": [{"extension": "cairn", "command": f"{OLD_NS}.cairn.context", "enabled": True,
-                                   "optional": False}]}}))
+                                   "optional": False}]}}), encoding="utf-8")
     addon_skill = skills / f"{OLD_NS}-cairn-context"
     addon_skill.mkdir()
-    (addon_skill / "SKILL.md").write_text("add-on skill\n")
+    (addon_skill / "SKILL.md").write_text("add-on skill\n", encoding="utf-8")
     # --- agent context file with the old managed block ----------------------------------------------
     marker = OLD_NS.upper()
     (root / "CLAUDE.md").write_text(f"# Notes\n\n<!-- {marker} START -->\nPlan: {OLD_DIR}/memory\n"
-                                    f"<!-- {marker} END -->\n")
-    opts = json.loads((old / "init-options.json").read_text())
+                                    f"<!-- {marker} END -->\n", encoding="utf-8")
+    opts = json.loads((old / "init-options.json").read_text(encoding="utf-8"))
     opts["feature_numbering"] = "timestamp"
-    (old / "init-options.json").write_text(json.dumps(opts))
+    (old / "init-options.json").write_text(json.dumps(opts), encoding="utf-8")
 
 
 @pytest.fixture()
@@ -107,38 +107,38 @@ def test_migrate_legacy_repository(legacy):
     assert specs.initialized(root) and not specs.legacy_layout(root)
 
     # user content survives, references rewritten
-    constitution = (new / "memory" / "constitution.md").read_text()
+    constitution = (new / "memory" / "constitution.md").read_text(encoding="utf-8")
     assert "Idempotent payments" in constitution and "**Version**: 2.1.0" in constitution
     assert ".cairn/workflow/templates/plan-template.md" in constitution and "/cairn.plan" in constitution
     assert specs.constitution(root)["version"] == "2.1.0"
-    assert (new / "templates" / "plan-template.md").read_text().rstrip().endswith("## Our extra section")
+    assert (new / "templates" / "plan-template.md").read_text(encoding="utf-8").rstrip().endswith("## Our extra section")
     assert (new / "migration-backup" / OLD_DIR / "templates" / "plan-template.md").is_file()
-    assert (new / "templates" / "overrides" / "spec-template.md").read_text() == "# House spec\n"
-    assert json.loads((new / "feature.json").read_text())["feature_directory"] == "specs/001-refunds"
+    assert (new / "templates" / "overrides" / "spec-template.md").read_text(encoding="utf-8") == "# House spec\n"
+    assert json.loads((new / "feature.json").read_text(encoding="utf-8"))["feature_directory"] == "specs/001-refunds"
 
     # untouched generated files are the fresh Cairn versions
-    plan_skill = (root / ".claude" / "skills" / "cairn-plan" / "SKILL.md").read_text()
+    plan_skill = (root / ".claude" / "skills" / "cairn-plan" / "SKILL.md").read_text(encoding="utf-8")
     assert "Existing system constraints (from Cairn)" in plan_skill
-    assert (new / "scripts" / "bash" / "create-new-feature.sh").read_text() == (
-        Path(specs.__file__).parent / "workflow" / "assets" / "scripts" / "bash" / "create-new-feature.sh").read_text()
+    assert (new / "scripts" / "bash" / "create-new-feature.sh").read_text(encoding="utf-8") == (
+        Path(specs.__file__).parent / "workflow" / "assets" / "scripts" / "bash" / "create-new-feature.sh").read_text(encoding="utf-8")
     assert (new / "integrations" / "claude.manifest.json").is_file()
 
     # a hand-made agent skill is renamed, not lost
     mine = root / ".claude" / "skills" / "cairn-mycmd" / "SKILL.md"
-    assert mine.is_file() and ".cairn/workflow/memory/constitution.md" in mine.read_text()
+    assert mine.is_file() and ".cairn/workflow/memory/constitution.md" in mine.read_text(encoding="utf-8")
 
     # the former add-on is gone everywhere: its steps are built into the commands
     assert not (new / "extensions" / "cairn").exists()
     assert not (root / ".claude" / "skills" / "cairn-cairn-context").exists()
     assert not list((root / ".claude" / "skills").glob(f"{OLD_NS}-*"))
-    hooks = yaml.safe_load((new / "extensions.yml").read_text())
+    hooks = yaml.safe_load((new / "extensions.yml").read_text(encoding="utf-8"))
     assert "cairn" not in (hooks.get("installed") or []) and not (hooks.get("hooks") or {}).get("before_plan")
-    assert "cairn" not in json.loads((new / "extensions" / ".registry").read_text())["extensions"]
+    assert "cairn" not in json.loads((new / "extensions" / ".registry").read_text(encoding="utf-8"))["extensions"]
 
     # settings carried over
-    opts = json.loads((new / "init-options.json").read_text())
+    opts = json.loads((new / "init-options.json").read_text(encoding="utf-8"))
     assert opts["integration"] == "claude" and opts["feature_numbering"] == "timestamp" and opts["workflow_version"]
-    claude_md = (root / "CLAUDE.md").read_text()
+    claude_md = (root / "CLAUDE.md").read_text(encoding="utf-8")
     assert "<!-- CAIRN WORKFLOW START -->" in claude_md and ".cairn/workflow/memory" in claude_md
 
     # nothing in the live tree names the old tool (backups keep the originals on purpose)

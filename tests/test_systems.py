@@ -30,14 +30,14 @@ ENV = {**os.environ, "GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.
 
 def git(root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
-                          env=ENV, check=True).stdout
+                          env=ENV, check=True, encoding="utf-8", errors="replace").stdout
 
 
 def commit(root: Path, files: dict[str, str], msg: str) -> None:
     for rel, text in files.items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text)
+        p.write_text(text, encoding="utf-8")
     git(root, "add", "-A")
     git(root, "commit", "-qm", msg)
 
@@ -86,7 +86,7 @@ def syst(tmp_path, monkeypatch):
            "Wire payment hooks\n\nWork-Item: org/x#99\nRequirement: REQ-002")
     sibling_brain(tmp_path / "sibling-api", [WORK_ITEM],
                   memories=[("m1", "Payments share the idempotency key", "fact")])
-    (root / "system.yaml").write_text("system: shop-system\nrepos:\n  - path: ../sibling-api\n")
+    (root / "system.yaml").write_text("system: shop-system\nrepos:\n  - path: ../sibling-api\n", encoding="utf-8")
     for k, v in ENV.items():
         monkeypatch.setenv(k, v)
     monkeypatch.chdir(root)
@@ -101,7 +101,7 @@ def test_discover_missing_or_invalid_yaml_returns_none(tmp_path):
     assert systems.discover(empty) is None
     broken = tmp_path / "r2"
     broken.mkdir()
-    (broken / "system.yaml").write_text("system: [unclosed\nrepos: :::")
+    (broken / "system.yaml").write_text("system: [unclosed\nrepos: :::", encoding="utf-8")
     assert systems.discover(broken) is None
 
 
@@ -109,7 +109,7 @@ def test_discover_reads_root_and_cairn_fallback(tmp_path):
     root = tmp_path / "repo"
     root.mkdir()
     sibling_brain(tmp_path / "sib", [WORK_ITEM])
-    (root / "system.yaml").write_text("system: edgeplus\nrepos:\n  - path: ../sib\n")
+    (root / "system.yaml").write_text("system: edgeplus\nrepos:\n  - path: ../sib\n", encoding="utf-8")
     sysdef = systems.discover(root)
     assert sysdef is not None and sysdef.name == "edgeplus"
     assert [s.name for s in sysdef.siblings] == ["sib"]
@@ -117,7 +117,7 @@ def test_discover_reads_root_and_cairn_fallback(tmp_path):
 
     (root / "system.yaml").unlink()
     (root / ".cairn").mkdir()
-    (root / ".cairn" / "system.yaml").write_text("repos:\n  - path: ../sib\n")
+    (root / ".cairn" / "system.yaml").write_text("repos:\n  - path: ../sib\n", encoding="utf-8")
     fallback = systems.discover(root)
     assert fallback is not None and fallback.declared_in.endswith(".cairn/system.yaml")
     assert fallback.name == root.name  # a declaration without `system:` falls back to the repo name
@@ -135,7 +135,7 @@ def test_discover_skips_invalid_entries_and_self(tmp_path):
         "  - path: ../hollow\n"
         "  - path: .\n"                 # self is never a sibling
         "  - {}\n"                      # no path at all
-        "  - ../good\n")                # bare string tolerated
+        "  - ../good\n", encoding="utf-8")                # bare string tolerated
     sysdef = systems.discover(root)
     assert sysdef is not None
     assert [s.name for s in sysdef.siblings] == ["good", "good"]
@@ -160,7 +160,7 @@ def test_system_query_tolerates_broken_sibling(syst, tmp_path):
     (tmp_path / "broken" / ".cairn").mkdir(parents=True)
     (tmp_path / "broken" / ".cairn" / "brain.db").write_bytes(b"not a database")
     (syst / "system.yaml").write_text("system: shop-system\nrepos:\n  - path: ../sibling-api\n"
-                                      "  - path: ../broken\n")
+                                      "  - path: ../broken\n", encoding="utf-8")
     sysdef = systems.discover(syst)
     rows = sysdef.query("SELECT COUNT(*) n FROM entities")
     assert rows["sibling-api"] and rows["broken"] == []  # a broken sibling never blocks the rest
@@ -171,7 +171,7 @@ def test_system_query_tolerates_broken_sibling(syst, tmp_path):
 def test_cross_repo_hits_attributes_sibling_repos(syst, tmp_path):
     sibling_brain(tmp_path / "sibling-web", [WORK_ITEM[:3] + ("ui/payments.ts",)])
     (syst / "system.yaml").write_text("system: shop-system\nrepos:\n  - path: ../sibling-api\n"
-                                      "  - path: ../sibling-web\n")
+                                      "  - path: ../sibling-web\n", encoding="utf-8")
     hits = systems.cross_repo_hits(syst, ["shop/payments.py"])
     repos = {h["repo"] for h in hits}
     assert repos == {"sibling-api", "sibling-web"}
@@ -189,7 +189,7 @@ def test_cross_repo_hits_unrelated_token_is_empty(syst):
 def test_cross_repo_hits_plural_form_matches_and_respects_limit(syst, tmp_path):
     rows = [(f"symbol:p{i}", "symbol", f"PaymentHooks{i}", f"src/hook{i}.py") for i in range(5)]
     sibling_brain(tmp_path / "sibling-many", rows)
-    (syst / "system.yaml").write_text("system: shop-system\nrepos:\n  - path: ../sibling-many\n")
+    (syst / "system.yaml").write_text("system: shop-system\nrepos:\n  - path: ../sibling-many\n", encoding="utf-8")
     # `payments` matches `PaymentHooks` via the loose singular form; per-sibling limit holds
     hits = systems.cross_repo_hits(syst, ["shop/payments.py"], limit=3)
     assert 0 < len(hits) <= 3 and all(h["repo"] == "sibling-many" for h in hits)

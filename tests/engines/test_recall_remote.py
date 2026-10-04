@@ -96,7 +96,7 @@ def stub(server_root):
 
 
 def connect(client: Path, url: str, project: str = "p1") -> None:
-    (client / ".cairn" / "config.toml").write_text(f'[team]\nserver = "{url}"\nproject = "{project}"\n')
+    (client / ".cairn" / "config.toml").write_text(f'[team]\nserver = "{url}"\nproject = "{project}"\n', encoding="utf-8")
 
 
 def capture(client: Path, event: str, sid: str = "s1", **payload):
@@ -194,9 +194,9 @@ def test_ingest_remote_keeps_privacy_and_never_reads_the_server_disk(server_root
     # a path that happens to exist on the server, with a git checkout on another branch
     elsewhere = tmp_path / "home" / "alice" / "shop"
     (elsewhere / ".git").mkdir(parents=True)
-    (elsewhere / ".git" / "HEAD").write_text("ref: refs/heads/secret-branch\n")
+    (elsewhere / ".git" / "HEAD").write_text("ref: refs/heads/secret-branch\n", encoding="utf-8")
     transcript = tmp_path / "t.jsonl"
-    transcript.write_text(json.dumps({"type": "assistant", "message": {"content": "from the server disk"}}) + "\n")
+    transcript.write_text(json.dumps({"type": "assistant", "message": {"content": "from the server disk"}}) + "\n", encoding="utf-8")
     cwd = str(elsewhere)
     res = api.ingest_remote(server_root, [
         {"event": "session-init", "payload": {"session_id": "s9", "cwd": cwd, "prompt": remote.PRIVATE_PROMPT}},
@@ -245,7 +245,7 @@ def test_summary_text_is_taken_from_the_local_transcript(client, tmp_path):
     connect(client, "https://cairn.example.com")
     transcript = tmp_path / "t.jsonl"
     transcript.write_text(json.dumps({"type": "assistant", "message": {"model": "m-1", "content": [
-        {"type": "text", "text": "All green."}]}}) + "\n")
+        {"type": "text", "text": "All green."}]}}) + "\n", encoding="utf-8")
     capture(client, "session-init", prompt="Run the tests")
     capture(client, "summarize", transcript_path=str(transcript))
     payload = outbox(client)[-1]["payload"]
@@ -330,7 +330,7 @@ def test_push_halves_a_batch_the_server_finds_too_large(client, stub):
 def test_push_needs_a_team_server(client):
     res = remote.push(client)
     assert not res["ok"] and "[team]" in res["error"]
-    (client / ".cairn" / "config.toml").write_text('[team]\nserver = "ftp://example.com"\nproject = "p1"\n')
+    (client / ".cairn" / "config.toml").write_text('[team]\nserver = "ftp://example.com"\nproject = "p1"\n', encoding="utf-8")
     assert remote.team_config(client) is None
 
 
@@ -358,7 +358,7 @@ def test_stop_hook_spawns_a_push_only_when_connected(client, monkeypatch):
 
     monkeypatch.setattr(hooks.subprocess, "Popen", FakePopen)
     monkeypatch.delenv("CAIRN_RECALL_NO_SPAWN")
-    (client / ".cairn" / "config.toml").write_text("[recall]\nworker_spawn = false\n")
+    (client / ".cairn" / "config.toml").write_text("[recall]\nworker_spawn = false\n", encoding="utf-8")
 
     def stop(sid: str = "s1") -> None:
         hooks.main(["summarize"], stdin_text=json.dumps({"session_id": sid, "cwd": str(client),
@@ -368,7 +368,7 @@ def test_stop_hook_spawns_a_push_only_when_connected(client, monkeypatch):
     stop()
     assert spawned == []  # not connected
     (client / ".cairn" / "config.toml").write_text(
-        '[recall]\nworker_spawn = false\n\n[team]\nserver = "https://cairn.example.com"\nproject = "p1"\n')
+        '[recall]\nworker_spawn = false\n\n[team]\nserver = "https://cairn.example.com"\nproject = "p1"\n', encoding="utf-8")
     capture(client, "session-init", prompt="Tidy the tests")
     stop()
     assert len(spawned) == 1 and spawned[0][1:] == ["-m", "cairn.engines.recall.remote", "--root", str(client)]

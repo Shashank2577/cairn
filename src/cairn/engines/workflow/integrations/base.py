@@ -467,7 +467,7 @@ class IntegrationBase(ABC):
                     exec_args,
                     text=True,
                     cwd=cwd,
-                )
+                    encoding="utf-8", errors="replace")
             except KeyboardInterrupt:
                 return {
                     "exit_code": 130,
@@ -486,7 +486,7 @@ class IntegrationBase(ABC):
             text=True,
             cwd=cwd,
             timeout=timeout,
-        )
+            encoding="utf-8", errors="replace")
         return {
             "exit_code": result.returncode,
             "stdout": result.stdout,

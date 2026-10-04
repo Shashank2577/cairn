@@ -154,7 +154,7 @@ def load_server_key(home: Path) -> bytes:
         finally:
             tmp.unlink(missing_ok=True)
     try:
-        key = bytes.fromhex(path.read_text().strip())
+        key = bytes.fromhex(path.read_text(encoding="utf-8").strip())
     except ValueError as exc:
         raise ValueError(f"{path} is not a valid key file") from exc
     if len(key) < 32:

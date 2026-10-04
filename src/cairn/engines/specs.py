@@ -95,7 +95,7 @@ def install_extension(project: Project) -> tuple[bool, str]:
 
 def _script_variant(root: Path) -> str:
     try:
-        opts = json.loads((root / WORKFLOW_DIR / "init-options.json").read_text())
+        opts = json.loads((root / WORKFLOW_DIR / "init-options.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         opts = {}
     script = opts.get("script") if isinstance(opts, dict) else None
@@ -107,13 +107,13 @@ def set_task_done(root: Path, feature_id: str, task_id: str, done: bool) -> dict
     path = root / "specs" / feature_id / "tasks.md"
     if not re.fullmatch(r"[\w.-]+", feature_id) or not path.is_file():
         raise LookupError(f"no tasks for {feature_id}")
-    lines = path.read_text().splitlines(keepends=True)
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
     pattern = re.compile(rf"^(\s*[-*]\s+\[)([ xX])(\]\s+{re.escape(task_id)}\b)")
     for i, ln in enumerate(lines):
         m = pattern.match(ln)
         if m:
             lines[i] = f"{m.group(1)}{'x' if done else ' '}{m.group(3)}{ln[m.end():]}"
-            path.write_text("".join(lines))
+            path.write_text("".join(lines), encoding="utf-8")
             feature = next(f for f in features(root) if f["id"] == feature_id)
             return next(t for t in feature["tasks"] if t["id"] == task_id)
     raise LookupError(f"{task_id} not found in {feature_id}")
@@ -144,7 +144,7 @@ def new_feature(project: Project, description: str, short_name: str | None = Non
     if short_name:
         extra = ["-ShortName", short_name] if key == "ps" else ["--short-name", short_name]
     res = subprocess.run([*runner, str(script), json_flag, *extra, description], cwd=project.root,
-                         capture_output=True, text=True, timeout=60)
+                         capture_output=True, text=True, timeout=60, encoding="utf-8", errors="replace")
     line = next((ln for ln in res.stdout.splitlines() if ln.startswith("{")), "")
     if res.returncode != 0 or not line:
         raise RuntimeError((res.stderr or res.stdout).strip() or "could not create the feature")
@@ -166,7 +166,7 @@ def _unwrap(text: str) -> list[str]:
 
 def _read(p: Path) -> str:
     try:
-        return p.read_text(errors="replace")
+        return p.read_text(errors="replace", encoding="utf-8")
     except OSError:
         return ""
 

@@ -150,8 +150,8 @@ def test_empty_and_unbuilt_projects(tmp_path):
 
 def test_readme_description_variants(tmp_path):
     from cairn.engines.graph.repos import readme_description
-    (tmp_path / "README.rst").write_text("Title\n=====\n\n.. image:: x.png\n\nA *short* intro, see `docs <x>`_.\n")
+    (tmp_path / "README.rst").write_text("Title\n=====\n\n.. image:: x.png\n\nA *short* intro, see `docs <x>`_.\n", encoding="utf-8")
     assert readme_description(tmp_path) == "A short intro, see docs <x>."
-    (tmp_path / "README.md").write_text("# T\n\n```bash\nrun me\n```\n\n" + "word " * 100)
+    (tmp_path / "README.md").write_text("# T\n\n```bash\nrun me\n```\n\n" + "word " * 100, encoding="utf-8")
     d = readme_description(tmp_path, limit=50)
     assert d.endswith("…") and len(d) <= 50

@@ -107,7 +107,7 @@ def test_secret_key_from_environment(home, monkeypatch):
 def test_server_config_layers_and_validation(home, monkeypatch):
     home.mkdir(parents=True)
     (home / "server.toml").write_text('[server]\nmode = "team"\nhost = "0.0.0.0"\nallowed_hosts = "a.io, b.io"\n'
-                                      "trust_proxy = true\n")
+                                      "trust_proxy = true\n", encoding="utf-8")
     cfg = ServerConfig.load(home=home)
     assert cfg.team and cfg.host == "0.0.0.0" and cfg.allowed_hosts == ("a.io", "b.io") and cfg.trust_proxy
     assert ServerConfig.load({"port": "5000"}, home=home).port == 5000

@@ -230,7 +230,7 @@ class FileLock:
         try:
             if self._depth == 0:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
-                fh = open(self.path, "a+")
+                fh = open(self.path, "a+", encoding="utf-8")
                 try:
                     _flock(fh, self.timeout, self.path)
                 except BaseException:
@@ -383,7 +383,7 @@ class VectorIndex:
         vec_p, meta_p = (self.path / n for n in self.LEGACY)
         if vec_p.exists() and meta_p.exists():  # the earlier two-file layout
             try:
-                meta = json.loads(meta_p.read_text())
+                meta = json.loads(meta_p.read_text(encoding="utf-8"))
                 return list(meta.get("ids", [])), np.load(vec_p).astype(np.float32), meta
             except (OSError, ValueError) as exc:
                 log.warning("vector index at %s unreadable, starting empty: %s", self.path, exc)

@@ -285,7 +285,7 @@ class Router:
         with tempfile.TemporaryDirectory(prefix="cairn-model-") as cwd:
             res = subprocess.run(self._claude_code_args(model, system, cached, "json"), input=prompt,
                                  capture_output=True, text=True, timeout=600, cwd=cwd,
-                                 env={**os.environ, "CAIRN_INTERNAL": "1"}, check=False)
+                                 env={**os.environ, "CAIRN_INTERNAL": "1"}, check=False, encoding="utf-8", errors="replace")
         try:
             data = json.loads(res.stdout)
         except json.JSONDecodeError as exc:
@@ -296,10 +296,10 @@ class Router:
                             cancel: threading.Event | None = None):
         del max_tokens
         with tempfile.TemporaryDirectory(prefix="cairn-model-") as cwd, \
-                open(os.path.join(cwd, "stderr.log"), "w+") as err:  # a file: a full stderr pipe can't stall the stream
+                open(os.path.join(cwd, "stderr.log"), "w+", encoding="utf-8") as err:  # a file: a full stderr pipe can't stall the stream
             proc = subprocess.Popen(self._claude_code_args(model, system, cached, "stream-json"), cwd=cwd,
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True,
-                                    env={**os.environ, "CAIRN_INTERNAL": "1"})
+                                    env={**os.environ, "CAIRN_INTERNAL": "1"}, encoding="utf-8", errors="replace")
             lines: queue.Queue = queue.Queue()  # read on a side thread, so a stop is noticed between lines
 
             def pump() -> None:

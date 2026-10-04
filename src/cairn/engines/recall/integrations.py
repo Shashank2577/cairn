@@ -868,7 +868,7 @@ def default_codex_runner() -> CodexRunner | None:
 
     def run(args: list[str]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(_codex_invocation(command, args), capture_output=True, text=True, timeout=120,
-                              check=False)
+                              check=False, encoding="utf-8", errors="replace")
     return run
 
 

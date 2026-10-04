@@ -101,7 +101,7 @@ def installed(project: Project) -> list[str]:
     for name in AGENTS:
         if name == "codex":  # user-level config written by `codex mcp add`
             cfg = Path.home() / ".codex" / "config.toml"
-            if cfg.exists() and "mcp_servers.cairn" in cfg.read_text(errors="replace"):
+            if cfg.exists() and "mcp_servers.cairn" in cfg.read_text(errors="replace", encoding="utf-8"):
                 found.append(name)
             continue
         if name not in configs:  # no MCP entry: wired through capture hooks, or only through a context file
@@ -112,7 +112,7 @@ def installed(project: Project) -> list[str]:
             continue
         path, key = configs[name]
         try:
-            if "cairn" in json.loads(path.read_text()).get(key, {}):
+            if "cairn" in json.loads(path.read_text(encoding="utf-8")).get(key, {}):
                 found.append(name)
         except (OSError, ValueError, AttributeError):
             pass
@@ -121,7 +121,7 @@ def installed(project: Project) -> list[str]:
 
 # ---- file helpers ------------------------------------------------------------------------------------
 def upsert_block(path: Path, body: str) -> bool:
-    text = path.read_text() if path.exists() else ""
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
     block = f"{BEGIN}\n{body.strip()}\n{END}"
     if BEGIN in text and END in text:
         new = text[: text.index(BEGIN)] + block + text[text.index(END) + len(END):]
@@ -129,7 +129,7 @@ def upsert_block(path: Path, body: str) -> bool:
         new = (text.rstrip() + "\n\n" if text.strip() else "") + block + "\n"
     if new != text:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(new)
+        path.write_text(new, encoding="utf-8")
         return True
     return False
 
@@ -137,12 +137,12 @@ def upsert_block(path: Path, body: str) -> bool:
 def remove_block(path: Path) -> bool:
     if not path.exists():
         return False
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     if BEGIN not in text:
         return False
     new = (text[: text.index(BEGIN)] + text[text.index(END) + len(END):]).strip()
     if new:
-        path.write_text(new + "\n")
+        path.write_text(new + "\n", encoding="utf-8")
     else:
         path.unlink()
     return True
@@ -150,30 +150,30 @@ def remove_block(path: Path) -> bool:
 
 def merge_json(path: Path, mutate) -> bool:
     try:
-        data = json.loads(path.read_text()) if path.exists() else {}
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except json.JSONDecodeError:
         return False  # never clobber a file we cannot parse
     before = json.dumps(data, sort_keys=True)
     mutate(data)
     if json.dumps(data, sort_keys=True) != before:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2) + "\n")
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         return True
     return False
 
 
 def write_generated(path: Path, content: str) -> bool:
-    if path.exists() and GENERATED not in path.read_text():
+    if path.exists() and GENERATED not in path.read_text(encoding="utf-8"):
         return False  # user-owned file with the same name: leave it
     parts = content.split("---", 2)
     if content.startswith("---") and len(parts) == 3:  # keep frontmatter first
         content = f"---{parts[1]}---\n{GENERATED}{parts[2]}"
     else:
         content = f"{GENERATED}\n{content}"
-    if path.exists() and path.read_text() == content:
+    if path.exists() and path.read_text(encoding="utf-8") == content:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     return True
 
 
@@ -239,7 +239,7 @@ def _context_file(root: Path, agent: str) -> Path | None:
         return None
     path = root / CONTEXT_FILES[agent][0]
     try:
-        return path if path.exists() and CONTEXT_NOTE in path.read_text() else None
+        return path if path.exists() and CONTEXT_NOTE in path.read_text(encoding="utf-8") else None
     except OSError:
         return None
 
@@ -256,10 +256,10 @@ def write_context_file(root: Path, agent: str, text: str) -> bool:
         room = limit - len(header) - len(CONTEXT_NOTE) - len(CONTEXT_OPEN) - len(CONTEXT_HEADING) - len(CONTEXT_CLOSE) - 8
         text = text[:room]
     content = f"{header}{CONTEXT_NOTE}\n{CONTEXT_OPEN}\n{CONTEXT_HEADING}\n\n{text}\n{CONTEXT_CLOSE}\n"
-    if path.exists() and path.read_text() == content:
+    if path.exists() and path.read_text(encoding="utf-8") == content:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     return True
 
 
@@ -280,12 +280,12 @@ def _set_excluded(project: Project, rel: str, excluded: bool) -> bool:
     if path is None:
         return False
     line = "/" + rel
-    lines = path.read_text().splitlines() if path.exists() else []
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     if excluded == (line in lines):
         return False
     lines = [*lines, line] if excluded else [ln for ln in lines if ln != line]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return True
 
 
@@ -293,13 +293,13 @@ def remove_legacy_memory_block(path: Path) -> bool:
     """Earlier installs kept the memory in AGENTS.md; it moved out of committed files."""
     if not path.exists():
         return False
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     start, end = text.find(CONTEXT_OPEN), text.find(CONTEXT_CLOSE)
     if start == -1 or end < start:
         return False
     rest = (text[:start].rstrip() + "\n\n" + text[end + len(CONTEXT_CLOSE):].lstrip()).strip()
     if rest:
-        path.write_text(rest + "\n")
+        path.write_text(rest + "\n", encoding="utf-8")
     else:
         path.unlink()
     return True
@@ -332,7 +332,7 @@ def memory_status(project: Project) -> dict[str, dict]:
     brief = False
     try:
         brief = "cairn hook session-start" in json.dumps(
-            json.loads((root / ".claude" / "settings.json").read_text()).get("hooks", {}).get("SessionStart", []))
+            json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8")).get("hooks", {}).get("SessionStart", []))
     except (OSError, ValueError, AttributeError):
         pass
     out = {}
@@ -358,7 +358,7 @@ def ambient_wired(project: Project) -> bool:
     """Whether Claude Code's UserPromptSubmit hook runs ``cairn hook ambient`` here (the enforced read path;
     the ``[context] ambient`` config kill-switch decides whether it injects anything)."""
     try:
-        hooks = json.loads((project.root / ".claude" / "settings.json").read_text()).get("hooks", {})
+        hooks = json.loads((project.root / ".claude" / "settings.json").read_text(encoding="utf-8")).get("hooks", {})
         return "cairn hook ambient" in json.dumps(hooks.get("UserPromptSubmit", []))
     except (OSError, ValueError, AttributeError):
         return False
@@ -376,7 +376,7 @@ def install(project: Project, agents: list[str] | None = None, capture: bool = T
     agents = agents or detect(project)
     root = project.root
     cmd, args = command()
-    instructions = (TEMPLATES / "instructions.md").read_text()
+    instructions = (TEMPLATES / "instructions.md").read_text(encoding="utf-8")
     changed: dict[str, list[str]] = {}
 
     def note(agent, path, did):
@@ -418,10 +418,10 @@ def install(project: Project, agents: list[str] | None = None, capture: bool = T
         note("claude", root / ".claude/settings.json", merge_json(root / ".claude" / "settings.json", settings))
         for f in (TEMPLATES / "claude" / "commands").glob("*.md"):
             p = root / ".claude" / "commands" / "cairn" / f.name
-            note("claude", p, write_generated(p, f.read_text()))
+            note("claude", p, write_generated(p, f.read_text(encoding="utf-8")))
         for f in (TEMPLATES / "claude" / "agents").glob("*.md"):
             p = root / ".claude" / "agents" / f.name
-            note("claude", p, write_generated(p, f.read_text()))
+            note("claude", p, write_generated(p, f.read_text(encoding="utf-8")))
         if capture:
             from .engines.recall import integrations as recall_hooks
             for name in recall_hooks.install_skills(root / ".claude" / "skills"):
@@ -442,7 +442,7 @@ def install(project: Project, agents: list[str] | None = None, capture: bool = T
             "servers", {}).update({"cairn": {"type": "stdio", "command": cmd, "args": args}})))
     if "codex" in agents and shutil.which("codex"):
         try:
-            listed = subprocess.run(["codex", "mcp", "list"], capture_output=True, text=True, timeout=20).stdout
+            listed = subprocess.run(["codex", "mcp", "list"], capture_output=True, text=True, timeout=20, encoding="utf-8", errors="replace").stdout
             if "cairn" not in listed:
                 subprocess.run(["codex", "mcp", "add", "cairn", "--", cmd, *args], capture_output=True, timeout=30)
                 changed.setdefault("codex", []).append("~/.codex/config.toml (codex mcp add cairn)")
@@ -458,9 +458,9 @@ def install(project: Project, agents: list[str] | None = None, capture: bool = T
             if rep.get("error"):
                 changed.setdefault(agent, []).append(f"skipped: {rep['error']}")
     ignore = project.dir / "graphignore"  # the hook folders are tool config, not part of the system's map
-    if project.dir.is_dir() and MAP_IGNORE.split("\n", 1)[0] not in (ignore.read_text() if ignore.exists() else ""):
-        text = ignore.read_text() if ignore.exists() else ""
-        ignore.write_text(text + ("\n" if text and not text.endswith("\n") else "") + MAP_IGNORE)
+    if project.dir.is_dir() and MAP_IGNORE.split("\n", 1)[0] not in (ignore.read_text(encoding="utf-8") if ignore.exists() else ""):
+        text = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
+        ignore.write_text(text + ("\n" if text and not text.endswith("\n") else "") + MAP_IGNORE, encoding="utf-8")
     # memory for the agents that only read instruction files: an untracked file each
     wanted = [a for a in agents if a in CONTEXT_FILES]
     if wanted:
@@ -550,7 +550,7 @@ def uninstall(project: Project) -> list[str]:
     removed += [f".claude/skills/{name}" for name in recall_hooks.uninstall_skills(root / ".claude" / "skills")]
     for p in [*(root / ".claude" / "commands" / "cairn").glob("*.md"), *(root / ".claude" / "agents").glob("cairn-*.md"),
               root / ".cursor" / "rules" / "cairn.mdc"]:
-        if p.exists() and GENERATED in p.read_text():
+        if p.exists() and GENERATED in p.read_text(encoding="utf-8"):
             p.unlink()
             removed.append(str(p.relative_to(root)))
     if shutil.which("codex"):
@@ -569,7 +569,7 @@ def global_wired() -> bool:
     if not p.exists():
         return False
     try:
-        groups = (json.loads(p.read_text()).get("hooks") or {}).get("SessionStart", [])
+        groups = (json.loads(p.read_text(encoding="utf-8")).get("hooks") or {}).get("SessionStart", [])
     except (OSError, ValueError):
         return False
     return any(_is_ours(h) for g in groups if isinstance(g, dict) for h in g.get("hooks", []))
@@ -582,7 +582,7 @@ def _write_user_session_groups(include_ours: bool) -> bool:
     data: dict = {}
     if p.exists():
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return False
     if not isinstance(data, dict):
@@ -596,7 +596,7 @@ def _write_user_session_groups(include_ours: bool) -> bool:
         kept.append({"hooks": [{"type": "command", "command": _hook_cmd("global-session"), "timeout": 10}]})
     hooks["SessionStart"] = kept
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2))
+    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return True
 
 

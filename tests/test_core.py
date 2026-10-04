@@ -173,7 +173,7 @@ def test_capture_is_silent_outside_cairn_repos_and_when_disabled(tmp_path, repo)
     from cairn import capture
     assert capture.record("prompt", {"session_id": "s", "cwd": str(tmp_path), "prompt": "hi"}) == 0
     (repo / ".cairn").mkdir(exist_ok=True)
-    (repo / ".cairn" / "config.toml").write_text("[sessions]\ncapture = false\n")
+    (repo / ".cairn" / "config.toml").write_text("[sessions]\ncapture = false\n", encoding="utf-8")
     assert capture.record("prompt", {"session_id": "s", "cwd": str(repo), "prompt": "hi"}) == 0
 
 
@@ -182,9 +182,9 @@ def test_capture_hook_is_light_and_never_fails(repo):
     import subprocess
     import sys
     probe = "import sys, cairn.capture; print(sorted(m for m in ('typer', 'rich', 'fastapi', 'cairn.core') if m in sys.modules))"
-    assert subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True).stdout.strip() == "[]"
+    assert subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True, encoding="utf-8", errors="replace").stdout.strip() == "[]"
     res = subprocess.run([sys.executable, "-m", "cairn.capture", "tool"], input="not json", capture_output=True,
-                         text=True, cwd=repo, check=False)
+                         text=True, cwd=repo, check=False, encoding="utf-8", errors="replace")
     assert res.returncode == 0 and res.stdout == "" and res.stderr == ""
 
 
@@ -195,7 +195,7 @@ def test_drift_ids_are_stable_across_processes():
     import sys
     code = "from cairn.drift import _finding; print(_finding('missing-file', 'high', '001-x', 'T1 is done', [])['id'])"
     ids = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
-                          env={**os.environ, "PYTHONHASHSEED": seed}).stdout.strip() for seed in ("1", "2", "3")}
+                          env={**os.environ, "PYTHONHASHSEED": seed}, encoding="utf-8", errors="replace").stdout.strip() for seed in ("1", "2", "3")}
     assert len(ids) == 1
 
 
@@ -267,8 +267,8 @@ def test_wrapped_requirements_are_read_whole(tmp_path):
     fdir = tmp_path / "specs" / "001-x"
     fdir.mkdir(parents=True)
     (fdir / "spec.md").write_text("# Feature Specification: X\n\n- **FR-001**: The system MUST parse specs into\n"
-                                  "  features and tasks.\n- **FR-002**: One line.\n\n  Unrelated indented text.\n")
-    (fdir / "tasks.md").write_text("# Tasks\n")
+                                  "  features and tasks.\n- **FR-002**: One line.\n\n  Unrelated indented text.\n", encoding="utf-8")
+    (fdir / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
     reqs = specs.features(tmp_path)[0]["requirements"]
     assert [r["text"] for r in reqs] == ["The system MUST parse specs into features and tasks.", "One line."]
 
@@ -276,7 +276,7 @@ def test_wrapped_requirements_are_read_whole(tmp_path):
 def test_map_rebuild_skips_when_nothing_changed(cairn, repo):
     from cairn.engines import mapper
     assert mapper.build(repo)[1] == "unchanged"                 # the fixture already synced once
-    (repo / "shop" / "api.py").write_text((repo / "shop" / "api.py").read_text() + "\n\ndef refund(order_id): ...\n")
+    (repo / "shop" / "api.py").write_text((repo / "shop" / "api.py").read_text(encoding="utf-8") + "\n\ndef refund(order_id): ...\n", encoding="utf-8")
     ok, summary = mapper.build(repo)
     assert ok and summary.startswith("1 changed file re-mapped")
     assert any(cairn.map.label(n) == "refund()" for n in cairn.map.by_file["shop/api.py"])
@@ -304,7 +304,7 @@ def test_a_shrink_guard_failure_reads_like_english_on_the_web_page(cairn, repo, 
 def test_changing_ignore_rules_rebuilds_the_map(cairn, repo):
     from cairn.engines import mapper
     assert mapper.build(repo)[1] == "unchanged"
-    with open(repo / ".cairn" / "graphignore", "a") as fh:
+    with open(repo / ".cairn" / "graphignore", "a", encoding="utf-8") as fh:
         fh.write("shop/api.py\n")
     ok, summary = mapper.build(repo)
     assert ok and summary != "unchanged"
@@ -313,9 +313,9 @@ def test_changing_ignore_rules_rebuilds_the_map(cairn, repo):
 
 def test_map_includes_yaml_and_yml_files(cairn, repo):
     from cairn.engines import mapper
-    (repo / "ci.yaml").write_text("name: CI\njobs:\n  build:\n    runs-on: ubuntu-latest\n")
+    (repo / "ci.yaml").write_text("name: CI\njobs:\n  build:\n    runs-on: ubuntu-latest\n", encoding="utf-8")
     (repo / "policies").mkdir()
-    (repo / "policies" / "retention.yml").write_text("keep_days: 90\n")
+    (repo / "policies" / "retention.yml").write_text("keep_days: 90\n", encoding="utf-8")
     assert mapper.build(repo)[0]
     files = set(cairn.map.by_file)
     assert "ci.yaml" in files and "policies/retention.yml" in files
@@ -328,12 +328,12 @@ def test_map_includes_yaml_and_yml_files(cairn, repo):
 def test_map_excludes_cairn_generated_files_but_keeps_user_files(cairn, repo):
     from cairn.engines import mapper
     block = "<!-- cairn:begin -->\n" + ("Cairn memory instructions. " * 40) + "\n<!-- cairn:end -->\n"
-    (repo / "AGENTS.md").write_text("Two words.\n\n" + block)          # cairn's block is the content
+    (repo / "AGENTS.md").write_text("Two words.\n\n" + block, encoding="utf-8")          # cairn's block is the content
     (repo / "CLAUDE.md").write_text(
-        "<!-- generated by cairn; safe to edit, removed by `cairn uninstall` -->\n" + block)
-    (repo / "GEMINI.md").write_text("# My project\n\n" + ("My own conventions. " * 60) + "\n" + block)
-    (repo / ".mcp.json").write_text('{"mcpServers": {"cairn": {"command": "python", "args": ["-m", "cairn"]}}}')
-    (repo / "README.md").write_text("# Shop\n\nUser-authored documentation.\n")
+        "<!-- generated by cairn; safe to edit, removed by `cairn uninstall` -->\n" + block, encoding="utf-8")
+    (repo / "GEMINI.md").write_text("# My project\n\n" + ("My own conventions. " * 60) + "\n" + block, encoding="utf-8")
+    (repo / ".mcp.json").write_text('{"mcpServers": {"cairn": {"command": "python", "args": ["-m", "cairn"]}}}', encoding="utf-8")
+    (repo / "README.md").write_text("# Shop\n\nUser-authored documentation.\n", encoding="utf-8")
     ok, summary = mapper.build(repo)
     assert ok
     files = set(cairn.map.by_file)
@@ -354,12 +354,12 @@ def test_map_of_an_empty_repo_is_empty(tmp_path, monkeypatch):
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, env=os.environ, check=True)
     block = "<!-- cairn:begin -->\nCairn instructions.\n<!-- cairn:end -->\n"
-    (root / "AGENTS.md").write_text(block)
-    (root / "CLAUDE.md").write_text("<!-- generated by cairn -->\n" + block)
-    (root / "GEMINI.md").write_text(block)
-    (root / ".mcp.json").write_text('{"mcpServers": {"cairn": {}}}')
+    (root / "AGENTS.md").write_text(block, encoding="utf-8")
+    (root / "CLAUDE.md").write_text("<!-- generated by cairn -->\n" + block, encoding="utf-8")
+    (root / "GEMINI.md").write_text(block, encoding="utf-8")
+    (root / ".mcp.json").write_text('{"mcpServers": {"cairn": {}}}', encoding="utf-8")
     (root / ".cairn").mkdir()
-    (root / ".cairn" / "config.toml").write_text("")
+    (root / ".cairn" / "config.toml").write_text("", encoding="utf-8")
     ok, summary = mapper.build(root)
     assert ok and summary == "0 files"
     assert not mapper.index(mapper.map_dir(root) / "graph.json").nodes
@@ -368,8 +368,8 @@ def test_map_of_an_empty_repo_is_empty(tmp_path, monkeypatch):
 def test_map_never_includes_cairn_dir(cairn, repo):
     from cairn.engines import mapper
     (repo / ".cairn" / "notes").mkdir(parents=True, exist_ok=True)
-    (repo / ".cairn" / "notes" / "scratch.md").write_text("# Scratch\n\ncairn would map this if it could.\n")
-    (repo / ".cairn" / "extra.json").write_text('{"why": "not"}')
+    (repo / ".cairn" / "notes" / "scratch.md").write_text("# Scratch\n\ncairn would map this if it could.\n", encoding="utf-8")
+    (repo / ".cairn" / "extra.json").write_text('{"why": "not"}', encoding="utf-8")
     assert mapper.build(repo)[0]
     assert not [f for f in cairn.map.by_file if f.startswith(".cairn/")]
 
@@ -382,11 +382,11 @@ def test_set_cfg_never_writes_an_invalid_config(tmp_path):
     from cairn.project import Project
     proj = Project(root=tmp_path)
     proj.ensure_dir()
-    text = proj.config_path.read_text().replace("[models]", "[ models ]   # which models")
-    proj.config_path.write_text(text)
+    text = proj.config_path.read_text(encoding="utf-8").replace("[models]", "[ models ]   # which models")
+    proj.config_path.write_text(text, encoding="utf-8")
     proj.set_cfg("models.provider", "openai")
     proj.set_cfg("models.base_url", "http://h/v1\nx\x07")
-    tomllib.loads(proj.config_path.read_text())
+    tomllib.loads(proj.config_path.read_text(encoding="utf-8"))
     assert proj.cfg("models.provider") == "openai" and proj.cfg("models.base_url") == "http://h/v1\nx\x07"
     with pytest.raises(ValueError):
         proj.set_cfg("deep.budget_tokens", None)

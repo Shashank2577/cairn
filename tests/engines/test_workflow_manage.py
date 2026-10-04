@@ -29,15 +29,15 @@ def test_extension_lifecycle(root):
     for ext in ("git", "agent-context", "assess", "bug"):
         assert f"cairn spec extension add {ext}" in out
     ok(root, "extension", "add", "git")
-    reg = json.loads((wf / "extensions" / ".registry").read_text())
+    reg = json.loads((wf / "extensions" / ".registry").read_text(encoding="utf-8"))
     assert "git" in reg["extensions"]
     assert (root / ".claude" / "skills" / "cairn-git-feature" / "SKILL.md").is_file()
-    hooks = yaml.safe_load((wf / "extensions.yml").read_text())
+    hooks = yaml.safe_load((wf / "extensions.yml").read_text(encoding="utf-8"))
     assert any(h["command"].startswith("cairn.git.") for h in hooks["hooks"]["before_specify"])
     assert "Git Branching Workflow" in ok(root, "extension", "list")
     assert "Git Branching Workflow" in ok(root, "extension", "info", "git")
     ok(root, "extension", "disable", "git")
-    assert json.loads((wf / "extensions" / ".registry").read_text())["extensions"]["git"]["enabled"] is False
+    assert json.loads((wf / "extensions" / ".registry").read_text(encoding="utf-8"))["extensions"]["git"]["enabled"] is False
     ok(root, "extension", "enable", "git")
     ok(root, "extension", "set-priority", "git", "5")
     ok(root, "extension", "remove", "git", "--force")
@@ -54,11 +54,11 @@ def test_extension_from_local_directory(root, tmp_path):
         "requires": {"workflow_version": ">=1.0.0"},
         "provides": {"commands": [{"name": "cairn.hello.greet", "file": "commands/greet.md",
                                    "description": "Greet"}]},
-    }))
-    (ext / "commands" / "greet.md").write_text("---\ndescription: Greet\n---\n\nSay hello to $ARGUMENTS.\n")
+    }), encoding="utf-8")
+    (ext / "commands" / "greet.md").write_text("---\ndescription: Greet\n---\n\nSay hello to $ARGUMENTS.\n", encoding="utf-8")
     ok(root, "extension", "add", "--dev", str(ext))
     skill = root / ".claude" / "skills" / "cairn-hello-greet" / "SKILL.md"
-    assert skill.is_file() and "Say hello" in skill.read_text()
+    assert skill.is_file() and "Say hello" in skill.read_text(encoding="utf-8")
 
 
 def test_extension_written_for_the_older_engine_still_installs(root, tmp_path):
@@ -71,8 +71,8 @@ def test_extension_written_for_the_older_engine_still_installs(root, tmp_path):
         "extension": {"id": "legacy", "name": "Legacy", "version": "0.1.0", "description": "Old manifest"},
         "requires": {legacy_key: ">=0.8.0"},
         "provides": {"commands": [{"name": "cairn.legacy.run", "file": "commands/run.md", "description": "Run"}]},
-    }))
-    (ext / "commands" / "run.md").write_text("---\ndescription: Run\n---\n\nRun it.\n")
+    }), encoding="utf-8")
+    (ext / "commands" / "run.md").write_text("---\ndescription: Run\n---\n\nRun it.\n", encoding="utf-8")
     ok(root, "extension", "add", "--dev", str(ext))
     assert (root / ".claude" / "skills" / "cairn-legacy-run" / "SKILL.md").is_file()
 
@@ -83,12 +83,12 @@ def test_preset_lifecycle(root):
     ok(root, "preset", "add", "lean")
     assert "Lean Workflow" in ok(root, "preset", "list")
     assert "presets/lean/commands/cairn.plan.md" in ok(root, "preset", "resolve", "cairn.plan").replace("\n", "")
-    lean_plan = (root / ".claude" / "skills" / "cairn-plan" / "SKILL.md").read_text()
+    lean_plan = (root / ".claude" / "skills" / "cairn-plan" / "SKILL.md").read_text(encoding="utf-8")
     assert "Existing system constraints (from Cairn)" not in lean_plan  # the preset replaced the command
     assert "cairn ask" in lean_plan  # ...and its minimal version still consults the project memory
     ok(root, "preset", "info", "lean")
     ok(root, "preset", "remove", "lean")
-    core_plan = (root / ".claude" / "skills" / "cairn-plan" / "SKILL.md").read_text()
+    core_plan = (root / ".claude" / "skills" / "cairn-plan" / "SKILL.md").read_text(encoding="utf-8")
     assert "Existing system constraints (from Cairn)" in core_plan  # core command restored
 
 
@@ -112,10 +112,10 @@ def test_workflow_lifecycle_and_run(root, tmp_path):
             {"id": "check", "type": "if", "condition": "{{ steps.greet.output.exit_code == 0 }}",
              "then": [{"id": "done", "type": "shell", "run": "echo ok > done.txt"}]},
         ],
-    }, sort_keys=False))
+    }, sort_keys=False), encoding="utf-8")
     out = ok(root, "workflow", "run", str(wf), "--input", "name=cairn")
-    assert (root / "greeting.txt").read_text().strip() == "hello-cairn"
-    assert (root / "done.txt").read_text().strip() == "ok"
+    assert (root / "greeting.txt").read_text(encoding="utf-8").strip() == "hello-cairn"
+    assert (root / "done.txt").read_text(encoding="utf-8").strip() == "ok"
     runs = root / ".cairn" / "workflow" / "workflows" / "runs"
     assert runs.is_dir() and any(runs.iterdir())
     run_id = next(runs.iterdir()).name
@@ -140,7 +140,7 @@ def test_integrations(root):
     ok(root, "integration", "install", "gemini", "--force")
     assert (root / ".gemini" / "commands" / "cairn.plan.toml").is_file()
     ok(root, "integration", "use", "gemini")
-    state = json.loads((root / ".cairn" / "workflow" / "integration.json").read_text())
+    state = json.loads((root / ".cairn" / "workflow" / "integration.json").read_text(encoding="utf-8"))
     assert state["default_integration"] == "gemini" and "claude" in state["installed_integrations"]
     ok(root, "integration", "uninstall", "claude", "--force")
     assert not (root / ".claude" / "skills" / "cairn-plan").exists()
@@ -153,7 +153,7 @@ def test_catalog_stacks(root):
     out = ok(root, "extension", "catalog", "list")
     assert "builtin://extensions" in out
     ok(root, "extension", "catalog", "add", "https://example.com/catalog.json", "--name", "team")
-    cfg = yaml.safe_load((root / ".cairn" / "workflow" / "extension-catalogs.yml").read_text())
+    cfg = yaml.safe_load((root / ".cairn" / "workflow" / "extension-catalogs.yml").read_text(encoding="utf-8"))
     assert any(c["url"] == "https://example.com/catalog.json" for c in cfg["catalogs"])
     ok(root, "extension", "catalog", "remove", "team")
     assert "builtin://presets" in ok(root, "preset", "catalog", "list")
@@ -174,11 +174,11 @@ def test_bundled_sdd_workflow_dispatches_cairn_commands_to_the_agent(root, tmp_p
     bin_dir.mkdir()
     log = tmp_path / "calls.log"
     fake = bin_dir / "claude"
-    fake.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{log}'\necho done\n")
+    fake.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{log}'\necho done\n", encoding="utf-8")
     fake.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     out = ok(root, "workflow", "run", "cairn", "--input", "spec=Add refunds")
     assert "paused" in out.lower()
-    assert log.read_text().splitlines() == ["-p", "/cairn-specify Add refunds"]
+    assert log.read_text(encoding="utf-8").splitlines() == ["-p", "/cairn-specify Add refunds"]
     run_id = out.split("Run ID:")[1].split()[0]
     assert "paused" in ok(root, "workflow", "status", run_id).lower()

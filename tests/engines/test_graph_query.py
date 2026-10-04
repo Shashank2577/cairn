@@ -119,7 +119,7 @@ def test_save_result_and_reflect(built_repo):
     res = api.run(["reflect", "--memory-dir", str(mem), "--out", str(lessons),
                    "--graph", str(api.graph_json(built_repo))])
     assert res["code"] == 0, res
-    assert lessons.exists() and "charge" in lessons.read_text()
+    assert lessons.exists() and "charge" in lessons.read_text(encoding="utf-8")
 
 
 def test_mapper_bridge_builds_and_indexes(tmp_path):
@@ -129,7 +129,7 @@ def test_mapper_bridge_builds_and_indexes(tmp_path):
     ok, summary = mapper.build(root, out_dir=out)
     assert ok, summary
     assert "nodes" in summary
-    assert (root / ".cairn" / "graphignore").read_text().startswith("# cairn:")
+    assert (root / ".cairn" / "graphignore").read_text(encoding="utf-8").startswith("# cairn:")
     idx = mapper.MapIndex.load(out / "graph.json")
     assert len(idx) > 10 and idx.edge_count() > 10
     [pay] = idx.resolve("PaymentService")

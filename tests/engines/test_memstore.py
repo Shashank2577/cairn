@@ -668,7 +668,7 @@ def test_cli_handlers(tmp_path):
     assert len(page["results"]) == 1 and page["page"] == 2
     data = tmp_path / "import.json"
     data.write_text(json.dumps([{"memory": "Use ruff", "metadata": {"kind": "convention"}}, {"text": ""},
-                                {"content": "Owned by team core", "team_id": "core"}]))
+                                {"content": "Owned by team core", "team_id": "core"}]), encoding="utf-8")
     assert commands.import_file(m, str(data), project_id=P) == {"added": 2, "failed": 1, "errors": []}
     listed = commands.list_memories(m, project_id=P)["results"]
     assert len(listed) == 4
@@ -753,6 +753,6 @@ def test_no_upstream_names_in_memory_sources():
     files = list((root / "src/cairn/engines/memstore").rglob("*.py")) + [
         root / "src/cairn/engines/memory.py", root / "src/cairn/engines/vectors.py",
         *Path(__file__).parent.glob("test_memstore*.py"), Path(__file__).parent / "test_vectors.py"]
-    hits = [f"{f.relative_to(root)}:{i}" for f in files for i, line in enumerate(f.read_text().splitlines(), 1)
+    hits = [f"{f.relative_to(root)}:{i}" for f in files for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
             if pattern.search(line)]
     assert hits == []

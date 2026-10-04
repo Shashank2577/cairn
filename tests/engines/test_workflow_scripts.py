@@ -23,7 +23,7 @@ def _json(stdout: str) -> dict:
 
 def _run(cmd: list[str], root: Path) -> subprocess.CompletedProcess:
     env = {k: v for k, v in GIT_ENV.items() if not k.startswith("CAIRN_FEATURE")}
-    return subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=60, env=env)
+    return subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=60, env=env, encoding="utf-8", errors="replace")
 
 
 @pytest.fixture()
@@ -45,8 +45,8 @@ def test_bash_scripts_are_executable_and_drive_a_feature(project):
     created = _json(res.stdout)
     assert created["BRANCH_NAME"] == "001-user-authentication" and created["FEATURE_NUM"] == "001"
     spec_file = Path(created["SPEC_FILE"])
-    assert spec_file.is_file() and "User Scenarios & Testing" in spec_file.read_text()
-    pointer = json.loads((project / ".cairn" / "workflow" / "feature.json").read_text())
+    assert spec_file.is_file() and "User Scenarios & Testing" in spec_file.read_text(encoding="utf-8")
+    pointer = json.loads((project / ".cairn" / "workflow" / "feature.json").read_text(encoding="utf-8"))
     assert pointer["feature_directory"] == "specs/001-user-authentication"
     assert "CAIRN_FEATURE=" in res.stderr  # persistence hint uses the Cairn env var
 
@@ -80,7 +80,7 @@ def test_bash_scripts_are_executable_and_drive_a_feature(project):
 def test_template_override_wins_over_core(project):
     overrides = project / ".cairn" / "workflow" / "templates" / "overrides"
     overrides.mkdir(parents=True)
-    (overrides / "spec-template.md").write_text("# Our house spec format\n")
+    (overrides / "spec-template.md").write_text("# Our house spec format\n", encoding="utf-8")
     scripts = project / ".cairn" / "workflow" / "scripts" / "bash"
     res = _run([BASH, str(scripts / "resolve-template.sh"), "spec-template"], project)
     assert res.returncode == 0 and res.stdout.startswith("# Our house spec format")
@@ -122,5 +122,5 @@ def test_git_extension_creates_feature_branches(project):
     res = _run([BASH, str(ext_scripts / "create-new-feature-branch.sh"), "--json", "Add search"], project)
     assert res.returncode == 0, res.stderr
     branch = _json(res.stdout)["BRANCH_NAME"]
-    current = subprocess.run(["git", "branch", "--show-current"], cwd=project, capture_output=True, text=True)
+    current = subprocess.run(["git", "branch", "--show-current"], cwd=project, capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert current.stdout.strip() == branch

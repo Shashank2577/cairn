@@ -44,7 +44,7 @@ def locked(path, wait: float = 0.0):
     """Hold the cross-process sync lock. With ``wait`` > 0, wait that many seconds for an
     already-running sync (the post-commit hook's background sync) to finish instead of skipping."""
     path.parent.mkdir(exist_ok=True)
-    fh = open(path, "w")
+    fh = open(path, "w", encoding="utf-8")
     release = None
     try:
         try:
@@ -204,7 +204,7 @@ def spawn_background(project, *args: str) -> None:
     """Fire-and-forget sync (used by git hooks). Never blocks the developer."""
     log = project.dir / "sync.log"
     project.dir.mkdir(exist_ok=True)
-    with open(log, "a") as fh:
+    with open(log, "a", encoding="utf-8") as fh:
         kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": 0x00000008}
         subprocess.Popen([sys.executable, "-m", "cairn", "sync", "--quiet", *args], cwd=str(project.root),
                          stdout=fh, stderr=fh, stdin=subprocess.DEVNULL, **kwargs)

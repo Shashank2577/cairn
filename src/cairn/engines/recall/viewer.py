@@ -440,7 +440,7 @@ def import_memories(root: Path | str, data: dict) -> dict:
 def logs(root: Path | str, lines: int = 200) -> dict:
     path = Path(root) / ".cairn" / "recall" / "worker.log"
     try:
-        text = path.read_text(errors="replace")
+        text = path.read_text(errors="replace", encoding="utf-8")
     except OSError:
         return {"path": str(path), "lines": []}
     return {"path": str(path), "lines": text.splitlines()[-max(1, min(int(lines), 5000)):]}
@@ -449,7 +449,7 @@ def logs(root: Path | str, lines: int = 200) -> dict:
 def clear_logs(root: Path | str) -> dict:
     path = Path(root) / ".cairn" / "recall" / "worker.log"
     if path.exists():
-        path.write_text("")
+        path.write_text("", encoding="utf-8")
     return {"success": True}
 
 

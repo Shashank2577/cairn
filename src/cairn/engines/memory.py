@@ -841,7 +841,7 @@ def _missing_commits(project: Project, shas: list[str]) -> set[str]:
         return set()
     try:
         res = subprocess.run(["git", "-C", str(project.root), "cat-file", "--batch-check"], input="\n".join(shas) + "\n",
-                             capture_output=True, text=True, timeout=60)
+                             capture_output=True, text=True, timeout=60, encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return set()
     return {line.split()[0] for line in res.stdout.splitlines() if line.endswith(" missing")}

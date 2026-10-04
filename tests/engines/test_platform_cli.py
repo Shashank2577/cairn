@@ -100,14 +100,14 @@ def _free_port() -> int:
 def test_invite_links_follow_the_running_server(tmp_path, health_server, monkeypatch):
     run("team", "init", "--email", "lead@x.io", "--name", "Lead")
     home = tmp_path / "home"
-    (home / "server.json").write_text(json.dumps({"pid": 1, "port": health_server}))
+    (home / "server.json").write_text(json.dumps({"pid": 1, "port": health_server}), encoding="utf-8")
     inv = run_json("team", "invite", "a@x.io")
     assert inv["url"] == f"http://127.0.0.1:{health_server}/?invite={inv['token']}"
     hook = run_json("project", "webhook", str(_registered(tmp_path)))
     assert hook["url"].startswith(f"http://127.0.0.1:{health_server}/api/projects/")
     # listening on every interface: the link names this machine
     monkeypatch.setattr(commands.socket, "getfqdn", lambda: "build-box.example")
-    (home / "server.json").write_text(json.dumps({"pid": 1, "port": health_server, "host": "0.0.0.0"}))
+    (home / "server.json").write_text(json.dumps({"pid": 1, "port": health_server, "host": "0.0.0.0"}), encoding="utf-8")
     inv = run_json("team", "invite", "b@x.io")
     assert inv["url"].startswith(f"http://build-box.example:{health_server}/?invite=")
 
@@ -115,20 +115,20 @@ def test_invite_links_follow_the_running_server(tmp_path, health_server, monkeyp
 def test_invite_links_fall_back_to_configuration(tmp_path):
     run("team", "init", "--email", "lead@x.io", "--name", "Lead")
     home = tmp_path / "home"
-    (home / "server.json").write_text(json.dumps({"pid": 1, "port": _free_port()}))  # stale: nothing answers
-    (home / "server.toml").write_text('[server]\nport = 4900\n')
+    (home / "server.json").write_text(json.dumps({"pid": 1, "port": _free_port()}), encoding="utf-8")  # stale: nothing answers
+    (home / "server.toml").write_text('[server]\nport = 4900\n', encoding="utf-8")
     assert run_json("team", "invite", "a@x.io")["url"].startswith("http://127.0.0.1:4900/?invite=")
-    (home / "server.toml").write_text('[server]\nmode = "team"\nhost = "::1"\nport = 4901\n')
+    (home / "server.toml").write_text('[server]\nmode = "team"\nhost = "::1"\nport = 4901\n', encoding="utf-8")
     assert run_json("team", "invite", "b@x.io")["url"].startswith("http://[::1]:4901/?invite=")
-    (home / "server.toml").write_text('[server]\nport = 4900\npublic_url = "https://cairn.example.com/"\n')
+    (home / "server.toml").write_text('[server]\nport = 4900\npublic_url = "https://cairn.example.com/"\n', encoding="utf-8")
     assert run_json("team", "invite", "c@x.io")["url"].startswith("https://cairn.example.com/?invite=")
 
 
 def test_public_url_wins_over_the_running_server(tmp_path, health_server):
     run("team", "init", "--email", "lead@x.io", "--name", "Lead")
     home = tmp_path / "home"
-    (home / "server.json").write_text(json.dumps({"pid": 1, "port": health_server}))
-    (home / "server.toml").write_text('[server]\npublic_url = "https://cairn.example.com"\n')
+    (home / "server.json").write_text(json.dumps({"pid": 1, "port": health_server}), encoding="utf-8")
+    (home / "server.toml").write_text('[server]\npublic_url = "https://cairn.example.com"\n', encoding="utf-8")
     assert run_json("team", "invite", "a@x.io")["url"].startswith("https://cairn.example.com/?invite=")
 
 

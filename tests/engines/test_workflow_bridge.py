@@ -17,18 +17,18 @@ def test_bootstrap_is_in_process_and_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     root = git_repo(tmp_path / "repo")
     (root / ".cairn").mkdir()
-    (root / ".cairn" / "config.toml").write_text("[server]\nport = 4747\n")
+    (root / ".cairn" / "config.toml").write_text("[server]\nport = 4747\n", encoding="utf-8")
     proj = Project(root=root)
     assert not specs.initialized(root)
     ok, msg = specs.bootstrap(proj, "claude")
     assert ok, msg
     assert specs.initialized(root) and (root / specs.CONSTITUTION).is_file()
-    assert (root / ".cairn" / "config.toml").read_text().startswith("[server]")  # Cairn's own files untouched
+    assert (root / ".cairn" / "config.toml").read_text(encoding="utf-8").startswith("[server]")  # Cairn's own files untouched
     assert specs.bootstrap(proj, "claude") == (True, "already set up")
     assert specs.install_extension(proj)[0]
     # a fresh constitution is still the template: not reported until the team fills it in
     assert specs.constitution(root) is None
-    (root / specs.CONSTITUTION).write_text("# Shop Constitution\n\n### I. Tests first\n\n**Version**: 1.2.0\n")
+    (root / specs.CONSTITUTION).write_text("# Shop Constitution\n\n### I. Tests first\n\n**Version**: 1.2.0\n", encoding="utf-8")
     assert specs.constitution(root) == {"version": "1.2.0", "principles": ["I. Tests first"]}
 
 
@@ -50,8 +50,8 @@ def test_parser_still_reads_features(tmp_path):
     feat = tmp_path / "specs" / "001-refunds"
     feat.mkdir(parents=True)
     (feat / "spec.md").write_text("# Feature Specification: Refunds\n\n### User Story 1 - Refund (Priority: P1)\n\n"
-                                  "- **FR-001**: The system MUST refund.\n")
-    (feat / "tasks.md").write_text("## Phase 1\n\n- [x] T001 [US1] Add refund in `shop/gateway.py` for FR-001\n")
+                                  "- **FR-001**: The system MUST refund.\n", encoding="utf-8")
+    (feat / "tasks.md").write_text("## Phase 1\n\n- [x] T001 [US1] Add refund in `shop/gateway.py` for FR-001\n", encoding="utf-8")
     [f] = specs.features(tmp_path)
     assert f["title"] == "Refunds" and f["progress"] == {"done": 1, "total": 1}
     assert f["tasks"][0]["reqs"] == ["FR-001"] and f["tasks"][0]["files"] == [("shop/gateway.py", False)]
@@ -60,7 +60,7 @@ def test_parser_still_reads_features(tmp_path):
 def test_package_source_is_free_of_absorbed_names():
     """The whole workflow package — code, templates, scripts, catalogs — carries only Cairn names."""
     assert forbidden_hits(PKG) == []
-    hits = [ln for ln in Path(specs.__file__).read_text().splitlines() if FORBIDDEN.search(ln)]
+    hits = [ln for ln in Path(specs.__file__).read_text(encoding="utf-8").splitlines() if FORBIDDEN.search(ln)]
     assert hits == []
 
 
@@ -79,7 +79,7 @@ def test_workflow_state_for_the_ui(tmp_path, monkeypatch):
     assert specs.workflow_state(root)["initialized"] is False
     init(root, "claude", "--extension", "git", "--preset", "lean")
     (root / "hello.yml").write_text("schema_version: '1.0'\nworkflow: {id: hello, name: Hello, version: '1.0.0', "
-                                    "description: d}\nsteps:\n  - {id: greet, type: shell, run: 'echo hi'}\n")
+                                    "description: d}\nsteps:\n  - {id: greet, type: shell, run: 'echo hi'}\n", encoding="utf-8")
     assert spec(root, "workflow", "run", "hello.yml")[0] == 0
     st = specs.workflow_state(root)
     assert st["initialized"] and st["integration"] == "claude" and st["integrations"] == ["claude"]

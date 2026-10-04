@@ -34,7 +34,7 @@ def offline(monkeypatch):
 
 def git(root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, env=ENV,
-                          check=True).stdout
+                          check=True, encoding="utf-8", errors="replace").stdout
 
 
 def commit(root: Path, files: dict[str, str | None], msg: str) -> str:
@@ -44,7 +44,7 @@ def commit(root: Path, files: dict[str, str | None], msg: str) -> str:
             p.unlink()
             continue
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text)
+        p.write_text(text, encoding="utf-8")
     git(root, "add", "-A")
     git(root, "commit", "-qm", msg)
     return git(root, "rev-parse", "HEAD").strip()
@@ -130,7 +130,7 @@ def test_forget_removes_the_memory_from_the_engine(repo):
 
 def test_engine_can_be_switched_off(repo):
     (repo / ".cairn").mkdir(exist_ok=True)
-    (repo / ".cairn" / "config.toml").write_text('[memory]\nengine = "off"\n')
+    (repo / ".cairn" / "config.toml").write_text('[memory]\nengine = "off"\n', encoding="utf-8")
     s = store_for(repo)
     res = s.remember("Feature flags live in LaunchConfig")
     assert s.brain.memory(res["id"])["engine_ref"] is None and not s.semantic.ready
@@ -148,7 +148,7 @@ def test_about_finds_memories_linked_to_files_and_labels(repo):
 def test_graph_memory_reads_the_real_temporal_graph_without_a_model(repo):
     pytest.importorskip("kuzu")
     (repo / ".cairn").mkdir(exist_ok=True)
-    (repo / ".cairn" / "config.toml").write_text("[memory]\ngraph = true\n")
+    (repo / ".cairn" / "config.toml").write_text("[memory]\ngraph = true\n", encoding="utf-8")
     router = FakeRouter(available=False)
     project = Project.discover(repo)
     router.project, router.brain = project, Brain(project.db_path)
@@ -347,7 +347,7 @@ def test_seed_merged_into_a_hand_written_memory_is_never_retired(repo):
 def test_seed_model_budget_is_bounded(repo):
     _seed_repo(repo)
     (repo / ".cairn").mkdir(exist_ok=True)
-    (repo / ".cairn" / "config.toml").write_text("[memory]\nseed_model_limit = 2\n")
+    (repo / ".cairn" / "config.toml").write_text("[memory]\nseed_model_limit = 2\n", encoding="utf-8")
     s = store_for(repo, FakeRouter())
     stats = seed_from_repo(s.project, s.brain, s.router, store=s)
     assert stats["reconciled"] == 2 and stats["added"] == 8
@@ -442,7 +442,7 @@ def test_seeding_repairs_the_engine_first(repo):
 
 def test_check_engine_without_the_engine(repo):
     (repo / ".cairn").mkdir(exist_ok=True)
-    (repo / ".cairn" / "config.toml").write_text('[memory]\nengine = "off"\n')
+    (repo / ".cairn" / "config.toml").write_text('[memory]\nengine = "off"\n', encoding="utf-8")
     s = store_for(repo)
     s.remember("Feature flags live in LaunchConfig")
     report = s.check_engine(fix=True)

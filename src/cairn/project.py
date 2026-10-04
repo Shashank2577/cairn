@@ -89,7 +89,7 @@ def operator_cfg(dotted: str) -> Any:
         return os.environ[env]
     home = Path(os.environ.get("CAIRN_HOME") or Path.home() / ".cairn")
     try:
-        data = tomllib.loads((home / "server.toml").read_text())
+        data = tomllib.loads((home / "server.toml").read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError):
         return None
     section, key = dotted.split(".", 1)
@@ -172,7 +172,7 @@ class Project:
         for path in (self.config_path, self.local_config_path):  # committed settings, then local overrides
             if path.exists():
                 try:
-                    cfg = _merge(cfg, tomllib.loads(path.read_text()))
+                    cfg = _merge(cfg, tomllib.loads(path.read_text(encoding="utf-8")))
                 except tomllib.TOMLDecodeError:
                     pass  # a broken config never blocks the tool; `cairn doctor` reports it
         self.config = cfg
@@ -228,12 +228,12 @@ class Project:
     def ensure_dir(self) -> None:
         self.dir.mkdir(exist_ok=True)
         if not self.config_path.exists():
-            self.config_path.write_text(DEFAULT_CONFIG)
+            self.config_path.write_text(DEFAULT_CONFIG, encoding="utf-8")
         gi = self.dir / ".gitignore"
-        text = gi.read_text() if gi.exists() else ""
+        text = gi.read_text(encoding="utf-8") if gi.exists() else ""
         missing = [ln for ln in GITIGNORE.splitlines() if ln not in text.splitlines()]
         if missing:  # new repos get the full file; older ones gain the lines added since
-            gi.write_text((text.rstrip("\n") + "\n" if text.strip() else "") + "\n".join(missing) + "\n")
+            gi.write_text((text.rstrip("\n") + "\n" if text.strip() else "") + "\n".join(missing) + "\n", encoding="utf-8")
 
     def remove_legacy_artifacts(self) -> list[str]:
         """Earlier versions wrote the code map to a folder (and an ignore file) at the repository root. The map now
@@ -247,7 +247,7 @@ class Project:
             if p.is_dir() and (p / "graph.json").exists():
                 shutil.rmtree(p, ignore_errors=True)
                 removed.append(name)
-            elif p.is_file() and "# cairn:" in p.read_text(errors="replace"):
+            elif p.is_file() and "# cairn:" in p.read_text(errors="replace", encoding="utf-8"):
                 p.unlink()
                 removed.append(name)
         return removed
@@ -256,7 +256,7 @@ class Project:
         """Run git in the repo; return stdout ('' on failure)."""
         try:
             res = subprocess.run(["git", "-C", str(self.root), *args], capture_output=True,
-                                 text=True, timeout=timeout, errors="replace")
+                                 text=True, timeout=timeout, errors="replace", encoding="utf-8")
             return res.stdout if res.returncode == 0 else ""
         except (OSError, subprocess.TimeoutExpired):
             return ""
@@ -282,7 +282,7 @@ class Project:
         literal = _toml_literal(dotted, value)
         path = self.local_config_path if local else self.config_path
         self.ensure_dir()
-        lines = path.read_text().splitlines() if path.exists() else []
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
         header = re.compile(r"^\s*\[\s*" + re.escape(section) + r"\s*\]\s*(#.*)?$")
         any_header = re.compile(r"^\s*\[\s*[A-Za-z0-9_.\-\"' ]+\s*\]\s*(#.*)?$")
         key_line = re.compile(r"^\s*(" + re.escape(key) + r"|\"" + re.escape(key) + r"\")\s*=")
@@ -306,7 +306,7 @@ class Project:
         except tomllib.TOMLDecodeError as exc:
             raise ValueError(f"{dotted}: the config would not be valid TOML ({exc})") from exc
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(text)
+        tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
         self.reload()
 

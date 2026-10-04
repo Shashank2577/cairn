@@ -58,7 +58,7 @@ def add(content: str = typer.Argument(..., help="Episode text, or @path to read 
         description: str = typer.Option('', help="Source description"),
         as_json: bool = typer.Option(False, '--json')):
     """Add an episode; its entities and facts are extracted and reconciled with the graph."""
-    body = Path(content[1:]).read_text() if content.startswith('@') else content
+    body = Path(content[1:]).read_text(encoding="utf-8") if content.startswith('@') else content
     res = _call(_service().add_episode(name or body[:40].strip(), body, source=source, reference_time=at,
                                        group_id=group, saga=saga, source_description=description))
     _out(res, as_json, [f"+ {f['fact']} {_window(f)}" for f in res['facts'] if f['current']]

@@ -20,7 +20,7 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.com", "GIT
 
 def git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True,
-                          env={**os.environ, **GIT_ENV}).stdout.strip()
+                          env={**os.environ, **GIT_ENV}, encoding="utf-8", errors="replace").stdout.strip()
 
 
 @pytest.fixture(autouse=True)
@@ -45,11 +45,11 @@ def remote(tmp_path):
     work = tmp_path / "work"
     work.mkdir()
     git(work, "init", "-q", "-b", "main")
-    (work / "app.py").write_text("print('v1')\n")
+    (work / "app.py").write_text("print('v1')\n", encoding="utf-8")
     git(work, "add", "-A")
     git(work, "commit", "-qm", "v1")
     git(work, "checkout", "-q", "-b", "feature")
-    (work / "feature.py").write_text("x = 1\n")
+    (work / "feature.py").write_text("x = 1\n", encoding="utf-8")
     git(work, "add", "-A")
     git(work, "commit", "-qm", "feature")
     git(work, "checkout", "-q", "main")
@@ -61,7 +61,7 @@ def remote(tmp_path):
 
 def push_commit(work: Path, name: str, branch: str = "main") -> str:
     git(work, "checkout", "-q", branch)
-    (work / name).write_text(name + "\n")
+    (work / name).write_text(name + "\n", encoding="utf-8")
     git(work, "add", "-A")
     git(work, "commit", "-qm", f"add {name}")
     git(work, "push", "-q", "origin", branch)
@@ -153,11 +153,11 @@ def test_register_git_project_clones_into_home(plat, remote):
     assert p.slug == "origin" and Path(p.root).parent == plat.home / "repos"
     assert p.data_dir == str(Path(p.root) / ".cairn") and (Path(p.root) / "app.py").exists()
     (Path(p.root) / ".cairn").mkdir()
-    (Path(p.root) / ".cairn" / "brain.db").write_text("local state")
+    (Path(p.root) / ".cairn" / "brain.db").write_text("local state", encoding="utf-8")
     new = push_commit(work, "c.txt")
     res = plat.refresh_project(p.id)
     assert res["pulled"] and res["changed"] and res["new"] == new
-    assert (Path(p.root) / ".cairn" / "brain.db").read_text() == "local state"  # untracked state survives
+    assert (Path(p.root) / ".cairn" / "brain.db").read_text(encoding="utf-8") == "local state"  # untracked state survives
     with pytest.raises(Conflict):
         plat.register_git_project(team.id, f"file://{bare}")
     feature = plat.register_git_project(team.id, f"file://{bare}", branch="feature", name="Feature")

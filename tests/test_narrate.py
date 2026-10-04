@@ -30,7 +30,7 @@ def _fake_cli(tmp_path, monkeypatch, body: str):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     exe = bin_dir / "claude"
-    exe.write_text(f"#!{sys.executable}\nimport json, sys, time\nsys.stdin.read()\n{body}\n")
+    exe.write_text(f"#!{sys.executable}\nimport json, sys, time\nsys.stdin.read()\n{body}\n", encoding="utf-8")
     exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.delenv("CAIRN_NO_CLI_MODELS", raising=False)
@@ -59,7 +59,7 @@ def test_a_failed_turn_raises_with_the_reason(cairn, tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="session limit"):
         list(_router(cairn).stream("ask", "q"))
     _fake_cli_dir = tmp_path / "bin" / "claude"
-    _fake_cli_dir.write_text(f"#!{sys.executable}\nimport sys\nsys.stderr.write('not signed in')\nsys.exit(1)\n")
+    _fake_cli_dir.write_text(f"#!{sys.executable}\nimport sys\nsys.stderr.write('not signed in')\nsys.exit(1)\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="not signed in"):
         list(_router(cairn).stream("ask", "q"))
 

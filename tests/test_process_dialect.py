@@ -57,14 +57,14 @@ requirements:
 
 def git(root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
-                          env=ENV, check=True).stdout
+                          env=ENV, check=True, encoding="utf-8", errors="replace").stdout
 
 
 def commit(root: Path, files: dict[str, str], msg: str, body: str = "") -> None:
     for rel, text in files.items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text)
+        p.write_text(text, encoding="utf-8")
     git(root, "add", "-A")
     git(root, "commit", "-qm", f"{msg}\n\n{body}" if body else msg)
 
@@ -73,13 +73,13 @@ def make_repo(root: Path, *, index: str = INDEX, coverage: str | None = COVERAGE
               files: dict[str, str] | None = None, init: bool = False) -> Path:
     root = Path(root)
     (root / "requirements").mkdir(parents=True)
-    (root / "requirements" / "index.md").write_text(index)
+    (root / "requirements" / "index.md").write_text(index, encoding="utf-8")
     if coverage is not None:
-        (root / "requirements" / "coverage.yaml").write_text(coverage)
+        (root / "requirements" / "coverage.yaml").write_text(coverage, encoding="utf-8")
     for rel, text in (files or {}).items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text)
+        p.write_text(text, encoding="utf-8")
     if init:
         git(root, "init", "-q", "-b", "main")
         git(root, "add", "-A")
@@ -101,7 +101,7 @@ def test_detect_requires_the_index(tmp_path):
     root.mkdir()
     assert pd.detect(root) is False
     (root / "requirements").mkdir()
-    (root / "requirements" / "index.md").write_text("| ID | Requirement |\n|---|---|\n| REQ-001 | x | y |\n")
+    (root / "requirements" / "index.md").write_text("| ID | Requirement |\n|---|---|\n| REQ-001 | x | y |\n", encoding="utf-8")
     assert pd.detect(root) is True
 
 
@@ -146,9 +146,9 @@ def test_long_requirement_text_is_clipped_to_the_title(tmp_path):
 def test_evaluate_check_kinds(tmp_path):
     root = tmp_path / "t"
     (root / "a").mkdir(parents=True)
-    (root / "a" / "b.txt").write_text("has the needle inside")
+    (root / "a" / "b.txt").write_text("has the needle inside", encoding="utf-8")
     (root / "a" / "c.txt").write_bytes(b"\xff\xfe\x00binary")
-    (root / "a" / "d.txt").write_text("nothing here")
+    (root / "a" / "d.txt").write_text("nothing here", encoding="utf-8")
     assert pd.evaluate_check({"exists": "a/b.txt"}, root) is True
     assert pd.evaluate_check({"exists": "a/missing.txt"}, root) is False
     assert pd.evaluate_check({"exists": "a"}, root) is True                 # directories count
@@ -256,7 +256,7 @@ def test_specs_features_still_prefer_spec_kit(tmp_path):
     root = make_repo(tmp_path / "r11")
     d = root / "specs" / "001-refunds"
     d.mkdir(parents=True)
-    (d / "spec.md").write_text("# Feature Specification: Refunds\n\n**Status**: Draft\n")
+    (d / "spec.md").write_text("# Feature Specification: Refunds\n\n**Status**: Draft\n", encoding="utf-8")
     assert [f["id"] for f in specs.features(root)] == ["001-refunds"]      # the dialect is not mixed in
 
 
@@ -270,8 +270,8 @@ def test_dialect_features_match_the_spec_kit_shape(tmp_path):
     sk = tmp_path / "d2"
     d = sk / "specs" / "001-x"
     d.mkdir(parents=True)
-    (d / "spec.md").write_text("# Feature Specification: X\n\n**Status**: Draft\n\n- **FR-001**: Must do x.\n")
-    (d / "tasks.md").write_text("# Tasks\n\n## Phase 1\n\n- [x] T001 Add the thing\n")
+    (d / "spec.md").write_text("# Feature Specification: X\n\n**Status**: Draft\n\n- **FR-001**: Must do x.\n", encoding="utf-8")
+    (d / "tasks.md").write_text("# Tasks\n\n## Phase 1\n\n- [x] T001 Add the thing\n", encoding="utf-8")
     dialect, speckit = pd.features(dialect_root)[0], specs.features(sk)[0]
     assert set(dialect) == set(speckit)
     assert set(dialect["tasks"][0]) == set(speckit["tasks"][0])

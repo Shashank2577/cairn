@@ -3005,7 +3005,7 @@ class ExtensionManager:
                 # by a partially-failed install (which must not have its
                 # packaged default configs treated as user-preserved data).
                 # Content is intentionally empty — only presence matters.
-                (extension_dir / ".keep-config").write_text("")
+                (extension_dir / ".keep-config").write_text("", encoding="utf-8")
         else:
             # Backup config files before deleting
             if extension_dir.exists():

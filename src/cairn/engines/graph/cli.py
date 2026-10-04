@@ -1056,7 +1056,7 @@ def _clone_repo(
         cmd = ["git", "-C", str(dest), "pull"]
         if branch:
             cmd += ["origin", "--", branch]
-        result = _sp.run(cmd, capture_output=True, text=True)
+        result = _sp.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             print(f"warning: git pull failed:\n{result.stderr}", file=sys.stderr)
     else:
@@ -1066,7 +1066,7 @@ def _clone_repo(
         if branch:
             cmd += ["--branch", branch]
         cmd += ["--", git_url, str(dest)]
-        result = _sp.run(cmd, capture_output=True, text=True)
+        result = _sp.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             print(f"error: git clone failed:\n{result.stderr}", file=sys.stderr)
             sys.exit(1)

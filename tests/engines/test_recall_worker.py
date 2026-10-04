@@ -276,7 +276,7 @@ def test_worker_module_entry_point(repo):
     turn(repo)
     res = subprocess.run([sys.executable, "-m", "cairn.engines.recall.worker", "--once", "--no-model", "--root", str(repo)],
                          capture_output=True, text=True, check=False, cwd=repo,
-                         env={**__import__("os").environ, "PYTHONPATH": str(Path(__file__).parents[2] / "src")})
+                         env={**__import__("os").environ, "PYTHONPATH": str(Path(__file__).parents[2] / "src")}, encoding="utf-8", errors="replace")
     assert res.returncode == 0, res.stderr
     assert q(repo, "SELECT COUNT(*) n FROM observations")[0]["n"] == 1
     status = worker.status(repo)

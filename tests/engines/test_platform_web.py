@@ -454,7 +454,7 @@ def test_git_project_over_http(tmp_path):
     pid = r.json()["id"]
     assert e.plat.project(pid).status == "ready" and (pid, "registered") in e.synced
     subprocess.run(["git", "-C", str(work), "remote", "add", "origin", str(bare)], check=True)
-    (work / "new.py").write_text("x = 1\n")
+    (work / "new.py").write_text("x = 1\n", encoding="utf-8")
     for cmd in (["add", "-A"], ["commit", "-qm", "new"], ["push", "-q", "origin", "main"]):
         subprocess.run(["git", "-C", str(work), *cmd], check=True, env=env_, capture_output=True)
     assert o.post(f"/api/projects/{pid}/refresh", headers={"X-CSRF-Token": csrf}).status_code == 202

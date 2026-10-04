@@ -141,7 +141,7 @@ def test_infer_targets_ignores_question_words(cairn):
 # ---- doctor: must reflect the capture config, not contradict it ------------------------------------
 
 def test_doctor_reports_capture_off_when_config_disables_it(cairn):
-    (cairn.project.dir / "config.toml").write_text("[sessions]\ncapture = false\n")
+    (cairn.project.dir / "config.toml").write_text("[sessions]\ncapture = false\n", encoding="utf-8")
     res = runner.invoke(app, ["doctor"])
     assert res.exit_code == 0
     assert "off (config)" in res.output
@@ -174,8 +174,8 @@ def test_init_no_deep_forces_deep_off(monkeypatch, repo):
 # ---- the search fallback in infer_targets must not surface content-free heading anchors ------------
 
 def test_infer_targets_skips_content_free_heading_anchors(tmp_path, monkeypatch):
-    (tmp_path / "README.md").write_text("# demo\n\n## what\n\nA section named after a question word.\n")
-    (tmp_path / "payments_core.py").write_text("def dispatch():\n    ...\n")
+    (tmp_path / "README.md").write_text("# demo\n\n## what\n\nA section named after a question word.\n", encoding="utf-8")
+    (tmp_path / "payments_core.py").write_text("def dispatch():\n    ...\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     from cairn import sync as sync_mod
     from cairn.core import Cairn
@@ -202,7 +202,7 @@ def test_status_active_spec_prints_process_dialect_ids_whole(repo):
     shutil.rmtree(repo / "specs")  # the fixture seeds a spec-kit feature; the dialect needs a clear field
     (repo / "requirements").mkdir()
     (repo / "requirements" / "index.md").write_text(
-        "| ID | Requirement |\n|---|---|\n| REQ-001 | Everything is traceable. |\n")
+        "| ID | Requirement |\n|---|---|\n| REQ-001 | Everything is traceable. |\n", encoding="utf-8")
     c = Cairn.here(repo)
     sync.run(c)
     res = runner.invoke(app, ["status"])
@@ -236,18 +236,18 @@ def test_global_install_and_remove_wire_user_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     other = {"hooks": [{"type": "command", "command": "echo user-owns-this"}]}
     (tmp_path / ".claude").mkdir()
-    (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"SessionStart": [other]}}))
+    (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"SessionStart": [other]}}), encoding="utf-8")
     assert agents_mod.global_install() is True
-    wired = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    wired = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
     groups = wired["hooks"]["SessionStart"]
     ours = [h for g in groups for h in g["hooks"] if "global-session" in h["command"]]
     theirs = [h for g in groups for h in g["hooks"] if "user-owns-this" in h["command"]]
     assert ours and theirs                                       # ours added, the user's kept
     assert agents_mod.global_install() is True                   # idempotent (no duplicate)
-    groups2 = json.loads((tmp_path / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
+    groups2 = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"]["SessionStart"]
     assert sum("global-session" in h["command"] for g in groups2 for h in g["hooks"]) == 1
     assert agents_mod.global_remove() is True
-    groups3 = json.loads((tmp_path / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
+    groups3 = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"]["SessionStart"]
     assert not any("global-session" in h["command"] for g in groups3 for h in g["hooks"])
     assert any("user-owns-this" in h["command"] for g in groups3 for h in g["hooks"])
 
@@ -267,9 +267,9 @@ def test_global_install_preserves_the_hand_edited_dict_form(tmp_path, monkeypatc
     monkeypatch.setenv("HOME", str(tmp_path))
     (tmp_path / ".claude").mkdir()
     user_group = {"hooks": [{"type": "command", "command": "echo user-owns-this"}]}
-    (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"SessionStart": user_group}}))
+    (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"SessionStart": user_group}}), encoding="utf-8")
     assert agents_mod.global_install() is True
-    groups = json.loads((tmp_path / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
+    groups = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"]["SessionStart"]
     cmds = [h["command"] for g in groups for h in g["hooks"]]
     assert any("global-session" in c for c in cmds) and any("user-owns-this" in c for c in cmds)
 
@@ -315,7 +315,7 @@ def test_cited_docs_pulls_the_document_that_answers_the_question(tmp_path):
     (tmp_path / "docs" / "upload-flow.md").write_text(
         "# upload flow\n" + ("filler line\n" * 400) +
         "MIDAS-77: the web proxy posts the finished MP4 to /upload with x-sa-api-key, "
-        "storage lands in the recordings bucket. MIDAS-77 end.\n")
+        "storage lands in the recordings bucket. MIDAS-77 end.\n", encoding="utf-8")
     from cairn.core import cited_docs
     out = cited_docs(tmp_path, "the flow is documented in docs/upload-flow.md", "where does upload happen")
     assert "MIDAS-77" in out and "Cited repository documents" in out   # the keyword window, not the head

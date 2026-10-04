@@ -134,7 +134,7 @@ def discover(root: Path | None = None) -> System | None:
     if decl is None:
         return None
     try:
-        data = yaml.safe_load(decl.read_text())
+        data = yaml.safe_load(decl.read_text(encoding="utf-8"))
     except (yaml.YAMLError, OSError):
         return None
     if not isinstance(data, dict):

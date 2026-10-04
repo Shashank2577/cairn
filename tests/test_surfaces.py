@@ -12,28 +12,28 @@ from cairn.project import Project
 
 
 def test_init_is_zero_prompt_and_idempotent(repo):
-    (repo / "CLAUDE.md").write_text("# House rules\nKeep it simple.\n")
+    (repo / "CLAUDE.md").write_text("# House rules\nKeep it simple.\n", encoding="utf-8")
     (repo / ".claude").mkdir()
     r = CliRunner().invoke(app, ["init", "--no-ui", "--no-specs", "--agents", "claude"], input="")
     assert r.exit_code == 0, r.output
-    snapshot = {p: p.read_text() for p in repo.rglob("*") if p.is_file() and ".git/" not in str(p)
+    snapshot = {p: p.read_text(encoding="utf-8") for p in repo.rglob("*") if p.is_file() and ".git/" not in str(p)
                 and ".cairn" not in str(p)}
     r2 = CliRunner().invoke(app, ["init", "--no-ui", "--no-specs", "--agents", "claude"])
     assert r2.exit_code == 0
     for p, text in snapshot.items():
-        assert p.read_text() == text, f"{p} changed on second init"
-    claude_md = (repo / "CLAUDE.md").read_text()
+        assert p.read_text(encoding="utf-8") == text, f"{p} changed on second init"
+    claude_md = (repo / "CLAUDE.md").read_text(encoding="utf-8")
     assert claude_md.startswith("# House rules") and "cairn:begin" in claude_md
-    assert json.loads((repo / ".mcp.json").read_text())["mcpServers"]["cairn"]
+    assert json.loads((repo / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["cairn"]
     assert (repo / ".claude" / "agents" / "cairn-scout.md").exists()
-    assert "cairn-hook" in (repo / ".git" / "hooks" / "post-commit").read_text()
-    hooks_cfg = json.loads((repo / ".claude" / "settings.json").read_text())["hooks"]
+    assert "cairn-hook" in (repo / ".git" / "hooks" / "post-commit").read_text(encoding="utf-8")
+    hooks_cfg = json.loads((repo / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"]
     for event in ("UserPromptSubmit", "PostToolUse", "Stop"):  # built-in session capture, no extra install
         assert "cairn.capture" in json.dumps(hooks_cfg[event])
 
 
 def test_uninstall_removes_only_ours(repo):
-    (repo / "CLAUDE.md").write_text("# House rules\n")
+    (repo / "CLAUDE.md").write_text("# House rules\n", encoding="utf-8")
     (repo / ".claude").mkdir()
     proj = Project.discover(repo)
     proj.ensure_dir()
@@ -41,10 +41,10 @@ def test_uninstall_removes_only_ours(repo):
     hooks.install_git_hooks(proj)
     agents.uninstall(proj)
     hooks.remove_git_hooks(proj)
-    assert (repo / "CLAUDE.md").read_text().strip() == "# House rules"
-    assert "cairn" not in (repo / ".mcp.json").read_text()
+    assert (repo / "CLAUDE.md").read_text(encoding="utf-8").strip() == "# House rules"
+    assert "cairn" not in (repo / ".mcp.json").read_text(encoding="utf-8")
     assert not (repo / ".claude" / "agents" / "cairn-scout.md").exists()
-    assert "cairn" not in json.dumps(json.loads((repo / ".claude" / "settings.json").read_text()).get("hooks", {}))
+    assert "cairn" not in json.dumps(json.loads((repo / ".claude" / "settings.json").read_text(encoding="utf-8")).get("hooks", {}))
 
 
 def test_status_and_questions_via_cli(cairn):
@@ -136,7 +136,7 @@ def test_claude_wiring_includes_the_ambient_prompt_hook(repo):
     settings_path = repo / ".claude" / "settings.json"
 
     def ambient_entries():
-        hooks_cfg = json.loads(settings_path.read_text())["hooks"]
+        hooks_cfg = json.loads(settings_path.read_text(encoding="utf-8"))["hooks"]
         return [h for g in hooks_cfg.get("UserPromptSubmit", []) for h in g["hooks"]
                 if "cairn hook ambient" in h.get("command", "")]
 
@@ -148,7 +148,7 @@ def test_claude_wiring_includes_the_ambient_prompt_hook(repo):
     agents.install(proj, ["claude"], capture=False)  # the ambient hook rides on its own, not on capture
     assert len(ambient_entries()) == 1
     agents.uninstall(proj)
-    assert "cairn hook ambient" not in json.dumps(json.loads(settings_path.read_text()).get("hooks", {}))
+    assert "cairn hook ambient" not in json.dumps(json.loads(settings_path.read_text(encoding="utf-8")).get("hooks", {}))
 
 
 def test_doctor_reports_the_ambient_switch(cairn, monkeypatch):
@@ -280,7 +280,7 @@ def test_http_spec_docs_tasks_and_settings(cairn, tmp_path):
     assert c.get(f"{p}/specs/001-refunds/doc/..%2F..%2Fshop%2Fapi.py").status_code == 404  # no escaping the spec
     t = c.patch(f"{p}/specs/001-refunds/tasks/T003", json={"done": True}).json()
     assert t["id"] == "T003" and t["done"] is True
-    assert "- [x] T003" in (cairn.project.root / "specs/001-refunds/tasks.md").read_text()
+    assert "- [x] T003" in (cairn.project.root / "specs/001-refunds/tasks.md").read_text(encoding="utf-8")
     assert c.patch(f"{p}/settings", json={"sessions.capture": False}).json()["sessions"]["capture"] is False
     assert c.patch(f"{p}/settings", json={"server.mode": "team"}).status_code == 400  # not a project setting
 
@@ -358,7 +358,7 @@ def test_agents_connect_never_writes_the_token(repo):
     proj = Project.discover(repo)
     proj.ensure_dir()
     agents.connect(proj, "https://cairn.example.com/", "p_123")
-    cfg = json.loads((repo / ".mcp.json").read_text())["mcpServers"]["cairn"]
+    cfg = json.loads((repo / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["cairn"]
     assert cfg["url"] == "https://cairn.example.com/mcp/p_123/" and cfg["type"] == "http"
     assert cfg["headers"]["Authorization"] == "Bearer ${CAIRN_TOKEN}"  # expanded by the agent at runtime
 
@@ -467,7 +467,7 @@ def test_graph_tools_cannot_reach_another_projects_folder(cairn, tmp_path):
     (other / ".cairn" / "graph").mkdir(parents=True)
     (other / ".cairn" / "graph" / "graph.json").write_text(json.dumps({"nodes": [
         {"id": "vault_rotate_master_key", "label": "rotate_master_key()", "file_type": "code",
-         "source_file": "vault.py", "community": 0}], "links": []}))
+         "source_file": "vault.py", "community": 0}], "links": []}), encoding="utf-8")
     client, p, auth, _platform, _proj = _team_app(cairn, tmp_path)
     with client as c:
         r = c.post(f"{p}/graph/tools/query_graph", headers=auth,
@@ -578,14 +578,14 @@ def test_uninstall_keeps_the_users_own_hooks(repo):
     proj.ensure_dir()
     agents.install(proj, ["claude"])
     settings_path = repo / ".claude" / "settings.json"
-    data = json.loads(settings_path.read_text())
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
     data["hooks"].setdefault("PostToolUse", []).append(
         {"matcher": "Edit", "hooks": [{"type": "command", "command": "/Users/me/code/cairn-tools/format.sh"}]})
     data["hooks"]["SessionStart"][0]["hooks"].append({"type": "command", "command": "say done"})
-    settings_path.write_text(json.dumps(data))
+    settings_path.write_text(json.dumps(data), encoding="utf-8")
     agents.install(proj, ["claude"])  # a re-init must not drop them either
     agents.uninstall(proj)
-    left = json.dumps(json.loads(settings_path.read_text()).get("hooks", {}))
+    left = json.dumps(json.loads(settings_path.read_text(encoding="utf-8")).get("hooks", {}))
     assert "cairn-tools/format.sh" in left and "say done" in left and "cairn.capture" not in left
 
 
@@ -607,7 +607,7 @@ def test_cairn_down_never_stops_another_process(tmp_path, monkeypatch):
     monkeypatch.setenv("CAIRN_HOME", str(tmp_path))
     other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     try:
-        (tmp_path / "server.json").write_text(json.dumps({"pid": other.pid, "port": 1}))
+        (tmp_path / "server.json").write_text(json.dumps({"pid": other.pid, "port": 1}), encoding="utf-8")
         assert daemon.stop() is False and other.poll() is None
     finally:
         other.kill()
@@ -649,8 +649,8 @@ def test_the_repository_map_links_repositories_the_caller_can_see(cairn, tmp_pat
     from cairn.server import create_app
     web = tmp_path / "web-repo"
     (web / "web").mkdir(parents=True)
-    (web / "web" / "__init__.py").write_text("")
-    (web / "web" / "views.py").write_text("from shop.api import checkout\n\n\ndef buy(o):\n    return checkout(o, 1)\n")
+    (web / "web" / "__init__.py").write_text("", encoding="utf-8")
+    (web / "web" / "views.py").write_text("from shop.api import checkout\n\n\ndef buy(o):\n    return checkout(o, 1)\n", encoding="utf-8")
     other = Cairn.here(web)
     other.project.ensure_dir()
     sync.run(other)
@@ -838,12 +838,12 @@ def test_a_foreground_server_records_where_it_listens_without_taking_over(tmp_pa
         deadline = time.time() + 30
         while not up(first) and time.time() < deadline:
             time.sleep(0.2)
-        assert json.loads(state.read_text())["port"] == first
+        assert json.loads(state.read_text(encoding="utf-8"))["port"] == first
         b = subprocess.Popen([sys.executable, "-m", "cairn", "serve", "--port", str(second)], env=env,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         while not up(second) and time.time() < deadline:
             time.sleep(0.2)
-        assert json.loads(state.read_text())["port"] == first  # the live server keeps its record
+        assert json.loads(state.read_text(encoding="utf-8"))["port"] == first  # the live server keeps its record
     finally:
         for proc in (b, a):
             if proc:

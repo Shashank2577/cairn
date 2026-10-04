@@ -37,8 +37,8 @@ def test_no_upstream_names_in_package_sources_or_assets():
 def test_env_vars_are_cairn_prefixed():
     names = set()
     for p in PKG.rglob("*.py"):
-        names |= set(re.findall(r"""environ(?:\.get)?\(\s*["']([A-Z][A-Z0-9_]+)["']""", p.read_text()))
-        names |= set(re.findall(r"""environ\[\s*["']([A-Z][A-Z0-9_]+)["']""", p.read_text()))
+        names |= set(re.findall(r"""environ(?:\.get)?\(\s*["']([A-Z][A-Z0-9_]+)["']""", p.read_text(encoding="utf-8")))
+        names |= set(re.findall(r"""environ\[\s*["']([A-Z][A-Z0-9_]+)["']""", p.read_text(encoding="utf-8")))
     own = {n for n in names if "GRAPH" in n}
     assert own and all(n.startswith("CAIRN_") for n in own), sorted(own)
 

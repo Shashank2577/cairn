@@ -39,7 +39,7 @@ def _clip(text: str, width: int = 160) -> str:
 def _git(root: Path, *args: str) -> str:
     try:
         res = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
-                             timeout=10, errors="replace")
+                             timeout=10, errors="replace", encoding="utf-8")
     except (OSError, subprocess.TimeoutExpired):
         return ""
     return res.stdout if res.returncode == 0 else ""
@@ -92,7 +92,7 @@ def _spec_hits(root: Path, ids: list[str]) -> list[dict]:
     hits: list[dict] = []
     for path in files[:_MAX_SPEC_FILES]:
         try:
-            lines = path.read_text(errors="replace").splitlines()
+            lines = path.read_text(errors="replace", encoding="utf-8").splitlines()
         except OSError:
             continue
         rel = path.relative_to(root).as_posix() if path.is_relative_to(root) else path.name

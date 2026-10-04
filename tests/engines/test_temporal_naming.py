@@ -29,7 +29,7 @@ def test_no_upstream_names_in_code_comments_or_paths():
         rel = path.relative_to(ROOT).as_posix()
         if FORBIDDEN.search(rel):
             hits.append(rel)
-        for n, line in enumerate(path.read_text(errors='ignore').splitlines(), 1):
+        for n, line in enumerate(path.read_text(errors='ignore', encoding="utf-8").splitlines(), 1):
             if FORBIDDEN.search(line):
                 hits.append(f'{rel}:{n}: {line.strip()[:120]}')
     assert hits == []
@@ -39,12 +39,12 @@ def test_env_vars_are_cairn_prefixed():
     pattern = re.compile(r"os\.(?:getenv|environ\.get)\(\s*'([A-Z0-9_]+)'")
     names = set()
     for path in (ROOT / 'src' / 'cairn' / 'engines' / 'temporal').rglob('*.py'):
-        names |= set(pattern.findall(path.read_text()))
+        names |= set(pattern.findall(path.read_text(encoding="utf-8")))
     assert names and all(n.startswith('CAIRN_') for n in names), names
 
 
 def test_no_telemetry_or_hosted_gateways():
-    code = '\n'.join(p.read_text() for p in (ROOT / 'src' / 'cairn' / 'engines' / 'temporal').rglob('*.py'))
+    code = '\n'.join(p.read_text(encoding="utf-8") for p in (ROOT / 'src' / 'cairn' / 'engines' / 'temporal').rglob('*.py'))
     for banned in ('posthog', 'capture_event', 'from_api(', 'api.openai.com', 'OTLPSpanExporter'):
         assert banned not in code, banned
     # local tracing hooks (opentelemetry spans the caller configures) are fine; usage pings are not

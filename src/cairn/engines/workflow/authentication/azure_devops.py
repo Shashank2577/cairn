@@ -104,7 +104,7 @@ class AzureDevOpsAuth(AuthProvider):
                 text=True,
                 timeout=30,
                 check=False,
-            )
+                encoding="utf-8", errors="replace")
             if result.returncode != 0:
                 return None
             payload = _json.loads(result.stdout)

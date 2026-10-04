@@ -24,7 +24,7 @@ def brain(repo):
 
 
 def git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True, encoding="utf-8", errors="replace").stdout
 
 
 def true_counts(repo: Path) -> dict[str, int]:
@@ -46,7 +46,7 @@ def amend_head(repo: Path) -> None:
     # a fixed committer date guarantees the amended sha differs from the original, even in the same second
     env = {**os.environ, "GIT_COMMITTER_DATE": "2020-01-01T00:00:00+00:00"}
     subprocess.run(["git", "-C", str(repo), "commit", "--amend", "--no-edit"], check=True,
-                   capture_output=True, text=True, env=env)
+                   capture_output=True, text=True, env=env, encoding="utf-8", errors="replace")
 
 
 def test_fresh_ingest_matches_git_log_counts(brain, repo):
@@ -95,7 +95,7 @@ def test_new_commit_after_rewrite_increments_from_rebuilt_baseline(brain, repo):
     history.ingest(project, db)
     amend_head(repo)
     history.ingest(project, db)
-    (repo / "shop" / "ledger.py").write_text("LEDGER = {}\n")  # cursor is an ancestor again: incremental path
+    (repo / "shop" / "ledger.py").write_text("LEDGER = {}\n", encoding="utf-8")  # cursor is an ancestor again: incremental path
     git(repo, "add", "shop/ledger.py")
     git(repo, "commit", "-qm", "Add ledger")
     assert history.ingest(project, db)["commits"] == 1

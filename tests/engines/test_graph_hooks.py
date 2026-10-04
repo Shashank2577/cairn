@@ -34,7 +34,7 @@ def test_post_commit_skips(tmp_path, monkeypatch):
     monkeypatch.setenv("CAIRN_GRAPH_SKIP_HOOK", "1")
     assert hooks.post_commit(root)["reason"] == "CAIRN_GRAPH_SKIP_HOOK=1"
     monkeypatch.delenv("CAIRN_GRAPH_SKIP_HOOK")
-    (root / ".git" / "MERGE_HEAD").write_text("0" * 40)
+    (root / ".git" / "MERGE_HEAD").write_text("0" * 40, encoding="utf-8")
     assert hooks.post_commit(root)["reason"] == "merge in progress"
 
 
@@ -66,12 +66,12 @@ def test_merge_driver_install_status_uninstall(tmp_path):
     assert "merge driver: not registered" in hooks.status(root)
     msg = hooks.install(root)
     assert "rebuild on commit/checkout: not installed" in msg and "registered" in msg
-    attrs = (root / ".gitattributes").read_text()
+    attrs = (root / ".gitattributes").read_text(encoding="utf-8")
     assert ".cairn/graph/graph.json merge=cairn-graph" in attrs
     driver = git(root, "config", "--get", "merge.cairn-graph.driver")
     assert "cairn.engines.graph merge-driver" in driver or "cairn graph merge-driver" in driver
     assert "merge driver: registered" in hooks.status(root)
-    (root / ".git" / "hooks" / "post-commit").write_text("#!/bin/sh\ncairn hook git & # cairn-hook\n")
+    (root / ".git" / "hooks" / "post-commit").write_text("#!/bin/sh\ncairn hook git & # cairn-hook\n", encoding="utf-8")
     assert "installed (Cairn git hooks)" in hooks.status(root)
     hooks.uninstall(root)
     assert not (root / ".gitattributes").exists()
@@ -84,11 +84,11 @@ def test_merge_driver_unions_graphs(tmp_path):
         return {"directed": False, "multigraph": False, "graph": {}, "nodes": [{"id": n, "label": n} for n in nodes],
                 "links": [{"source": a, "target": b, "relation": "calls", "confidence": "EXTRACTED"} for a, b in links]}
     base, cur, other = tmp_path / "base.json", tmp_path / "cur.json", tmp_path / "other.json"
-    base.write_text(json.dumps(g(["a"], [])))
-    cur.write_text(json.dumps(g(["a", "b"], [("a", "b")])))
-    other.write_text(json.dumps(g(["a", "c"], [("a", "c")])))
+    base.write_text(json.dumps(g(["a"], [])), encoding="utf-8")
+    cur.write_text(json.dumps(g(["a", "b"], [("a", "b")])), encoding="utf-8")
+    other.write_text(json.dumps(g(["a", "c"], [("a", "c")])), encoding="utf-8")
     assert main(["merge-driver", str(base), str(cur), str(other)]) == 0
-    merged = json.loads(cur.read_text())
+    merged = json.loads(cur.read_text(encoding="utf-8"))
     assert {n["id"] for n in merged["nodes"]} == {"a", "b", "c"}
 
 
@@ -100,7 +100,7 @@ def test_git_merge_uses_driver_end_to_end(tmp_path):
     assert api.build(root)["ok"]
     hooks.install(root)
     # commit only graph.json so git merges it (teams that share their graph)
-    (root / ".gitignore").write_text(".cairn/\n")
+    (root / ".gitignore").write_text(".cairn/\n", encoding="utf-8")
     git(root, "add", "-f", ".cairn/graph/graph.json", ".gitattributes", ".gitignore")
     git(root, "commit", "-qm", "graph")
     git(root, "config", "merge.cairn-graph.driver",
@@ -116,7 +116,7 @@ def test_git_merge_uses_driver_end_to_end(tmp_path):
     git(root, "add", "-f", ".cairn/graph/graph.json")
     git(root, "commit", "-qm", "right graph")
     env_ok = subprocess.run(["git", "-C", str(root), "merge", "-q", "--no-edit", "left"],
-                            capture_output=True, text=True, env=GIT_ENV)
+                            capture_output=True, text=True, env=GIT_ENV, encoding="utf-8", errors="replace")
     assert env_ok.returncode == 0, env_ok.stderr
     ids = node_ids(root)
     assert "shop_left_left_fn" in ids and "shop_right_right_fn" in ids
@@ -134,7 +134,7 @@ def test_global_graph_lives_in_cairn_home(tmp_path):
     assert gp == tmp_path / "cairn-home" / "graph" / "global-graph.json" and gp.exists()
     listing = api.run(["global", "list"])["stdout"]
     assert "alpha" in listing and "beta" in listing
-    data = json.loads(gp.read_text())
+    data = json.loads(gp.read_text(encoding="utf-8"))
     ids = {n["id"] for n in data["nodes"]}
     assert any(i.startswith("alpha::") for i in ids) and any(i.startswith("beta::") for i in ids)
     assert api.run(["global", "remove", "beta"])["code"] == 0
@@ -149,7 +149,7 @@ def test_merge_graphs_prefixes_repos(tmp_path):
     out = tmp_path / "merged.json"
     res = api.run(["merge-graphs", str(api.graph_json(a)), str(api.graph_json(b)), "--out", str(out)])
     assert res["code"] == 0, res
-    ids = {n["id"] for n in json.loads(out.read_text())["nodes"]}
+    ids = {n["id"] for n in json.loads(out.read_text(encoding="utf-8"))["nodes"]}
     assert any(i.startswith("alpha::") for i in ids) and any(i.startswith("beta::") for i in ids)
 
 
@@ -189,5 +189,5 @@ def test_post_commit_with_explicit_output_dir(tmp_path):
     assert api.build(root, out=out)["ok"]
     _commit(root, {"shop/audit.py": "def audit(x):\n    return x\n"}, "add audit")
     assert hooks.post_commit(root, out=out)["status"] == "rebuilt"
-    ids = {n["id"] for n in json.loads((out / "graph.json").read_text())["nodes"]}
+    ids = {n["id"] for n in json.loads((out / "graph.json").read_text(encoding="utf-8"))["nodes"]}
     assert "shop_audit_audit" in ids and not (root / ".cairn" / "graph" / "graph.json").exists()

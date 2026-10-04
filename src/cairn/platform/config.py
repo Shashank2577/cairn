@@ -123,7 +123,7 @@ class ServerConfig:
         path = (home or cairn_home()) / SERVER_FILE
         if path.exists():
             try:
-                data.update(tomllib.loads(path.read_text()).get("server", {}))
+                data.update(tomllib.loads(path.read_text(encoding="utf-8")).get("server", {}))
             except tomllib.TOMLDecodeError as exc:
                 raise ValueError(f"{path}: {exc}") from exc
         if overrides:

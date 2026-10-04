@@ -38,12 +38,12 @@ IGNORE_GENERATED = ("# cairn: generated and vendored code\n*.min.js\n*.min.css\n
 
 def ensure_ignores(root: Path) -> None:
     ig = Path(root) / IGNORE_FILE
-    text = ig.read_text() if ig.exists() else ""
+    text = ig.read_text(encoding="utf-8") if ig.exists() else ""
     add = "".join(block for block, mark in ((IGNORE_BLOCK, "# cairn: tool folders"),
                                              (IGNORE_GENERATED, "# cairn: generated")) if mark not in text)
     if add:
         ig.parent.mkdir(parents=True, exist_ok=True)
-        ig.write_text(text + ("\n" if text and not text.endswith("\n") else "") + add)
+        ig.write_text(text + ("\n" if text and not text.endswith("\n") else "") + add, encoding="utf-8")
 
 
 def map_dir(root: Path) -> Path:
@@ -85,12 +85,12 @@ def _rules_digest(root: Path) -> int:
     parts = [__version__]
     for ig in (root / IGNORE_FILE, root / ".gitignore"):
         try:
-            parts.append(ig.read_text(errors="replace"))
+            parts.append(ig.read_text(errors="replace", encoding="utf-8"))
         except OSError:
             parts.append("")
     try:
         import tomllib
-        parts.append(json.dumps((tomllib.loads((root / ".cairn" / "config.toml").read_text()).get("map") or {}),
+        parts.append(json.dumps((tomllib.loads((root / ".cairn" / "config.toml").read_text(encoding="utf-8")).get("map") or {}),
                                 sort_keys=True))
     except (OSError, ValueError):
         parts.append("")
@@ -121,7 +121,7 @@ def build(root: Path, force: bool = False, out_dir: Path | None = None) -> tuple
     fp = target / FINGERPRINT
     if not force and now is not None and fp.exists() and (target / "graph.json").exists():
         try:
-            before = json.loads(fp.read_text())
+            before = json.loads(fp.read_text(encoding="utf-8"))
         except ValueError:
             before = None
         if isinstance(before, dict):
@@ -136,18 +136,18 @@ def build(root: Path, force: bool = False, out_dir: Path | None = None) -> tuple
                 ignored = ignored_predicate(root.resolve())
                 wanted = [p for p in changed if not ignored(root.resolve() / p)]
                 if not wanted:
-                    fp.write_text(json.dumps(now))
+                    fp.write_text(json.dumps(now), encoding="utf-8")
                     return True, "unchanged (only ignored files changed)"
                 res = api.build(root, out=target, changed=wanted)
                 if res["ok"]:
-                    fp.write_text(json.dumps(now))
+                    fp.write_text(json.dumps(now), encoding="utf-8")
                     return True, f"{len(wanted)} changed file{'s' if len(wanted) != 1 else ''} re-mapped; " + (
                         res["summary"] or f"{res['nodes']:,} nodes")
     res = api.build(root, out=target, force=force)
     if res["ok"]:
         if now is not None:
             target.mkdir(parents=True, exist_ok=True)
-            fp.write_text(json.dumps(now))
+            fp.write_text(json.dumps(now), encoding="utf-8")
         return True, res["summary"] or f"{res['nodes']:,} nodes, {res['edges']:,} edges"
     if not (target / "graph.json").exists() and "no code files" in (res.get("summary") or "").lower():
         # Nothing graphable in the repo (cairn init on a fresh, empty repo): an
@@ -192,7 +192,7 @@ class MapIndex:
         idx = cls()
         if not path.exists():
             return idx
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         idx.mtime = path.stat().st_mtime
         idx.built_at_commit = data.get("built_at_commit")
         for n in data.get("nodes", []):

@@ -24,7 +24,7 @@ GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@exam
 def git_repo(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True, env=GIT_ENV)
-    (path / "README.md").write_text("# demo\n")
+    (path / "README.md").write_text("# demo\n", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=path, check=True, env=GIT_ENV)
     subprocess.run(["git", "commit", "-qm", "init"], cwd=path, check=True, env=GIT_ENV)
     return path

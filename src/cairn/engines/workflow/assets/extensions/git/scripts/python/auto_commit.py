@@ -132,7 +132,7 @@ def main(argv: list[str]) -> int:
         cwd=repo_root,
         capture_output=True,
         text=True,
-    )
+        encoding="utf-8", errors="replace")
     if probe.returncode != 0:
         print(
             "[cairn] Warning: Not a Git repository; skipped auto-commit",
@@ -153,8 +153,8 @@ def main(argv: list[str]) -> int:
     def _quiet(*args: str) -> bool:
         return (
             subprocess.run(
-                ["git", *args], cwd=repo_root, capture_output=True, text=True
-            ).returncode
+                ["git", *args], cwd=repo_root, capture_output=True, text=True,
+                encoding="utf-8", errors="replace").returncode
             == 0
         )
 
@@ -163,7 +163,7 @@ def main(argv: list[str]) -> int:
         cwd=repo_root,
         capture_output=True,
         text=True,
-    ).stdout.strip()
+        encoding="utf-8", errors="replace").stdout.strip()
     if _quiet("diff", "--quiet", "HEAD") and _quiet("diff", "--cached", "--quiet") and not untracked:
         print(f"[cairn] No changes to commit after {event_name}", file=sys.stderr)
         return 0
@@ -181,7 +181,7 @@ def main(argv: list[str]) -> int:
         (["git", "commit", "-q", "-m", commit_msg], "git commit"),
     ]
     for cmd, label in steps:
-        result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True)
+        result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             output = (result.stdout + result.stderr).strip()
             print(f"[cairn] Error: {label} failed: {output}", file=sys.stderr)

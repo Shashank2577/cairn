@@ -171,7 +171,7 @@ def _local_has_git(repo_root: Path) -> bool:
             ["git", "-C", str(repo_root), "rev-parse", "--is-inside-work-tree"],
             capture_output=True,
             text=True,
-        ).returncode
+            encoding="utf-8", errors="replace").returncode
         == 0
     )
 
@@ -223,8 +223,8 @@ def _git_lines(repo_root: Path, *args: str, env_extra: dict | None = None) -> li
         return []
     env = {**os.environ, **(env_extra or {})}
     result = subprocess.run(
-        ["git", *args], cwd=repo_root, capture_output=True, text=True, env=env
-    )
+        ["git", *args], cwd=repo_root, capture_output=True, text=True, env=env,
+        encoding="utf-8", errors="replace")
     if result.returncode != 0:
         return []
     return result.stdout.splitlines()
@@ -271,7 +271,7 @@ def check_existing_branches(
             cwd=repo_root,
             capture_output=True,
             text=True,
-        )
+            encoding="utf-8", errors="replace")
         highest_branch = get_highest_from_branches(repo_root, scope_prefix)
 
     return max(highest_branch, get_highest_from_specs(specs_dir)) + 1
@@ -564,7 +564,7 @@ def main(argv: list[str]) -> int:
                 cwd=repo_root,
                 capture_output=True,
                 text=True,
-            )
+                encoding="utf-8", errors="replace")
             if create.returncode != 0:
                 current_branch_lines = _git_lines(
                     repo_root, "rev-parse", "--abbrev-ref", "HEAD"
@@ -581,7 +581,7 @@ def main(argv: list[str]) -> int:
                                 cwd=repo_root,
                                 capture_output=True,
                                 text=True,
-                            )
+                                encoding="utf-8", errors="replace")
                             if switch.returncode != 0:
                                 _err(
                                     f"Error: Failed to switch to existing branch '{branch_name}'. "

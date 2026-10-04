@@ -55,7 +55,7 @@ FILES = {
 
 def git(root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
-                          env=GIT_ENV, check=True).stdout
+                          env=GIT_ENV, check=True, encoding="utf-8", errors="replace").stdout
 
 
 def make_repo(root: Path, files: dict[str, str] | None = None) -> Path:

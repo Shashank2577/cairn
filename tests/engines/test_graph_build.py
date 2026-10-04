@@ -51,7 +51,7 @@ def test_clustering_assigns_communities_and_report(built_repo):
     assert None not in comms and len(comms) >= 2
     # without a model, communities are named after their hub, never left blank
     assert all(n.get("community_name") for n in data["nodes"])
-    report = (built_repo / ".cairn" / "graph" / "GRAPH_REPORT.md").read_text()
+    report = (built_repo / ".cairn" / "graph" / "GRAPH_REPORT.md").read_text(encoding="utf-8")
     assert "God Nodes" in report or "god nodes" in report.lower()
     assert "Communit" in report
 
@@ -85,17 +85,17 @@ def test_incremental_update_changes_and_deletes(tmp_path):
 
 def test_update_is_a_noop_when_nothing_changed(built_repo):
     from cairn.engines.graph import api
-    before = (built_repo / ".cairn" / "graph" / "graph.json").read_text()
+    before = (built_repo / ".cairn" / "graph" / "graph.json").read_text(encoding="utf-8")
     assert api.build(built_repo)["ok"]
-    assert (built_repo / ".cairn" / "graph" / "graph.json").read_text() == before
+    assert (built_repo / ".cairn" / "graph" / "graph.json").read_text(encoding="utf-8") == before
 
 
 def test_graphignore_and_config_ignore(tmp_path):
     from cairn.engines.graph import api
     root = make_repo(tmp_path / "repo")
     (root / ".cairn").mkdir(exist_ok=True)
-    (root / ".cairn" / "graphignore").write_text("web/\n")
-    (root / ".cairn" / "config.toml").write_text('[map]\nignore = ["svc/"]\n')
+    (root / ".cairn" / "graphignore").write_text("web/\n", encoding="utf-8")
+    (root / ".cairn" / "config.toml").write_text('[map]\nignore = ["svc/"]\n', encoding="utf-8")
     assert api.build(root)["ok"]
     ids = node_ids(root)
     assert not any(i.startswith("web_") for i in ids)
@@ -141,7 +141,7 @@ def test_yaml_extractor_is_bounded_and_valueless():
     body = "".join(f"key{i}: secret-value-{i}\n" for i in range(500))
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "big.yml"
-        p.write_text(body)
+        p.write_text(body, encoding="utf-8")
         res = extract_yaml(p)
     assert any(n["label"] == "big.yml" for n in res["nodes"])  # the file node survives
     assert len(res["nodes"]) <= 201                            # file node + capped key nodes
@@ -180,7 +180,7 @@ def test_cairn_generated_detection_is_content_based():
         def check(rel: str, text: str) -> bool:
             p = root / rel
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(text)
+            p.write_text(text, encoding="utf-8")
             return _is_cairn_generated(p, root)
 
         block = "<!-- cairn:begin -->\n" + ("Cairn instructions. " * 40) + "\n<!-- cairn:end -->\n"
@@ -222,7 +222,7 @@ def test_manifest_and_cache_make_second_build_cheap(tmp_path):
     from cairn.engines.graph import api
     root = make_repo(tmp_path / "repo")
     assert api.build(root)["ok"]
-    manifest = json.loads((root / ".cairn" / "graph" / "manifest.json").read_text())
+    manifest = json.loads((root / ".cairn" / "graph" / "manifest.json").read_text(encoding="utf-8"))
     assert any("gateway.py" in k for k in (manifest.get("files") or manifest))
     assert list((root / ".cairn" / "graph" / "cache").rglob("*.json"))
 
@@ -231,7 +231,7 @@ def test_config_viz_node_limit(tmp_path):
     from cairn.engines.graph import api
     root = make_repo(tmp_path / "repo")
     (root / ".cairn").mkdir(exist_ok=True)
-    (root / ".cairn" / "config.toml").write_text("[map]\nviz_node_limit = 0\n")
+    (root / ".cairn" / "config.toml").write_text("[map]\nviz_node_limit = 0\n", encoding="utf-8")
     assert api.build(root)["ok"]
     assert not (root / ".cairn" / "graph" / "graph.html").exists()
     assert (root / ".cairn" / "graph" / "graph.json").exists()
@@ -260,7 +260,7 @@ def test_concurrent_builds_keep_their_own_output_dirs(tmp_path):
         t.join(timeout=120)
     assert results["a"]["ok"] and results["b"]["ok"] and results["q"]["code"] == 0
     assert "shop_api_checkout" in node_ids(a)
-    ids_b = {n["id"] for n in json.loads((out_b / "graph.json").read_text())["nodes"]}
+    ids_b = {n["id"] for n in json.loads((out_b / "graph.json").read_text(encoding="utf-8"))["nodes"]}
     assert "lib_only_b_only_b" in ids_b
     assert not (b / ".cairn" / "graph" / "graph.json").exists()
     assert not (a / "b-map").exists()

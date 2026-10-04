@@ -2528,7 +2528,7 @@ def _is_spock_file(path: Path, ts_result: dict) -> bool:
     import re as _re
     _SPOCK_FEATURE_RE = _re.compile(r"""^\s*def\s+[\"']""", _re.MULTILINE)
     try:
-        return bool(_SPOCK_FEATURE_RE.search(path.read_text(errors="replace")))
+        return bool(_SPOCK_FEATURE_RE.search(path.read_text(errors="replace", encoding="utf-8")))
     except OSError:
         return False
 
@@ -2539,7 +2539,7 @@ def _extract_spock_fallback(path: Path, ts_result: dict) -> dict:
     (which survive reliably) with class and feature-method nodes extracted via regex.
     """
     import re as _re
-    source = path.read_text(errors="replace")
+    source = path.read_text(errors="replace", encoding="utf-8")
     str_path = str(path)
     stem = _file_stem(path)
 
@@ -2679,7 +2679,7 @@ def _augment_cpp_string_tests(path: Path, result: dict) -> dict:
     commented Spock ``def "feature"()`` would).
     """
     try:
-        source = path.read_text(errors="replace")
+        source = path.read_text(errors="replace", encoding="utf-8")
     except OSError:
         return result
     matches = list(_CPP_STRING_TEST_RE.finditer(source))

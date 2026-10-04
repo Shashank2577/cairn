@@ -313,15 +313,15 @@ def code_tree(tmp_path):
     (root / "lib").mkdir()
     (root / "node_modules" / "pkg").mkdir(parents=True)
     (root / ".hidden").mkdir()
-    (root / "src" / "config.py").write_text(PY_SRC)
+    (root / "src" / "config.py").write_text(PY_SRC, encoding="utf-8")
     (root / "src" / "reader.py").write_text(
-        'def load_file(p):\n    """Uses parse_config internally."""\n    return p\n\n\ndef configure():\n    pass\n')
-    (root / "lib" / "user.ts").write_text(TS_SRC)
-    (root / "node_modules" / "pkg" / "index.js").write_text("function parse_config() {}\n")
-    (root / ".hidden" / "x.py").write_text("def parse_config():\n    pass\n")
-    (root / "notes.txt").write_text("parse_config\n")
-    (root / "big.py").write_text("def parse_config_big():\n    pass\n" + "#" * (sr.MAX_FILE_SIZE + 10))
-    (root / "empty.py").write_text("")
+        'def load_file(p):\n    """Uses parse_config internally."""\n    return p\n\n\ndef configure():\n    pass\n', encoding="utf-8")
+    (root / "lib" / "user.ts").write_text(TS_SRC, encoding="utf-8")
+    (root / "node_modules" / "pkg" / "index.js").write_text("function parse_config() {}\n", encoding="utf-8")
+    (root / ".hidden" / "x.py").write_text("def parse_config():\n    pass\n", encoding="utf-8")
+    (root / "notes.txt").write_text("parse_config\n", encoding="utf-8")
+    (root / "big.py").write_text("def parse_config_big():\n    pass\n" + "#" * (sr.MAX_FILE_SIZE + 10), encoding="utf-8")
+    (root / "empty.py").write_text("", encoding="utf-8")
     (root / "binary.py").write_bytes(b"def parse_config_bin():\x00\n")
     return root
 
@@ -385,7 +385,7 @@ def test_match_score():
 def test_resolve_within_workspace(tmp_path):
     ws = tmp_path / "ws"
     (ws / "src").mkdir(parents=True)
-    (ws / "src" / "a.py").write_text("x = 1\n")
+    (ws / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
     real = os.path.realpath(ws)
     assert sr.resolve_within_workspace("src/a.py", ws) == os.path.join(real, "src", "a.py")
     assert sr.resolve_within_workspace(str(ws / "src" / "a.py"), ws) == os.path.join(real, "src", "a.py")
@@ -397,7 +397,7 @@ def test_workspace_jail_rejects_escapes(tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
     outside = tmp_path / "secret.txt"
-    outside.write_text("s")
+    outside.write_text("s", encoding="utf-8")
     (ws / "link").symlink_to(outside)
     (ws / "dirlink").symlink_to(tmp_path)
     for bad in ("../secret.txt", str(outside), "link", "dirlink/secret.txt", "src/../../secret.txt", "~",

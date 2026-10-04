@@ -214,7 +214,7 @@ def _git_head(cwd: "str | Path | None" = None) -> str | None:
         r = _sp.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=3,
             cwd=str(cwd) if cwd is not None else None,
-        )
+            encoding="utf-8", errors="replace")
         return r.stdout.strip() if r.returncode == 0 else None
     except Exception:
         return None

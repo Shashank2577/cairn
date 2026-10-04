@@ -30,7 +30,7 @@ _MERGE_DRIVER = "cairn-graph"
 
 def _git(root: Path, *args: str) -> str | None:
     try:
-        res = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=60)
+        res = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=60, encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return None
     return res.stdout.strip() if res.returncode == 0 else None
@@ -316,7 +316,7 @@ def _hooks_dir(root: Path) -> Path:
         res = _sp.run(
             ["git", "-C", str(root), "rev-parse", "--git-path", "hooks"],
             capture_output=True, text=True,
-        )
+            encoding="utf-8", errors="replace")
         if res.returncode != 0:
             # git failing here is a real signal (corrupt .git/config, tampering,
             # permission flips by another tool). Surface git's own stderr rather
@@ -434,7 +434,7 @@ def _register_merge_driver(root: Path) -> str:
             _sp.run(
                 ["git", "-C", str(root), "config", key, value],
                 check=True, capture_output=True, text=True,
-            )
+                encoding="utf-8", errors="replace")
     except (OSError, _sp.CalledProcessError) as exc:
         return f"not registered (git config failed: {exc})"
 
@@ -462,7 +462,7 @@ def _unregister_merge_driver(root: Path) -> str:
             _sp.run(
                 ["git", "-C", str(root), "config", "--unset", key],
                 capture_output=True, text=True,
-            )
+                encoding="utf-8", errors="replace")
         except OSError:
             pass
     attrs = root / ".gitattributes"
@@ -490,7 +490,7 @@ def _merge_driver_status(root: Path) -> str:
         res = _sp.run(
             ["git", "-C", str(root), "config", "--get", f"merge.{_MERGE_DRIVER}.driver"],
             capture_output=True, text=True,
-        )
+            encoding="utf-8", errors="replace")
         cfg_ok = res.returncode == 0 and bool(res.stdout.strip())
     except OSError:
         cfg_ok = False

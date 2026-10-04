@@ -18,7 +18,7 @@ def git(cwd: Path, *args: str) -> None:
 
 
 def commit(cwd: Path, name: str) -> None:
-    (cwd / name).write_text(name + "\n")
+    (cwd / name).write_text(name + "\n", encoding="utf-8")
     git(cwd, "add", name)
     git(cwd, "commit", "-q", "-m", f"add {name}")
 

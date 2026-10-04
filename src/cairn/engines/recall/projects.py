@@ -66,7 +66,7 @@ def detect_worktree(cwd: str | Path) -> WorktreeInfo:
     try:
         if not git.is_file():
             return WorktreeInfo()
-        content = git.read_text(errors="replace").strip()
+        content = git.read_text(errors="replace", encoding="utf-8").strip()
     except OSError:
         return WorktreeInfo()
     m = re.match(r"^gitdir:\s*(.+)$", content)
@@ -91,11 +91,11 @@ def git_branch(cwd: str | None) -> str | None:
     git = root / ".git"
     try:
         if git.is_file():
-            m = re.match(r"^gitdir:\s*(.+)$", git.read_text(errors="replace").strip())
+            m = re.match(r"^gitdir:\s*(.+)$", git.read_text(errors="replace", encoding="utf-8").strip())
             if not m:
                 return None
             git = Path(os.path.normpath(os.path.join(str(root), m.group(1).strip())))
-        head = (git / "HEAD").read_text(errors="replace").strip()
+        head = (git / "HEAD").read_text(errors="replace", encoding="utf-8").strip()
     except OSError:
         return None
     return head[len("ref: refs/heads/"):] if head.startswith("ref: refs/heads/") else (head[:12] or None)

@@ -67,7 +67,7 @@ def test_callflow_view(built_repo):
 
 
 def test_written_graph_html_is_offline(built_repo):
-    html = (built_repo / ".cairn" / "graph" / "graph.html").read_text()
+    html = (built_repo / ".cairn" / "graph" / "graph.html").read_text(encoding="utf-8")
     _no_remote_scripts(html)
     assert "vis-network" in html
 
@@ -115,12 +115,12 @@ def test_cypher_is_valid_shape(built_repo):
     from networkx.readwrite import json_graph
     from cairn.engines.graph import api
     from cairn.engines.graph.export import to_cypher
-    data = json.loads(api.graph_json(built_repo).read_text())
+    data = json.loads(api.graph_json(built_repo).read_text(encoding="utf-8"))
     G = json_graph.node_link_graph(data, edges="links")
     assert isinstance(G, nx.Graph)
     target = built_repo / ".cairn" / "graph" / "test.cypher"
     to_cypher(G, str(target))
-    text = target.read_text()
+    text = target.read_text(encoding="utf-8")
     assert "MERGE" in text and "Cairn" in text.splitlines()[0]
 
 

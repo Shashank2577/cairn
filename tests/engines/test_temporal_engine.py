@@ -319,11 +319,11 @@ def test_store_is_released_between_calls_and_busy_store_is_reported(tmp_path):
     path = svc.store_path
     # another process can open it now (the service released the lock)
     code = f'import kuzu; kuzu.Database({str(path)!r}).close(); print("ok")'
-    assert subprocess.run([sys.executable, '-c', code], capture_output=True, text=True).stdout.strip() == 'ok'
+    assert subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip() == 'ok'
     holder = subprocess.Popen([sys.executable, '-c', textwrap.dedent(f'''
         import kuzu, sys, time
         db = kuzu.Database({str(path)!r}); print("held", flush=True); time.sleep(5)''')],
-        stdout=subprocess.PIPE, text=True)
+        stdout=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     try:
         assert holder.stdout.readline().strip() == 'held'
         with pytest.raises(StoreBusyError):

@@ -77,7 +77,7 @@ _PLATFORM_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 def team_config(root: Path | str) -> dict | None:
     """``{"server", "project"}`` from ``[team]`` in ``.cairn/config.toml``, or None when not connected."""
     try:
-        team = tomllib.loads(config_path(Path(root)).read_text()).get("team") or {}
+        team = tomllib.loads(config_path(Path(root)).read_text(encoding="utf-8")).get("team") or {}
     except (OSError, tomllib.TOMLDecodeError):
         return None
     server, project = team.get("server"), team.get("project")
@@ -185,7 +185,7 @@ def _push_lock(root: Path) -> Iterator[bool]:
     except ImportError:  # no advisory locks here; a concurrent push is harmless (the server dedupes)
         yield True
         return
-    with open(path, "a") as fh:
+    with open(path, "a", encoding="utf-8") as fh:
         try:
             fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:

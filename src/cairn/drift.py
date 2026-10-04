@@ -107,7 +107,7 @@ def semantic(cairn, spec: str | None = None, max_reqs: int = 5, budget: Budget |
             code = []
             for p in files[:3]:
                 try:
-                    code.append(f"--- {p}\n" + (project.root / p).read_text(errors="replace")[:3000])
+                    code.append(f"--- {p}\n" + (project.root / p).read_text(errors="replace", encoding="utf-8")[:3000])
                 except OSError:
                     pass
             prompt = (f"Requirement {r['id']}: {r['text']}\n\nCode:\n" + "\n".join(code) +

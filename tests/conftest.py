@@ -35,14 +35,14 @@ def _isolated_cairn_home(tmp_path_factory):
 
 
 def git(root: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, env=ENV, check=True).stdout
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, env=ENV, check=True, encoding="utf-8", errors="replace").stdout
 
 
 def commit(root: Path, files: dict[str, str], msg: str) -> None:
     for rel, text in files.items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text)
+        p.write_text(text, encoding="utf-8")
     git(root, "add", "-A")
     git(root, "commit", "-qm", msg)
 

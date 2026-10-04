@@ -131,7 +131,7 @@ def run_command(
     """
     try:
         if capture:
-            result = subprocess.run(cmd, check=check_return, capture_output=True, text=True)
+            result = subprocess.run(cmd, check=check_return, capture_output=True, text=True, encoding="utf-8", errors="replace")
             return result.stdout.strip()
         else:
             subprocess.run(cmd, check=check_return)

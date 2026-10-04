@@ -204,7 +204,7 @@ def codex_config(tmp_path: Path, **watch_extra) -> Path:
                         **watch_extra}],
            "stateFile": str(tmp_path / "state.json")}
     path = tmp_path / "watch.json"
-    path.write_text(json.dumps(cfg))
+    path.write_text(json.dumps(cfg), encoding="utf-8")
     return path
 
 
@@ -231,7 +231,7 @@ def test_state_offsets_make_run_once_incremental(repo, tmp_path):
     first = codex_turn(repo, "first prompt", "call_1", "One.", meta=True)
     write_jsonl(path, first[:4])                        # ends on a function_call with no output yet
     assert tr.run_once(cfg, settings=settings)["prompts"] == 1
-    state = json.loads((tmp_path / "state.json").read_text())
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
     assert state["offsets"][str(path)] == path.stat().st_size
     assert any(s["pendingTools"] for s in state["sessions"].values())   # survives between runs
 
@@ -253,14 +253,14 @@ def test_partial_lines_wait_and_truncation_restarts(repo, tmp_path):
     lines = codex_turn(repo, "hello there", "call_1", "Hi.", meta=True)
     text = "".join(json.dumps(e) + "\n" for e in lines)
     path.parent.mkdir(parents=True)
-    path.write_text(text[:-10])                         # the last line is still being written
+    path.write_text(text[:-10], encoding="utf-8")                         # the last line is still being written
     assert tr.run_once(cfg, settings=settings)["lines"] == len(lines) - 1
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     assert tr.run_once(cfg, settings=settings)["lines"] == 1
-    path.write_text(json.dumps(lines[1]) + "\n")        # truncated/rewritten: read from the start
+    path.write_text(json.dumps(lines[1]) + "\n", encoding="utf-8")        # truncated/rewritten: read from the start
     assert tr.run_once(cfg, settings=settings)["lines"] == 1
     rotated = path.with_name("rotated.tmp")
-    rotated.write_text(text + text)                     # a new, larger file moved into place (rotation)
+    rotated.write_text(text + text, encoding="utf-8")                     # a new, larger file moved into place (rotation)
     rotated.replace(path)
     assert tr.run_once(cfg, settings=settings)["lines"] == 2 * len(lines)
 
@@ -287,7 +287,7 @@ def test_run_once_status_when_disabled_or_unconfigured(repo, tmp_path):
     assert tr.run_once(tmp_path / "nope.json", settings=settings)["status"] == "no_config"
     assert tr.run_once(codex_config(tmp_path), settings={**settings, "transcripts_enabled": False})["status"] == \
         "disabled"
-    (tmp_path / "bad.json").write_text(json.dumps({"version": 1}))
+    (tmp_path / "bad.json").write_text(json.dumps({"version": 1}), encoding="utf-8")
     assert tr.run_once(tmp_path / "bad.json", settings=settings)["status"] == "invalid_config"
 
 
@@ -369,7 +369,7 @@ def test_cli_init_validate(tmp_path, capsys):
     cfg = tmp_path / "cfg" / "w.json"
     assert tr.cli_validate(cfg) == 0                    # missing: the sample is created, then validated
     assert "Created sample config" in capsys.readouterr().out
-    cfg.write_text(json.dumps({"version": 1, "watches": [{"name": "w", "path": "/x", "schema": "nope"}]}))
+    cfg.write_text(json.dumps({"version": 1, "watches": [{"name": "w", "path": "/x", "schema": "nope"}]}), encoding="utf-8")
     assert tr.cli_validate(cfg) == 1
     assert tr.cli_init(cfg) == 0 and tr.cli_validate(cfg) == 0
     assert tr.run_transcript_command("bogus", []) == 1
@@ -402,7 +402,7 @@ def test_helpers():
 def test_resolve_watch_files_globs_folders_and_braces(tmp_path):
     for rel in ("s/1/a.jsonl", "s/2/deep/b.jsonl", "s/.hidden/c.jsonl", "s/x.txt", "t/d.jsonl"):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / rel).write_text("")
+        (tmp_path / rel).write_text("", encoding="utf-8")
     names = lambda files: sorted(Path(f).name for f in files)
     assert names(tr.resolve_watch_files(str(tmp_path / "s" / "**" / "*.jsonl"))) == ["a.jsonl", "b.jsonl", "c.jsonl"]
     assert names(tr.resolve_watch_files(str(tmp_path / "s"))) == ["a.jsonl", "b.jsonl", "c.jsonl"]

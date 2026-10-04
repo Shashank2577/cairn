@@ -45,7 +45,7 @@ def add(memory, text: Optional[str] = None, *, messages: Optional[str] = None, f
         payload = _json_arg(messages, "--messages")
     elif file is not None:
         try:
-            payload = json.loads(Path(file).read_text())
+            payload = json.loads(Path(file).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise CommandError(f"cannot read {file}: {exc}") from exc
     elif text is not None:
@@ -125,7 +125,7 @@ def import_file(memory, path: str, *, infer: bool = False, **ids: Optional[str])
     """Import memories from a JSON file: a list of objects with ``memory``/``text``/``content`` and
     optional scope ids and ``metadata``. Scope flags override the file's ids."""
     try:
-        data = json.loads(Path(path).read_text())
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise CommandError(f"cannot read {path}: {exc}") from exc
     if not isinstance(data, list):

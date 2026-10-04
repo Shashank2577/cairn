@@ -61,7 +61,7 @@ class ShellStep(StepBase):
                 cwd=cwd,
                 env=env,
                 timeout=timeout,
-            )
+                encoding="utf-8", errors="replace")
             output = {
                 "exit_code": proc.returncode,
                 "stdout": proc.stdout,

@@ -47,7 +47,7 @@ def worker_lock(root: Path | str, blocking: bool = False) -> Iterator[bool]:
     """Hold the repository's worker lock; yields False when another worker has it."""
     path = lock_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fh = open(path, "a+")
+    fh = open(path, "a+", encoding="utf-8")
     try:
         try:
             import fcntl
@@ -393,7 +393,7 @@ def status(root: Path | str) -> dict:
         running = worker_running(root)
         if running and lp.exists():
             with contextlib.suppress(OSError, ValueError):
-                holder = json.loads(lp.read_text() or "{}")
+                holder = json.loads(lp.read_text(encoding="utf-8") or "{}")
         return {"queue": q, "isProcessing": bool(q["pending"] or q["processing"]) and running,
                 "queueDepth": q["pending"] + q["processing"], "worker": {"running": running, "holder": holder},
                 "health": health.read(store)}

@@ -97,7 +97,7 @@ def load(root: Path | str | None) -> dict[str, Any]:
     data: dict = {}
     if root is not None:
         try:
-            data = tomllib.loads(config_path(Path(root)).read_text())
+            data = tomllib.loads(config_path(Path(root)).read_text(encoding="utf-8"))
         except (OSError, tomllib.TOMLDecodeError):
             data = {}
     if data.get("sessions", {}).get("capture") is False:
@@ -142,7 +142,7 @@ def save(root: Path | str, updates: dict[str, Any]) -> dict[str, Any]:
         raise KeyError(f"unknown recall settings: {', '.join(unknown)}")
     path = config_path(Path(root))
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = path.read_text().splitlines() if path.exists() else []
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     clean = {k: _coerce(v, DEFAULTS[k]) for k, v in updates.items()}
     start = next((i for i, ln in enumerate(lines) if (m := _HEADER.match(ln)) and m.group(1).strip() == SECTION), None)
     if start is None:
@@ -168,5 +168,5 @@ def save(root: Path | str, updates: dict[str, Any]) -> dict[str, Any]:
         lines[start + 1:end] = body
     text = "\n".join(lines) + "\n"
     tomllib.loads(text)  # never write a file we cannot read back
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return load(root)

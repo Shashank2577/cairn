@@ -64,7 +64,7 @@ def main() -> int:
         cwd=repo_root,
         capture_output=True,
         text=True,
-    )
+        encoding="utf-8", errors="replace")
     if probe.returncode == 0:
         print("[cairn] Git repository already initialized; skipping", file=sys.stderr)
         return 0
@@ -75,7 +75,7 @@ def main() -> int:
         (["git", "commit", "--allow-empty", "-q", "-m", commit_msg], "git commit"),
     ]
     for cmd, label in steps:
-        result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True)
+        result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             output = (result.stdout + result.stderr).strip()
             print(f"[cairn] Error: {label} failed: {output}", file=sys.stderr)

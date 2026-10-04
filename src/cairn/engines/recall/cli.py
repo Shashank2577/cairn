@@ -252,13 +252,13 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "export":
         from . import viewer
         data = viewer.export_memories(root, args.query or None, args.project)
-        Path(args.out).write_text(json.dumps(data, indent=2, default=str))
+        Path(args.out).write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
         print(f"exported {data['totalObservations']} observations, {data['totalSessions']} sessions, "
               f"{data['totalSummaries']} summaries, {data['totalPrompts']} prompts to {args.out}")
         return 0
     if cmd == "import":
         from . import viewer
-        _print(viewer.import_memories(root, json.loads(Path(args.file).read_text())), True)
+        _print(viewer.import_memories(root, json.loads(Path(args.file).read_text(encoding="utf-8"))), True)
         return 0
     if cmd == "queue":
         from . import viewer

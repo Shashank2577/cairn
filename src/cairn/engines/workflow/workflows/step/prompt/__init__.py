@@ -242,7 +242,7 @@ class PromptStep(StepBase):
                 text=True,
                 cwd=str(project_root),
                 timeout=timeout,
-            )
+                encoding="utf-8", errors="replace")
             return {
                 "exit_code": result.returncode,
                 "stdout": "",

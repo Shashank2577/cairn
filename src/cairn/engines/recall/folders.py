@@ -635,7 +635,7 @@ def tracked_folders(root: str | Path) -> set[Path]:
     folders: set[Path] = set()
     try:
         out = subprocess.run(["git", "ls-files", "-z"], cwd=base, capture_output=True, text=True, check=True,
-                             timeout=120).stdout
+                             timeout=120, encoding="utf-8", errors="replace").stdout
     except (OSError, subprocess.SubprocessError) as exc:
         log.warning("git ls-files failed, walking directories instead: %s", exc)
         _walk_directories(base, folders)

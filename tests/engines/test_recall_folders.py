@@ -21,7 +21,7 @@ def repo(tmp_path, monkeypatch):
     monkeypatch.setenv("CAIRN_HOME", str(tmp_path / "home"))
     root = tmp_path / "repo"
     (root / "src").mkdir(parents=True)
-    (root / "src" / "app.py").write_text("print('hi')\n")
+    (root / "src" / "app.py").write_text("print('hi')\n", encoding="utf-8")
     return root
 
 
@@ -55,7 +55,7 @@ def test_update_writes_block_listing_the_observation(repo):
     written = folders.update_folder_claude_md_files(repo, ["src/app.py"], "repo", settings=enabled(repo))
     target = repo / "src" / "CLAUDE.md"
     assert written == [target]
-    text = target.read_text()
+    text = target.read_text(encoding="utf-8")
     assert text.startswith(f"{OPEN}\n# Recent Activity\n\n### ")
     assert text.endswith(CLOSE)
     assert "| ID | Time | T | Title | Read |" in text
@@ -72,29 +72,29 @@ def test_update_accepts_absolute_paths_and_an_open_store(repo):
     finally:
         store.close()
     assert written == [repo / "src" / "CLAUDE.md"]
-    assert "Absolute path work" in written[0].read_text()
+    assert "Absolute path work" in written[0].read_text(encoding="utf-8")
 
 
 def test_update_preserves_user_text_and_is_idempotent(repo):
     seed(repo, [obs("Refactor loader", modified=["src/app.py"], type_="refactor")])
     target = repo / "src" / "CLAUDE.md"
-    target.write_text(f"# Notes\n\nKeep me.\n{OPEN}\nstale timeline\n{CLOSE}\nAfter the block.\n")
+    target.write_text(f"# Notes\n\nKeep me.\n{OPEN}\nstale timeline\n{CLOSE}\nAfter the block.\n", encoding="utf-8")
     folders.update_folder_claude_md_files(repo, ["src/app.py"], "repo", settings=enabled(repo))
-    first = target.read_text()
+    first = target.read_text(encoding="utf-8")
     assert first.startswith(f"# Notes\n\nKeep me.\n{OPEN}\n# Recent Activity")
     assert first.endswith(f"{CLOSE}\nAfter the block.\n")
     assert "stale timeline" not in first and "Refactor loader" in first and "| ↻ |" in first
     folders.update_folder_claude_md_files(repo, ["src/app.py"], "repo", settings=enabled(repo))
-    assert target.read_text() == first
+    assert target.read_text(encoding="utf-8") == first
     assert first.count(OPEN) == 1
 
 
 def test_update_appends_block_to_a_file_without_one(repo):
     seed(repo, [obs("Add route", modified=["src/app.py"])])
     target = repo / "src" / "CLAUDE.md"
-    target.write_text("User written docs\n")
+    target.write_text("User written docs\n", encoding="utf-8")
     folders.update_folder_claude_md_files(repo, ["src/app.py"], "repo", settings=enabled(repo))
-    text = target.read_text()
+    text = target.read_text(encoding="utf-8")
     assert text.startswith(f"User written docs\n\n\n{OPEN}\n# Recent Activity")
     assert text.endswith(CLOSE)
 
@@ -147,9 +147,9 @@ def test_update_lists_direct_children_of_the_folder_only(repo):
                 obs("Nested edit", modified=["src/sub/deep.py"]),
                 obs("Lookalike edit", modified=["lib/src/other.py"])])
     folders.update_folder_claude_md_files(repo, ["src/app.py", "src/sub/deep.py"], "repo", settings=enabled(repo))
-    top = (repo / "src" / "CLAUDE.md").read_text()
+    top = (repo / "src" / "CLAUDE.md").read_text(encoding="utf-8")
     assert "Top level edit" in top and "Nested edit" not in top and "Lookalike edit" not in top
-    sub = (repo / "src" / "sub" / "CLAUDE.md").read_text()
+    sub = (repo / "src" / "sub" / "CLAUDE.md").read_text(encoding="utf-8")
     assert "Nested edit" in sub and "Top level edit" not in sub
 
 
@@ -158,7 +158,7 @@ def test_update_filters_by_project_and_lists_session_summaries(repo):
                                                              "completed": "done"})
     seed(repo, [obs("Someone else's", modified=["src/app.py"])], project="other", session="content-2")
     folders.update_folder_claude_md_files(repo, ["src/app.py"], "repo", settings=enabled(repo))
-    text = (repo / "src" / "CLAUDE.md").read_text()
+    text = (repo / "src" / "CLAUDE.md").read_text(encoding="utf-8")
     assert "Mine" in text and "Someone else's" not in text
     assert "#S1" in text and "Fix the login flow" in text and "| ◎ |" in text
 
@@ -169,9 +169,9 @@ def test_no_activity_never_creates_and_empties_an_existing_block(repo):
     assert folders.update_folder_claude_md_files(repo, ["lib/x.py"], "repo", settings=enabled(repo)) == []
     assert not (repo / "lib" / "CLAUDE.md").exists()
     target = repo / "lib" / "CLAUDE.md"
-    target.write_text(f"Keep\n\n{OPEN}\nold rows\n{CLOSE}\n")
+    target.write_text(f"Keep\n\n{OPEN}\nold rows\n{CLOSE}\n", encoding="utf-8")
     assert folders.update_folder_claude_md_files(repo, ["lib/x.py"], "repo", settings=enabled(repo)) == [target]
-    assert target.read_text() == f"Keep\n\n{OPEN}\n\n{CLOSE}\n"
+    assert target.read_text(encoding="utf-8") == f"Keep\n\n{OPEN}\n\n{CLOSE}\n"
 
 
 def test_skeleton_denylist_leaves_empty_folders_alone(repo):
@@ -179,11 +179,11 @@ def test_skeleton_denylist_leaves_empty_folders_alone(repo):
     seed(repo, [obs("Only src", modified=["src/app.py"])])
     target = repo / "lib" / "CLAUDE.md"
     original = f"Keep\n\n{OPEN}\nold rows\n{CLOSE}\n"
-    target.write_text(original)
+    target.write_text(original, encoding="utf-8")
     written = folders.update_folder_claude_md_files(
         repo, ["lib/x.py", "src/app.py"], "repo", settings=enabled(repo, folder_md_skeleton_denylist='["lib"]'))
     assert written == [repo / "src" / "CLAUDE.md"]
-    assert target.read_text() == original
+    assert target.read_text(encoding="utf-8") == original
 
 
 def test_update_without_a_store_is_a_no_op(repo):
@@ -232,17 +232,17 @@ def test_write_claude_md_to_folder_guards(tmp_path):
     ok = tmp_path / "src" / "git-utils"
     ok.mkdir(parents=True)
     out = folders.write_claude_md_to_folder(ok, "hello \U0001F7E3", "CLAUDE.md")
-    assert out == ok / "CLAUDE.md" and out.read_text() == f"{OPEN}\nhello ◆\n{CLOSE}"
+    assert out == ok / "CLAUDE.md" and out.read_text(encoding="utf-8") == f"{OPEN}\nhello ◆\n{CLOSE}"
     assert not (ok / "CLAUDE.md.tmp").exists()
 
 
 def test_write_agents_md_replaces_only_its_block(tmp_path):
     path = tmp_path / "sub" / "AGENTS.md"
     folders.write_agents_md(path, "first context")
-    assert path.read_text() == f"{OPEN}\n# Memory Context\n\nfirst context\n{CLOSE}"
-    path.write_text(f"# Agents\n\nHouse rules.\n\n{path.read_text()}\n\nFooter.\n")
+    assert path.read_text(encoding="utf-8") == f"{OPEN}\n# Memory Context\n\nfirst context\n{CLOSE}"
+    path.write_text(f"# Agents\n\nHouse rules.\n\n{path.read_text(encoding="utf-8")}\n\nFooter.\n", encoding="utf-8")
     folders.write_agents_md(str(path), "second context")
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     assert text == f"# Agents\n\nHouse rules.\n\n{OPEN}\n# Memory Context\n\nsecond context\n{CLOSE}\n\nFooter.\n"
     folders.write_agents_md("", "ignored")
     git_file = tmp_path / ".git" / "AGENTS.md"
@@ -253,15 +253,15 @@ def test_write_agents_md_replaces_only_its_block(tmp_path):
 def test_inject_context_into_markdown_file(tmp_path):
     fresh = tmp_path / "rules" / "context.md"
     folders.inject_context_into_markdown_file(fresh, "ctx \U0001F534", "# Header")
-    assert fresh.read_text() == f"# Header\n\n{OPEN}\nctx ●\n{CLOSE}\n"
+    assert fresh.read_text(encoding="utf-8") == f"# Header\n\n{OPEN}\nctx ●\n{CLOSE}\n"
     plain = tmp_path / "plain.md"
     folders.inject_context_into_markdown_file(plain, "one")
-    assert plain.read_text() == f"{OPEN}\none\n{CLOSE}\n"
-    plain.write_text("User notes\n\n\n")
+    assert plain.read_text(encoding="utf-8") == f"{OPEN}\none\n{CLOSE}\n"
+    plain.write_text("User notes\n\n\n", encoding="utf-8")
     folders.inject_context_into_markdown_file(plain, "two")
-    assert plain.read_text() == f"User notes\n\n{OPEN}\ntwo\n{CLOSE}\n"
+    assert plain.read_text(encoding="utf-8") == f"User notes\n\n{OPEN}\ntwo\n{CLOSE}\n"
     folders.inject_context_into_markdown_file(plain, "three")
-    assert plain.read_text() == f"User notes\n\n{OPEN}\nthree\n{CLOSE}\n"
+    assert plain.read_text(encoding="utf-8") == f"User notes\n\n{OPEN}\nthree\n{CLOSE}\n"
 
 
 # ---- Cursor rules file ----------------------------------------------------------------------------------------
@@ -273,17 +273,17 @@ def test_cursor_context_setup_update_and_removal(repo, tmp_path):
     assert folders.setup_cursor_project_context(repo, "repo") is True
     rules = folders.cursor_context_path(repo)
     assert rules == repo / ".cursor" / "rules" / "cairn-context.mdc"
-    text = rules.read_text()
+    text = rules.read_text(encoding="utf-8")
     assert text.startswith('---\nalwaysApply: true\ndescription: "Cairn context from past sessions (auto-updated)"\n'
                            "---\n\n# Memory Context from Past Sessions\n")
     assert "Wire the cache" in text and text.endswith("for more detailed queries.*\n")
     assert all(ord(ch) <= 0xFFFF for ch in text)
-    registry = json.loads((tmp_path / "home" / "cursor-projects.json").read_text())
+    registry = json.loads((tmp_path / "home" / "cursor-projects.json").read_text(encoding="utf-8"))
     assert registry["repo"]["workspacePath"] == str(repo) and registry["repo"]["installedAt"]
 
     seed(repo, [obs("Evict stale entries", modified=["src/app.py"])], session="content-9")
     assert folders.update_cursor_context_for_project(repo, "repo") is True
-    assert "Evict stale entries" in rules.read_text()
+    assert "Evict stale entries" in rules.read_text(encoding="utf-8")
     assert folders.update_cursor_context_for_project(None, "repo") is True  # store found from the workspace
 
     assert folders.remove_cursor_project_context(repo, "repo") == [str(rules)]
@@ -295,14 +295,14 @@ def test_cursor_setup_writes_a_placeholder_without_memory(tmp_path, monkeypatch)
     workspace = tmp_path / "fresh"
     workspace.mkdir()
     assert folders.setup_cursor_project_context(workspace, "fresh") is False
-    assert folders.cursor_context_path(workspace).read_text() == folders.CURSOR_PLACEHOLDER
+    assert folders.cursor_context_path(workspace).read_text(encoding="utf-8") == folders.CURSOR_PLACEHOLDER
     assert "fresh" in folders.read_cursor_registry()
 
 
 def test_cursor_registry_and_mcp_config(tmp_path):
     reg = tmp_path / "reg.json"
     assert folders.read_cursor_registry(reg) == {}
-    reg.write_text("{broken")
+    reg.write_text("{broken", encoding="utf-8")
     assert folders.read_cursor_registry(reg) == {}
     folders.register_cursor_project("a", "/ws/a", reg)
     folders.register_cursor_project("b", "/ws/b", reg)
@@ -310,15 +310,15 @@ def test_cursor_registry_and_mcp_config(tmp_path):
     assert list(folders.read_cursor_registry(reg)) == ["b"]
     mcp = tmp_path / ".cursor" / "mcp.json"
     mcp.parent.mkdir()
-    mcp.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}))
+    mcp.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}), encoding="utf-8")
     folders.configure_cursor_mcp(mcp, "cairn", ["mcp"])
-    assert json.loads(mcp.read_text())["mcpServers"] == {"other": {"command": "x"},
+    assert json.loads(mcp.read_text(encoding="utf-8"))["mcpServers"] == {"other": {"command": "x"},
                                                           "cairn": {"command": "cairn", "args": ["mcp"]}}
 
 
 # ---- cairn recall claude-md generate | clean ----------------------------------------------------------------------
 def test_generate_dry_run_then_write(repo, capsys):
-    (repo / "src" / "util.py").write_text("")
+    (repo / "src" / "util.py").write_text("", encoding="utf-8")
     seed(repo, [obs("Split helpers", modified=["src/app.py"], type_="feature"),
                 obs("Read utilities", read=["src/util.py"])])
     assert folders.generate_claude_md(repo, dry_run=True) == 0
@@ -327,7 +327,7 @@ def test_generate_dry_run_then_write(repo, capsys):
 
     assert folders.generate_claude_md(repo) == 0
     assert "wrote src/CLAUDE.md (2 observations)" in capsys.readouterr().out
-    text = (repo / "src" / "CLAUDE.md").read_text()
+    text = (repo / "src" / "CLAUDE.md").read_text(encoding="utf-8")
     assert text.startswith(f"{OPEN}\n# Recent Activity\n\n{folders.GENERATED_NOTE}\n\n### ")
     assert "**app.py**" in text and "**util.py**" in text and "| ◆ | Split helpers |" in text
     assert not (repo / ".cairn" / "CLAUDE.md").exists()
@@ -348,9 +348,9 @@ def test_generate_without_store_or_folders(tmp_path, monkeypatch, capsys):
 def test_tracked_folders_uses_git(tmp_path):
     root = tmp_path / "g"
     (root / "a" / "b").mkdir(parents=True)
-    (root / "a" / "b" / "f.py").write_text("")
+    (root / "a" / "b" / "f.py").write_text("", encoding="utf-8")
     (root / "untracked").mkdir()
-    (root / "untracked" / "u.py").write_text("")
+    (root / "untracked" / "u.py").write_text("", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(["git", "add", "a/b/f.py"], cwd=root, check=True)
     assert folders.tracked_folders(root) == {root / "a", root / "a" / "b"}
@@ -358,26 +358,26 @@ def test_tracked_folders_uses_git(tmp_path):
 
 def test_clean_removes_only_blocks_and_deletes_emptied_files(repo, capsys):
     only_block = repo / "src" / "CLAUDE.md"
-    only_block.write_text(f"{OPEN}\n# Recent Activity\n{CLOSE}\n")
+    only_block.write_text(f"{OPEN}\n# Recent Activity\n{CLOSE}\n", encoding="utf-8")
     (repo / "docs").mkdir()
     mixed = repo / "docs" / "CLAUDE.md"
-    mixed.write_text(f"# Docs\n\n{OPEN}\nrows\n{CLOSE}\n\nMore notes\n")
+    mixed.write_text(f"# Docs\n\n{OPEN}\nrows\n{CLOSE}\n\nMore notes\n", encoding="utf-8")
     untouched = repo / "CLAUDE.md"
-    untouched.write_text("# Root instructions\n")
+    untouched.write_text("# Root instructions\n", encoding="utf-8")
     (repo / "node_modules").mkdir()
     ignored = repo / "node_modules" / "CLAUDE.md"
-    ignored.write_text(f"{OPEN}\nx\n{CLOSE}")
+    ignored.write_text(f"{OPEN}\nx\n{CLOSE}", encoding="utf-8")
 
     assert folders.clean_claude_md(repo, dry_run=True) == 0
     assert "would delete (empty) src/CLAUDE.md" in capsys.readouterr().out
-    assert only_block.exists() and OPEN in mixed.read_text()
+    assert only_block.exists() and OPEN in mixed.read_text(encoding="utf-8")
 
     assert folders.clean_claude_md(repo) == 0
     out = capsys.readouterr().out
     assert "Done: 1 deleted, 1 cleaned, 0 errors" in out
     assert not only_block.exists()
-    assert mixed.read_text() == "# Docs\n\n\n\nMore notes"
-    assert untouched.read_text() == "# Root instructions\n"
-    assert OPEN in ignored.read_text()
+    assert mixed.read_text(encoding="utf-8") == "# Docs\n\n\n\nMore notes"
+    assert untouched.read_text(encoding="utf-8") == "# Root instructions\n"
+    assert OPEN in ignored.read_text(encoding="utf-8")
     assert folders.clean_claude_md(repo) == 0
     assert "No context files" in capsys.readouterr().out

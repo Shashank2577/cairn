@@ -113,7 +113,7 @@ def _run_gws_export(file_id: str, mime_type: str, output: Path, resource_key: st
         cwd=output.parent,
         text=True,
         timeout=timeout,
-    )
+        encoding="utf-8", errors="replace")
     if result.returncode != 0:
         stderr = (result.stderr or result.stdout or "").strip()
         if len(stderr) > 1200:

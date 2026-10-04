@@ -127,7 +127,7 @@ def test_summary_text_comes_from_the_transcript(repo, tmp_path):
         {"type": "assistant", "message": {"model": "claude-opus-5-5", "content": [
             {"type": "text", "text": "All done <system-reminder>noise</system-reminder>"}]}},
         {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "x", "name": "Read"}]}},
-        "not json"]) + "\nnot json either\n")
+        "not json"]) + "\nnot json either\n", encoding="utf-8")
     run(repo, "session-init", prompt="do it")
     run(repo, "summarize", transcript_path=str(transcript))
     [msg] = rows(repo, "SELECT last_assistant_message FROM pending_messages")
@@ -148,7 +148,7 @@ def test_platform_adapters_normalize_payloads(repo, tmp_path):
     codex = adapters.normalize("codex", {"session_id": "c1", "cwd": str(repo), "hook_event_name": "PreToolUse",
                                          "tool_name": "Bash", "tool_input": {"command": "cat shop/a.py | head -n 5 x"}})
     assert codex["tool_name"] == "Bash" and codex["platform"] == "codex"
-    (repo / "shop" / "a.py").write_text("print(1)\n")
+    (repo / "shop" / "a.py").write_text("print(1)\n", encoding="utf-8")
     codex = adapters.normalize("codex", {"session_id": "c1", "cwd": str(repo), "hook_event_name": "PreToolUse",
                                          "tool_name": "Bash", "tool_input": {"command": "cat shop/a.py"}})
     assert codex["tool_input"]["filePaths"] == ["shop/a.py"]
@@ -182,7 +182,7 @@ def test_platform_adapters_normalize_payloads(repo, tmp_path):
 def test_capture_entry_point_output_and_resilience(repo):
     def cli(event, payload, *extra):
         return subprocess.run([sys.executable, "-m", "cairn.capture", *extra, event], input=payload,
-                              capture_output=True, text=True, cwd=repo, check=False)
+                              capture_output=True, text=True, cwd=repo, check=False, encoding="utf-8", errors="replace")
     bad = cli("tool", "not json")
     assert bad.returncode == 0 and bad.stdout == "" and bad.stderr == ""
     ctx = cli("context", json.dumps({"session_id": "s1", "cwd": str(repo)}))
@@ -199,7 +199,7 @@ def test_capture_entry_point_output_and_resilience(repo):
 
 def test_file_context_hook_injects_prior_observations_once(repo):
     big = repo / "shop" / "payments.py"
-    big.write_text("# payments\n" + "x = 1\n" * 400)
+    big.write_text("# payments\n" + "x = 1\n" * 400, encoding="utf-8")
     import os
     import time
     os.utime(big, (time.time() - 3600, time.time() - 3600))
@@ -216,20 +216,20 @@ def test_file_context_hook_injects_prior_observations_once(repo):
     _, again = run(repo, "file-context", tool_name="Read", tool_input={"file_path": str(big)})
     assert again == {}  # already surfaced this session
     small = repo / "shop" / "tiny.py"
-    small.write_text("x=1\n")
+    small.write_text("x=1\n", encoding="utf-8")
     _, none = run(repo, "file-context", session_id="s2", tool_name="Read", tool_input={"file_path": str(small)})
     assert none == {}
 
 
 def test_settings_round_trip_preserves_the_rest_of_the_file(repo):
     cfg = repo / ".cairn" / "config.toml"
-    cfg.write_text('[server]\nport = 4800   # keep me\n\n[recall]\nmode = "code"  # the mode\n')
+    cfg.write_text('[server]\nport = 4800   # keep me\n\n[recall]\nmode = "code"  # the mode\n', encoding="utf-8")
     rsettings.save(repo, {"mode": "code--ja", "context_observations": 12, "folder_md_exclude": '["vendor"]'})
-    text = cfg.read_text()
+    text = cfg.read_text(encoding="utf-8")
     assert "port = 4800   # keep me" in text and 'mode = "code--ja"' in text
     s = rsettings.load(repo)
     assert s["mode"] == "code--ja" and s["context_observations"] == 12 and s["folder_md_exclude"] == '["vendor"]'
-    cfg.write_text(text + 'skip_tools = "A,B"\n')
+    cfg.write_text(text + 'skip_tools = "A,B"\n', encoding="utf-8")
     assert rsettings.load(repo)["skip_tools"] == "A,B"
     with pytest.raises(KeyError):
         rsettings.save(repo, {"nope": 1})

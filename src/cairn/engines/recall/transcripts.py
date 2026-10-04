@@ -161,7 +161,7 @@ def load_transcript_watch_config(path: str | Path | None = None) -> dict:
 def write_sample_config(path: str | Path | None = None) -> Path:
     resolved = Path(expand_home_path(str(path or default_config_path())))
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(json.dumps(sample_config(), indent=2))
+    resolved.write_text(json.dumps(sample_config(), indent=2), encoding="utf-8")
     return resolved
 
 
@@ -261,7 +261,7 @@ def save_watch_state(state_path: str | Path, state: dict) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(state, indent=2, default=str))
+        tmp.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
         os.replace(tmp, path)
     except OSError as exc:
         log.warning("failed to save transcript watch state %s: %s", path, exc)

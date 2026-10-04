@@ -434,7 +434,7 @@ def _lock_held(path: Path) -> bool:
     except ImportError:
         return False
     try:
-        with open(path, "a") as fh:
+        with open(path, "a", encoding="utf-8") as fh:
             try:
                 fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
@@ -455,7 +455,7 @@ def _spawn(root: Path, module: str, args: list[str], log_name: str) -> bool:
     log_dir = root / ".cairn" / "recall"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
-        fh = open(log_dir / log_name, "a")
+        fh = open(log_dir / log_name, "a", encoding="utf-8")
     except OSError:
         return False
     kwargs: dict[str, Any] = {"start_new_session": True} if os.name != "nt" else {"creationflags": 0x00000008}

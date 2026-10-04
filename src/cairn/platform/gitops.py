@@ -95,7 +95,7 @@ def run(args: list[str], *, cwd: Path | None = None, allow_local: bool = False,
     cmd = ["git", "-c", "protocol.ext.allow=never", "-c", "core.hooksPath=" + os.devnull, *args]
     try:
         return subprocess.run(cmd, cwd=str(cwd) if cwd else None, capture_output=True, text=True, check=False,
-                              errors="replace", timeout=timeout, env=_env(allow_local), stdin=subprocess.DEVNULL)
+                              errors="replace", timeout=timeout, env=_env(allow_local), stdin=subprocess.DEVNULL, encoding="utf-8")
     except subprocess.TimeoutExpired as exc:
         raise GitError(f"git {args[0]} timed out after {timeout}s") from exc
     except OSError as exc:

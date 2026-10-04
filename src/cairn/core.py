@@ -72,7 +72,7 @@ def cited_docs(root: Path, pack_text: str, question: str, *, max_files: int = 2,
     for rel in wanted[:max_files]:
         f = root / rel
         try:
-            body = f.read_text(errors="replace")
+            body = f.read_text(errors="replace", encoding="utf-8")
         except OSError:
             continue
         cap = per_file_tokens * 4

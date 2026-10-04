@@ -49,7 +49,7 @@ def info() -> dict | None:
     if not f.exists():
         return None
     try:
-        data = json.loads(f.read_text())
+        data = json.loads(f.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
     if _health(int(data.get("port", 0))):
@@ -64,7 +64,7 @@ def stop_legacy(project: Project) -> bool:
     if not f.exists():
         return False
     try:
-        pid = int(json.loads(f.read_text()).get("pid") or 0)
+        pid = int(json.loads(f.read_text(encoding="utf-8")).get("pid") or 0)
     except (ValueError, json.JSONDecodeError):
         pid = 0
     stopped = False
@@ -100,10 +100,10 @@ def start(project: Project | None = None, wait: float = 10.0) -> dict:
         port += 1
     home = cairn_home()
     home.mkdir(parents=True, exist_ok=True)
-    log = open(home / "server.log", "a")
+    log = open(home / "server.log", "a", encoding="utf-8")
     proc = subprocess.Popen([sys.executable, "-m", "cairn", "serve", "--port", str(port)], cwd=str(home),
                             stdout=log, stderr=log, stdin=subprocess.DEVNULL, **_spawn_kwargs())
-    _state_file().write_text(json.dumps({"pid": proc.pid, "port": port, "started": time.time()}))
+    _state_file().write_text(json.dumps({"pid": proc.pid, "port": port, "started": time.time()}), encoding="utf-8")
     url = f"http://127.0.0.1:{port}"
     deadline = time.time() + wait
     while time.time() < deadline:
@@ -136,7 +136,7 @@ def _command_line(pid: int) -> str:
     for argv, kwargs in attempts:
         try:
             res = subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout, check=False,
-                                 stdin=subprocess.DEVNULL, **kwargs)
+                                 stdin=subprocess.DEVNULL, **kwargs, encoding="utf-8")
         except FileNotFoundError:
             continue  # try the next shell
         except (OSError, subprocess.TimeoutExpired):
@@ -165,7 +165,7 @@ def stop() -> bool:
     if not f.exists():
         return False
     try:
-        pid = int(json.loads(f.read_text()).get("pid") or 0)
+        pid = int(json.loads(f.read_text(encoding="utf-8")).get("pid") or 0)
     except (ValueError, json.JSONDecodeError):
         pid = 0
     stopped = _terminate(pid) if pid and _is_cairn_server(pid) else False

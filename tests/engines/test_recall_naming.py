@@ -40,5 +40,5 @@ def test_hook_path_stays_light():
     probe = ("import sys, cairn.capture; print(sorted(m for m in sys.modules if m.split('.')[0] in "
              "('numpy', 'httpx', 'anthropic', 'typer', 'rich', 'fastapi', 'tree_sitter') or m in "
              "('cairn.core', 'cairn.engines.vectors', 'cairn.engines.recall.worker', 'cairn.router')))")
-    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True).stdout.strip()
+    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True, encoding="utf-8", errors="replace").stdout.strip()
     assert out == "[]"

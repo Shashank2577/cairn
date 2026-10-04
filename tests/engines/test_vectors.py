@@ -149,7 +149,7 @@ def test_legacy_two_file_layout_is_read_and_migrated(tmp_path):
     d = tmp_path / "ix"
     d.mkdir()
     np.save(d / "vectors.npy", np.eye(4, dtype=np.float32)[:2])
-    (d / "meta.json").write_text(json.dumps({"dim": 4, "embedder": None, "ids": ["x", "y"]}))
+    (d / "meta.json").write_text(json.dumps({"dim": 4, "embedder": None, "ids": ["x", "y"]}), encoding="utf-8")
     idx = vectors.VectorIndex(d, dim=4)
     assert idx.ids() == ["x", "y"]
     idx.add(["z"], [[0, 0, 1, 0]])
