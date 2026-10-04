@@ -271,4 +271,30 @@ def recap(cairn) -> str:
     else:
         lines.append("  answered    no queries yet — the savings meter starts with your first impact/why/ask")
     lines.append(f"  last activity {_t.strftime('%b %d', _t.localtime(first))}" if first else "")
+
+    def _clip(text: str, n: int = 96) -> str:
+        one = " ".join(str(text).split())
+        return one if len(one) <= n else one[: n - 1] + "…"
+
+    # receipts: the actual data, so the counts above are checkable at a glance
+    receipts = []
+    for m in b.q("SELECT kind, text, id FROM memories WHERE NOT forgotten AND superseded_by IS NULL "
+                 "ORDER BY created_at DESC LIMIT 2"):
+        receipts.append(f"  · [{m['kind']}] {_clip(m['text'])}  [{m['id']}]")
+    if receipts:
+        lines.append("")
+        lines.append("  memories it learned (newest):")
+        lines += receipts
+    qrows = b.q("SELECT kind, target, sent_tokens, COALESCE(source_tokens,0) AS src FROM queries "
+                "ORDER BY ts DESC LIMIT 3")
+    if qrows:
+        lines.append("")
+        lines.append("  last answers (what they cost vs reading):")
+        for r in qrows:
+            saved = max(0, r["src"] - r["sent_tokens"])
+            lines.append(f"  · {r['kind']} {r['target']} — sent {r['sent_tokens']:,}, saved {saved:,}")
+    last_commit = b.q("SELECT title FROM events WHERE kind='commit' ORDER BY ts DESC LIMIT 1")
+    if last_commit:
+        lines.append("")
+        lines.append(f"  newest commit watched: {_clip(last_commit[0]['title'], 80)}")
     return "\n".join(ln for ln in lines if ln)

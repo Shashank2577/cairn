@@ -281,3 +281,12 @@ def test_recap_shows_savings_and_memories(cairn):
     assert "memories" in out and "saved" in out and "1 queries" in out
 
 
+
+
+def test_recap_shows_receipts_not_just_counts(cairn):
+    from cairn import hooks
+    cairn.brain.log_query("cli", "impact", "shop/payments.py", 500, 5000, 2)
+    mem = cairn.brain.q("SELECT text FROM memories LIMIT 1")[0]["text"]
+    out = hooks.recap(cairn)
+    assert "memories it learned" in out and mem[:40] in out      # the actual lesson text
+    assert "impact shop/payments.py" in out and "saved 4,500" in out  # the actual query receipt
