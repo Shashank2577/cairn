@@ -240,7 +240,7 @@ def test_write_agents_md_replaces_only_its_block(tmp_path):
     path = tmp_path / "sub" / "AGENTS.md"
     folders.write_agents_md(path, "first context")
     assert path.read_text(encoding="utf-8") == f"{OPEN}\n# Memory Context\n\nfirst context\n{CLOSE}"
-    path.write_text(f"# Agents\n\nHouse rules.\n\n{path.read_text(encoding="utf-8")}\n\nFooter.\n", encoding="utf-8")
+    path.write_text(f"# Agents\n\nHouse rules.\n\n{path.read_text(encoding='utf-8')}\n\nFooter.\n", encoding="utf-8")
     folders.write_agents_md(str(path), "second context")
     text = path.read_text(encoding="utf-8")
     assert text == f"# Agents\n\nHouse rules.\n\n{OPEN}\n# Memory Context\n\nsecond context\n{CLOSE}\n\nFooter.\n"
