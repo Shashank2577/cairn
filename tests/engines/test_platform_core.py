@@ -1,6 +1,7 @@
 """Platform service: storage, passwords, sessions, tokens, invitations, members, audit and secrets at rest."""
 from __future__ import annotations
 
+import os
 import sqlite3
 import stat
 
@@ -73,9 +74,10 @@ def session(plat: Platform, email: str):
 # ---- storage ---------------------------------------------------------------------------------------------
 def test_home_and_database_are_private_and_migrated(plat, home):
     assert plat.db_path == home / "platform.db"
-    assert stat.S_IMODE(home.stat().st_mode) == 0o700
-    assert stat.S_IMODE(plat.db_path.stat().st_mode) == 0o600
-    assert stat.S_IMODE((home / security.KEY_FILE).stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows files carry no POSIX permission bits (chmod only toggles read-only)
+        assert stat.S_IMODE(home.stat().st_mode) == 0o700
+        assert stat.S_IMODE(plat.db_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE((home / security.KEY_FILE).stat().st_mode) == 0o600
     with sqlite3.connect(plat.db_path) as conn:
         assert schema_version(conn) == len(MIGRATIONS)
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
