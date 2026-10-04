@@ -7,6 +7,7 @@ project (`/mcp/<project id>`, bearer token), see `server.py`.
 """
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import inspect
 import json
@@ -15,7 +16,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
 
-from .core import Cairn, ago
+from .core import estimate_tokens, Cairn, ago
 from .engines import mapper
 
 INSTRUCTIONS = ("Project memory for this repository — route by trigger: cairn_context FIRST, before reading or editing "
@@ -51,7 +52,12 @@ def cairn_context(task: str, targets: list[str] | None = None, budget: int = 180
     """Call this FIRST, before reading or editing any file for a task: returns the relevant targets, dependents,
     co-change partners, past incidents, owning spec, conventions and prior agent work in one cited pack
     (~1-2k tokens — cheaper than grepping). targets: optional paths/symbols to bias the pack."""
-    return _project().context(task, targets, budget).render()
+    c = _project()
+    pack = c.context(task, targets, budget)
+    with contextlib.suppress(Exception):  # every surface lands in the audit trail, MCP included
+        c.brain.log_query("mcp", "context", task,
+                          sum(estimate_tokens(ln) for ln in pack.render().splitlines()), None)
+    return pack.render()
 
 
 def cairn_status() -> str:

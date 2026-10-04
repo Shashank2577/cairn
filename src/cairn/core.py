@@ -23,8 +23,12 @@ from .project import Project
 from .router import Router, estimate_tokens
 from .store import Brain
 
-ASK_SYSTEM = ("You are Cairn, the engineering memory of this repository. Answer using ONLY the context "
-              "provided; cite ids in [brackets]; say what is unknown. Be brief and concrete.")
+ASK_SYSTEM = ("You are Cairn, the engineering memory of this repository, answering a HUMAN developer in chat. "
+              "Answer the question directly and completely. The context pack lists what is known and sometimes "
+              "what is unknown; the cited repository documents are appended in full — use them to CLOSE those "
+              "gaps instead of repeating them as unknowns. If a cited document answers part of the question, "
+              "present that part as known, with the document path. Never tell the human to call tools or run "
+              "commands — you are the tool. Cite ids in [brackets]. Be brief and concrete.")
 NARRATE_SYSTEM = ("Summarise this engineering evidence for a developer about to change code. 4 bullets max: "
                   "the real risk, what to check, who/what to consult. Cite ids in [brackets]. No preamble.")
 
@@ -48,6 +52,43 @@ _QUESTION_STOP = frozenset((
 
 def ask_prompt(question: str, context: str) -> str:
     return f"Question: {question}\n\nContext:\n{context}"
+
+
+_DOC_REF = re.compile(r"(?:^|[\s`(])([A-Za-z0-9_\-./]+\.(?:md|txt))(?=[\s)`,.:]|$)")
+
+
+def cited_docs(root: Path, pack_text: str, question: str, *, max_files: int = 2,
+               per_file_tokens: int = 3000) -> str:
+    """Full text of the repository documents the pack cites (bounded): an answer that says 'the process is
+    documented in docs/x.md \u00a72' must include docs/x.md, or the narrator can only list unknowns."""
+    wanted: list[str] = []
+    for m in _DOC_REF.finditer(pack_text):
+        p = m.group(1)
+        if in_repo(p) and p not in wanted:
+            wanted.append(p)
+    out: list[str] = []
+    keywords = [w for w in re.findall(r"[a-z0-9]{4,}", question.lower())
+                if w not in _QUESTION_STOP and w not in GENERIC]
+    for rel in wanted[:max_files]:
+        f = root / rel
+        try:
+            body = f.read_text(errors="replace")
+        except OSError:
+            continue
+        cap = per_file_tokens * 4
+        if len(body) > cap and keywords:  # pull the densest keyword window, not the head
+            best, score, low = 0, -1, body.lower()
+            step = max(1, (len(body) - cap) // 40)
+            for off in range(0, max(1, len(body) - cap + 1), step):
+                win = body[off:off + cap].lower()
+                sc = sum(win.count(k) for k in keywords)
+                if sc > score:
+                    best, score = off, sc
+            body = ("…\n" if best else "") + body[best:best + cap] + "\n…"
+        out.append(f"### {rel}\n{body}")
+        if sum(len(o) for o in out) > per_file_tokens * 4 * max_files:
+            break
+    return ("\n\n## Cited repository documents\n" + "\n\n".join(out)) if out else ""
 
 
 SECTION_ORDER = ["Rationale", "Dependents", "Tests likely affected", "Changes together", "Historical warnings",
@@ -469,6 +510,15 @@ class Cairn:
                 items.append(Item("Active work", f"{labels[-1]}: {imp.header[0].replace('**', '')}", 1.1))
         for m in self.memory.recall(task, limit=4):
             items.append(Item("Memory", f"[{m['kind']}] {m['text']}", 0.75, f"memory:{m['id']}"))
+        task_toks = {w for w in re.findall(r"[a-z0-9]{4,}", task.lower()) if w not in _QUESTION_STOP and w not in GENERIC}
+        if task_toks:
+            with contextlib.suppress(sqlite3.Error):
+                prior = [r["target"] for r in self.brain.q(
+                    "SELECT target, MAX(ts) AS m FROM queries WHERE kind='ask' GROUP BY target ORDER BY m DESC LIMIT 12")
+                    if r["target"] and task_toks & {w for w in re.findall(r"[a-z0-9]{4,}", r["target"].lower())
+                                                    if w not in _QUESTION_STOP and w not in GENERIC}][:3]
+            for q0 in prior:
+                items.append(Item("Past questions", q0, 0.7, "ask"))
         active = self.active_spec()
         if active:
             items.append(Item("Active work", f"Spec {active['id']}: {active['name']} — {active['done']}/{active['total']}"
@@ -483,15 +533,30 @@ class Cairn:
                     data={"targets": targets, "evidence_files": list(dict.fromkeys(evidence))},
                     on_render=self._logger("context", task, evidence))
 
+    def _remember_qa(self, question: str, answer: str) -> None:
+        """Compound: every answered question becomes recallable knowledge for the next one."""
+        with contextlib.suppress(Exception):
+            if self.brain.q("SELECT 1 FROM memories WHERE text LIKE ? LIMIT 1", (f"Q: {question}%",)):
+                return  # the same question already compounded
+            self.memory.remember(f"Q: {question}\nA: {' '.join(str(answer).split())[:600]}",
+                                 kind="fact", source="ask", provenance="EXTRACTED",
+                                 reconcile=False, metadata={"qa": question})
+
     def ask(self, question: str, budget: int | None = None, llm: bool = True) -> dict:
         pack = self.context(question, budget=budget)
         text = pack.render()
+        text += cited_docs(self.project.root, text, question)
         out = {"pack": text, "answer": None, "model": None}
+        with contextlib.suppress(sqlite3.Error):  # the audit trail: every question, every surface
+            self.brain.log_query(self.surface, "ask", question,
+                                 sum(estimate_tokens(ln) for ln in text.splitlines()), None)
         if llm and self.router.available:
             try:
                 out["answer"] = self.router.complete("ask", ask_prompt(question, text), system=ASK_SYSTEM,
                                                      cached_context=self.brief(), max_tokens=900)
                 out["model"] = self.router.model(self.router.tier_for("ask"))
+                if out["answer"]:
+                    self._remember_qa(question, out["answer"])
             except Exception as exc:
                 out["answer"] = None
                 out["error"] = f"{type(exc).__name__}: {exc}"[:200]

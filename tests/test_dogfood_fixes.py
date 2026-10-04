@@ -290,3 +290,46 @@ def test_recap_shows_receipts_not_just_counts(cairn):
     out = hooks.recap(cairn)
     assert "memories it learned" in out and mem[:40] in out      # the actual lesson text
     assert "impact shop/payments.py" in out and "saved 4,500" in out  # the actual query receipt
+
+
+# ---- the ask fix: audit trail, past questions, cited docs, compounding answers -----------------------
+
+def test_ask_logs_the_question_for_every_surface(cairn):
+    cairn.ask("how does upload work", llm=False)
+    rows = cairn.brain.q("SELECT target FROM queries WHERE kind='ask'")
+    assert any(r["target"] == "how does upload work" for r in rows)
+    from cairn.mcp_server import cairn_context  # the chatbot surface logs too
+    cairn_context("how does transcription work")
+    rows = cairn.brain.q("SELECT target FROM queries WHERE kind='context'")
+    assert any("transcription" in r["target"] for r in rows)
+
+
+def test_context_shows_past_related_questions(cairn):
+    cairn.brain.log_query("cli", "ask", "how does upload work", 100, None)
+    pack = cairn.context("how does upload work")
+    assert "Past questions" in pack.render() and "how does upload work" in pack.render()
+
+
+def test_cited_docs_pulls_the_document_that_answers_the_question(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "upload-flow.md").write_text(
+        "# upload flow\n" + ("filler line\n" * 400) +
+        "MIDAS-77: the web proxy posts the finished MP4 to /upload with x-sa-api-key, "
+        "storage lands in the recordings bucket. MIDAS-77 end.\n")
+    from cairn.core import cited_docs
+    out = cited_docs(tmp_path, "the flow is documented in docs/upload-flow.md", "where does upload happen")
+    assert "MIDAS-77" in out and "Cited repository documents" in out   # the keyword window, not the head
+    assert cited_docs(tmp_path, "nothing cited here", "q") == ""
+
+
+def test_answer_compounds_into_memory(cairn):
+    cairn._remember_qa("how does upload work", "streams via disk-uploader, proxy needs x-sa-api-key")
+    cairn._remember_qa("how does upload work", "duplicate must not store")
+    mems = cairn.brain.q("SELECT text FROM memories WHERE text LIKE 'Q: how does upload work%'")
+    assert len(mems) == 1 and "disk-uploader" in mems[0]["text"]
+
+
+def test_ask_system_addresses_a_human_and_never_punts():
+    from cairn.core import ASK_SYSTEM
+    assert "HUMAN" in ASK_SYSTEM and "Never tell the human to call tools" in ASK_SYSTEM
+    assert "CLOSE those gaps" in ASK_SYSTEM
