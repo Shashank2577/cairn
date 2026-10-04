@@ -118,6 +118,7 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
             for f in futs:
                 f.result()
         def do_memory():
+            from .engines.memory import seed_from_repo
             import faulthandler
             # the memory step makes model calls too; if one wedges, dump stacks instead of hanging forever
             faulthandler.dump_traceback_later(600, exit=False)
