@@ -2006,7 +2006,7 @@ def list_skills() -> list[dict]:
     out = []
     for d in sorted(p for p in skills_dir().iterdir() if (p / "SKILL.md").is_file()):
         meta = _frontmatter((d / "SKILL.md").read_text(encoding="utf-8"))
-        files = sorted(str(f.relative_to(d)) for f in d.rglob("*") if f.is_file() and "__pycache__" not in f.parts)
+        files = sorted(f.relative_to(d).as_posix() for f in d.rglob("*") if f.is_file() and "__pycache__" not in f.parts)
         out.append({"name": meta.get("name", d.name), "description": meta.get("description", ""), "path": str(d),
                     "files": files})
     return out

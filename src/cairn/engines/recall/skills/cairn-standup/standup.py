@@ -65,6 +65,13 @@ def parse_args(argv: list[str]) -> tuple[str | None, dict]:
     return cmd, opts
 
 
+if sys.platform == "win32":  # piped output defaults to the locale code page, which cannot hold ✓ or —
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
 CMD, OPTS = parse_args(sys.argv[1:])
 
 
@@ -351,7 +358,7 @@ def cmd_worktrees() -> None:
     rows = []
     for w in git_worktrees():
         ms = worktree_activity_ms(w["path"])
-        rows.append({"branch": w["branch"], "path": w["path"], "current": w["path"] == here,
+        rows.append({"branch": w["branch"], "path": w["path"], "current": os.path.normcase(os.path.realpath(w["path"])) == os.path.normcase(os.path.realpath(here)),
                      "lastActivity": datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                      if ms else None,
                      "lastActivityMs": ms, "age": human_age(ms)})

@@ -160,7 +160,7 @@ def discover(root: Path | None = None) -> System | None:
         else:
             siblings.append(Sibling(name=str(entry.get("name") or path.name), root=path, db=db))
     return System(name=name, root=root, siblings=tuple(siblings), skipped=tuple(skipped),
-                  declared_in=str(decl))
+                  declared_in=decl.as_posix())
 
 
 def cross_repo_hits(root: Path, query_tokens: str | Iterable[str], limit: int = 8) -> list[dict]:

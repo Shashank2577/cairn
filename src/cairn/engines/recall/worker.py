@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from ... import filelock
 from . import fallback
 from .context import generate_context
 from .modes import load_mode
@@ -49,12 +50,7 @@ def worker_lock(root: Path | str, blocking: bool = False) -> Iterator[bool]:
     path.parent.mkdir(parents=True, exist_ok=True)
     fh = open(path, "a+", encoding="utf-8")
     try:
-        try:
-            import fcntl
-            fcntl.flock(fh, fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except ImportError:  # Windows: best effort
-            pass
-        except BlockingIOError:
+        if not (filelock.lock(fh, None) if blocking else filelock.try_lock(fh)):
             yield False
             return
         fh.seek(0)

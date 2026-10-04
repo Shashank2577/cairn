@@ -11,6 +11,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -76,8 +77,22 @@ def validate_branch(branch: str | None) -> str | None:
     return b
 
 
+def rmtree(path: Path) -> None:
+    """``shutil.rmtree`` that also removes read-only files (git marks its object files read-only on Windows)."""
+    def _retry(func, p, _exc) -> None:
+        try:
+            os.chmod(p, 0o700)
+            func(p)
+        except OSError:
+            pass
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_retry)
+    else:
+        shutil.rmtree(path, onerror=_retry)
+
+
 def repo_name(url: str) -> str:
-    tail = re.split(r"[/:]", url.rstrip("/"))[-1]
+    tail = re.split(r"[/:\\]", url.rstrip("/"))[-1]
     return tail[:-4] if tail.endswith(".git") else tail or "repository"
 
 
@@ -129,7 +144,7 @@ def clone(url: str, dest: Path, *, branch: str | None = None, allow_local: bool 
         args += ["--branch", branch, "--single-branch"]
     res = run([*args, "--", url, str(tmp)], allow_local=allow_local, timeout=timeout)
     if res.returncode != 0:
-        shutil.rmtree(tmp, ignore_errors=True)
+        rmtree(tmp)
         raise _fail("git clone", res)
     if dest.exists():
         dest.rmdir()

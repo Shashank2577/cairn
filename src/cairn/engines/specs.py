@@ -129,7 +129,7 @@ def new_feature(project: Project, description: str, short_name: str | None = Non
     scripts = project.root / WORKFLOW_DIR / "scripts"
     variants = {
         "py": (scripts / "python" / "create_new_feature.py", [sys.executable]),
-        "sh": (scripts / "bash" / "create-new-feature.sh", ["bash"]),
+        "sh": (scripts / "bash" / "create-new-feature.sh", [shutil.which("bash") or "bash"]),  # Windows would pick WSL's System32 stub for a bare name
         "ps": (scripts / "powershell" / "create-new-feature.ps1", ["pwsh", "-NoProfile", "-File"]),
     }
     order = [_script_variant(project.root), "py", "sh", "ps"]

@@ -263,7 +263,8 @@ class Router:
     # plugins (including Cairn's capture) never fire for Cairn's model calls. The CLI manages output length.
     @staticmethod
     def _claude_code_args(model: str, system: str, cached: str, output: str) -> list[str]:
-        args = ["claude", "-p", "--model", model, "--output-format", output, "--setting-sources", "local",
+        # the resolved path: on Windows a bare name misses `claude.cmd` (the npm install) that `which` finds
+        args = [shutil.which("claude") or "claude", "-p", "--model", model, "--output-format", output, "--setting-sources", "local",
                 "--strict-mcp-config", "--tools", "", "--no-session-persistence"]
         if output == "stream-json":
             args += ["--verbose", "--include-partial-messages"]

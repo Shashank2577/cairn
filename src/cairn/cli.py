@@ -1139,6 +1139,12 @@ def uninstall(purge: bool = typer.Option(False, "--purge", help="Also delete .ca
 
 def main() -> None:
     os.environ.setdefault("PYTHONWARNINGS", "ignore")
+    if sys.platform == "win32":  # piped output defaults to the locale code page, which cannot hold ✓ and box glyphs
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError, OSError):
+                pass
     app()
 
 

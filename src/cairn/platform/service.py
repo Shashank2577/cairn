@@ -10,7 +10,6 @@ import getpass
 import json
 import logging
 import re
-import shutil
 import sqlite3
 import threading
 import time
@@ -1072,7 +1071,7 @@ class Platform:
         target = root.resolve()
         if target == base or base not in target.parents:
             return False
-        shutil.rmtree(target, ignore_errors=True)
+        gitops.rmtree(target)
         return True
 
     def delete_project(self, project_id: str, *, purge: bool = True, actor: Principal | None = None) -> None:

@@ -33,6 +33,8 @@ from typing import Iterable, Sequence
 
 import numpy as np
 
+from .. import filelock
+
 log = logging.getLogger("cairn.vectors")
 
 MODEL = "BAAI/bge-small-en-v1.5"
@@ -212,7 +214,7 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
 # ---- cross-process locking -----------------------------------------------------------------------
 class FileLock:
     """Re-entrant lock for one path: a thread lock within this process plus an advisory ``flock`` on
-    the path across processes (best effort where ``fcntl`` is unavailable).
+    the path across processes (``fcntl`` on POSIX, ``msvcrt`` on Windows).
 
     Obtain it with ``file_lock(path)`` — every object guarding the same path in a process shares one
     instance, so nested use (a store and the index inside it) never deadlocks.
@@ -257,27 +259,12 @@ class FileLock:
 
 
 def _flock(fh, timeout: float, path: Path) -> None:
-    try:
-        import fcntl
-    except ImportError:  # Windows: in-process locking only
-        return
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return
-        except BlockingIOError:
-            if time.monotonic() > deadline:
-                raise TimeoutError(f"timed out waiting for {path}")
-            time.sleep(0.01)
+    if not filelock.lock(fh, timeout):
+        raise TimeoutError(f"timed out waiting for {path}")
 
 
 def _funlock(fh) -> None:
-    try:
-        import fcntl
-    except ImportError:
-        return
-    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    filelock.unlock(fh)
 
 
 _file_locks: dict[str, FileLock] = {}

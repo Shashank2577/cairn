@@ -788,7 +788,7 @@ def clean_claude_md(root: str | Path, dry_run: bool = False) -> int:
     print(f"Found {len(files)} context files with auto-generated content{' (dry run)' if dry_run else ''}")
     counts = {"deleted": 0, "cleaned": 0, "errors": 0}
     for p in files:
-        rel = os.path.relpath(p, base)
+        rel = os.path.relpath(p, base).replace(os.sep, "/")
         try:
             result = _clean_single_file(p, dry_run)
         except (OSError, UnicodeDecodeError) as exc:

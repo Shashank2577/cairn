@@ -1786,7 +1786,7 @@ def search_codebase(root_dir: str, query: str, *, max_results: int | None = None
     parts = _query_parts(query)
     to_parse: list[dict] = []
     for path in _walk_dir(root_dir, 20):
-        rel = os.path.relpath(path, root_dir)
+        rel = os.path.relpath(path, root_dir).replace(os.sep, "/")
         if file_pattern and file_pattern.lower() not in rel.lower():
             continue
         content = _safe_read_file(path)
