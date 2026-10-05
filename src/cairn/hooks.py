@@ -116,14 +116,56 @@ def remove_git_hooks(project: Project) -> list[str]:
     return removed
 
 
+def session_panel(cairn) -> str:
+    """What the person sees at session start: one line per layer (map, specs, timeline, memory, sessions,
+    drift), so the memory the agent was just handed is visible too. Pure reads, no model calls."""
+    from .core import ago
+    o = cairn.overview()
+    L = o["layers"]
+    m, s, t, sess = L["map"], L["specs"], L["timeline"], L["sessions"]
+    hubs = ", ".join(h["label"] for h in o["hubs"][:3])
+    lines = [f"▲ cairn · {o['project']} — project memory loaded into this session",
+             f"  Map       {m['files']:,} files · {m['nodes']:,} nodes" + (f" · hubs: {hubs}" if hubs else "")]
+    if s["features"]:
+        spec = f"  Specs     {s['features']} feature{'s' if s['features'] != 1 else ''} · {s['done']}/{s['tasks']} tasks done"
+        if o["active_spec"]:
+            a = o["active_spec"]
+            spec += f" · active: {a['name']} ({a['done']}/{a['total']})"
+        lines.append(spec)
+    if t["commits"]:
+        lines.append(f"  Timeline  {t['commits']} commits · {t['warnings']} risky · {t['facts']} facts")
+    mems = cairn.brain.memories(limit=200)
+    if mems:
+        kinds: dict[str, int] = {}
+        for mem in mems:
+            kinds[mem["kind"]] = kinds.get(mem["kind"], 0) + 1
+        lines.append(f"  Memory    {len(mems)} memories ("
+                     + ", ".join(f"{n} {k}s" for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])) + ")")
+        lines += [f"            [{mem['kind']}] {' '.join(str(mem['text']).split())[:90]}"
+                  for mem in [x for x in mems if x["kind"] in ("decision", "convention", "gotcha")][:3]]
+    recent = cairn.brain.events(kinds=["session"], limit=3)
+    if sess["observations"] or recent:
+        lines.append(f"  Sessions  {sess['observations']} observations in {sess['sessions']} sessions")
+        lines += [f"            {e['title'][:90]} ({ago(e['ts'])})" for e in recent]
+    if o["drift"]:
+        lines.append(f"  Drift     {o['drift']} open findings → cairn drift")
+    return "\n".join(lines)
+
+
 def session_start(cairn) -> str:
-    """Claude Code SessionStart hook: inject a compact project brief as additional context."""
+    """Claude Code SessionStart hook: inject a compact project brief as additional context, and show the
+    person a per-layer panel of what that memory holds."""
     brief = cairn.brief(max_tokens=550)
     # The briefing is context Cairn adds to every session: count it, with no file baseline.
     with contextlib.suppress(sqlite3.Error):
         cairn.brain.log_query("hook", "brief", "session start", sum(estimate_tokens(ln) for ln in brief.splitlines()),
                               None)
-    return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": brief}})
+    out: dict = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": brief}}
+    try:
+        out["systemMessage"] = session_panel(cairn)
+    except Exception:  # noqa: BLE001 - the visible panel is a courtesy; it must never cost the agent its brief
+        pass
+    return json.dumps(out)
 
 
 # ---- ambient context (the enforced read path) --------------------------------------------------------------

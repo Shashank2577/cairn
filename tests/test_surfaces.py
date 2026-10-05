@@ -62,6 +62,22 @@ def test_hooks_output(cairn):
     assert "cairn" in hooks.statusline(cairn, "{}")
 
 
+def test_session_start_shows_the_person_every_layer(cairn):
+    cairn.remember("Refunds always go through the payment gateway", kind="decision")
+    data = json.loads(hooks.session_start(cairn))
+    panel = data["systemMessage"]  # the visible part; additionalContext is what the model gets
+    assert panel.startswith("▲ cairn")
+    assert "Map " in panel and "files" in panel
+    assert "Memory " in panel and "[decision] Refunds always go through the payment gateway" in panel
+    assert "Refunds" in data["hookSpecificOutput"]["additionalContext"]
+
+
+def test_session_start_keeps_the_brief_when_the_panel_fails(cairn, monkeypatch):
+    monkeypatch.setattr(hooks, "session_panel", lambda c: 1 / 0)
+    data = json.loads(hooks.session_start(cairn))
+    assert "systemMessage" not in data and data["hookSpecificOutput"]["additionalContext"]
+
+
 # ---- ambient context (the enforced read path) --------------------------------------------------------------
 PROMPT = "fix the double charge in PaymentService"
 
