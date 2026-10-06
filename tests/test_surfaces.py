@@ -105,6 +105,30 @@ def test_session_start_picks_up_where_the_last_session_left_off(cairn):
     assert "gotcha" in new and "Partial refunds must keep the original idempotency key" in new
 
 
+def test_session_start_hook_works_while_a_sync_holds_the_write_lock(cairn):
+    import sqlite3
+    writer = sqlite3.connect(str(cairn.project.db_path), timeout=0)
+    writer.execute("BEGIN IMMEDIATE")  # what a running sync holds for its whole write transaction
+    try:
+        r = CliRunner().invoke(app, ["hook", "session-start"])
+    finally:
+        writer.rollback()
+        writer.close()
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
+def test_agent_hooks_never_fail_the_session(cairn, monkeypatch):
+    import cairn.core as core
+
+    def broken(*a, **k):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(core.Cairn, "__init__", broken)
+    for event in ("session-start", "ambient"):
+        r = CliRunner().invoke(app, ["hook", event], input="{}")
+        assert r.exit_code == 0 and r.stdout == "", (event, r.output)
+
+
 def test_session_start_keeps_the_brief_when_the_panel_fails(cairn, monkeypatch):
     monkeypatch.setattr(hooks, "session_panel", lambda c: 1 / 0)
     data = json.loads(hooks.session_start(cairn))

@@ -1080,13 +1080,17 @@ def hook(event: str):
         return
     if event == "git":
         sync.spawn_background(proj)
-    elif event == "session-start":
-        print(hooks.session_start(Cairn(proj)))
-    elif event == "ambient":
-        data = sys.stdin.read() if not sys.stdin.isatty() else ""
-        out = hooks.ambient(Cairn(proj), data)
-        if out:  # empty stdout injects nothing (UserPromptSubmit adds any stdout to the model's context)
-            print(json.dumps(out))
+        return
+    try:  # agent hooks: a busy or broken store costs this session its context, never a hook error
+        if event == "session-start":
+            print(hooks.session_start(Cairn(proj)))
+        elif event == "ambient":
+            data = sys.stdin.read() if not sys.stdin.isatty() else ""
+            out = hooks.ambient(Cairn(proj), data)
+            if out:  # empty stdout injects nothing (UserPromptSubmit adds any stdout to the model's context)
+                print(json.dumps(out))
+    except Exception as exc:  # noqa: BLE001
+        print(f"cairn: {event} hook skipped ({exc})", file=sys.stderr)
 
 
 @app.command()

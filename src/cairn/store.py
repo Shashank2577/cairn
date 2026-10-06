@@ -95,7 +95,9 @@ class Brain:
         self.db.row_factory = sqlite3.Row
         with self._lock:
             self.db.executescript(SCHEMA)
-            self.set_kv("schema_version", str(SCHEMA_VERSION))
+            # write only on change: readers (agent hooks) must not queue behind a sync's write transaction
+            if self.get_kv("schema_version") != str(SCHEMA_VERSION):
+                self.set_kv("schema_version", str(SCHEMA_VERSION))
 
     # ---- plumbing -------------------------------------------------------------------------------
     @contextmanager
