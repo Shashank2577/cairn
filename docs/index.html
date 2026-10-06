@@ -2,371 +2,1154 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Cairn: shared memory for every coding agent</title>
-<meta name="description" content="Cairn gives every coding agent your team uses the same memory: what the code does, why it is that way, what was tried, and where the last session stopped. It runs on your machine and keeps your code there.">
-<meta property="og:title" content="Cairn: shared memory for every coding agent">
-<meta property="og:description" content="Your agents forget between sessions. Cairn remembers for them, across Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode and Antigravity.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cellipse cx='16' cy='26' rx='12' ry='4.6' fill='%231c2622'/%3E%3Cellipse cx='16.6' cy='18.2' rx='8.6' ry='4' fill='%231c2622'/%3E%3Cellipse cx='15.6' cy='11.2' rx='5.6' ry='3.2' fill='%231c2622'/%3E%3Cellipse cx='16.2' cy='5.6' rx='3.2' ry='2.3' fill='%23d08a2e'/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cairn: memory for coding agents</title>
+<meta name="description" content="Cairn is an open-source memory layer for coding agents. It remembers your code, specs, history, decisions and past sessions, hands them to every agent your team uses, and keeps your code on your machine.">
+<meta name="theme-color" content="#EDEFEA">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cellipse cx='16' cy='26' rx='12' ry='4.6' fill='%23141B22'/%3E%3Cellipse cx='16.6' cy='18.2' rx='8.6' ry='4' fill='%23141B22'/%3E%3Cellipse cx='15.6' cy='11.2' rx='5.6' ry='3.2' fill='%23141B22'/%3E%3Cellipse cx='16.2' cy='5.6' rx='3.2' ry='2.3' fill='%23F2C200' stroke='%23141B22' stroke-width='1'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,600;0,700;1,400&family=Big+Shoulders+Display:wght@600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<script>(function(d){d.classList.add('js');try{var t=localStorage.getItem('cairn-theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t)}catch(e){}})(document.documentElement)</script>
 <style>
-/* Layout: trail metaphor. A left-aligned reading column with a granite "terminal" slab as the hero proof,
-   then sections that alternate prose and evidence. One bold element per screen: the panel, the data map, the plans. */
 :root{
-  --bg:#eef0ec; --surface:#f8f9f6; --slab:#1c2622; --slab-fg:#dfe6e1; --slab-dim:#8fa097;
-  --fg:#16201c; --muted:#56625b; --rule:#d3d8d1;
-  --accent:#2f6b47; --accent-soft:#dce9df; --marker:#d08a2e; --marker-soft:#f5e6cf;
-  --display:"Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
-  --body:"Public Sans", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color-scheme: light;
+  --paper:#EDEFEA; --sheet:#F7F8F4; --ink:#141B22; --ink2:#3A4550; --muted:#56616B; --rule:#C8CEC9; --rule2:#DCE0DB;
+  --contour:rgba(20,27,34,.10); --contour2:rgba(20,27,34,.2);
+  --blaze:#F2C200; --on-blaze:#141B22; --route:#1D55B0; --warn:#B3361F; --stone:#26303A; --stone-hi:#3A4651; --stone-ink:#EDEFEA;
+  --term:#121920; --term2:#1A232C; --t-fg:#D8DED8; --t-dim:#86919A; --t-y:#F2C200; --t-b:#8DB3F2; --t-r:#F29179; --t-g:#9CCB8A; --t-k:#C9B98A;
+  --shadow:0 1px 0 rgba(20,27,34,.04),0 18px 40px -24px rgba(20,27,34,.35);
+  --display:"Big Shoulders Display","Barlow Condensed","Arial Narrow",Impact,sans-serif;
+  --body:"Atkinson Hyperlegible Next","Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --gut:clamp(16px,4vw,44px); --max:1220px;
+  color-scheme:light;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#111715; --surface:#172019; --slab:#0b100e; --slab-fg:#dfe6e1; --slab-dim:#7f9086;
-  --fg:#e3e9e5; --muted:#9aa8a0; --rule:#28322d;
-  --accent:#7fc29a; --accent-soft:#1d2d23; --marker:#e3a552; --marker-soft:#33281a; color-scheme:dark}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#0E1317; --sheet:#151C22; --ink:#E5E9E4; --ink2:#BCC4C7; --muted:#929DA5; --rule:#2B353D; --rule2:#212A31;
+  --contour:rgba(229,233,228,.07); --contour2:rgba(229,233,228,.15);
+  --route:#8CB0EE; --warn:#F2907A; --stone:#C7CDC8; --stone-hi:#DDE2DD; --stone-ink:#141B22;
+  --term:#0A0E12; --term2:#121920; --shadow:0 0 0 1px #222c34,0 18px 40px -24px rgba(0,0,0,.7); color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#111715; --surface:#172019; --slab:#0b100e; --slab-fg:#dfe6e1; --slab-dim:#7f9086;
-  --fg:#e3e9e5; --muted:#9aa8a0; --rule:#28322d;
-  --accent:#7fc29a; --accent-soft:#1d2d23; --marker:#e3a552; --marker-soft:#33281a; color-scheme:dark}
-
-*{box-sizing:border-box}
-html{scroll-behavior:smooth}
-@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
-body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 var(--body);padding-inline:20px}
-a{color:var(--accent);text-underline-offset:3px}
-a:focus-visible,button:focus-visible{outline:2px solid var(--marker);outline-offset:3px;border-radius:4px}
-.page{max-width:1080px;margin:0 auto}
-.col{max-width:64ch}
-h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
-h1{font-weight:800;font-size:clamp(40px,7vw,76px);line-height:.98;letter-spacing:-.025em}
-h2{font-weight:800;font-size:clamp(28px,4vw,40px);line-height:1.06;letter-spacing:-.015em}
-h3{font-weight:700;font-size:19px;line-height:1.25}
-p{margin:0}
-.eyebrow{font:500 12.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
-code,.mono{font-family:var(--mono);font-size:.9em}
-
+  --paper:#0E1317; --sheet:#151C22; --ink:#E5E9E4; --ink2:#BCC4C7; --muted:#929DA5; --rule:#2B353D; --rule2:#212A31;
+  --contour:rgba(229,233,228,.07); --contour2:rgba(229,233,228,.15);
+  --route:#8CB0EE; --warn:#F2907A; --stone:#C7CDC8; --stone-hi:#DDE2DD; --stone-ink:#141B22;
+  --term:#0A0E12; --term2:#121920; --shadow:0 0 0 1px #222c34,0 18px 40px -24px rgba(0,0,0,.7); color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;scroll-padding-top:76px}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 17px/1.62 var(--body);overflow-x:hidden;text-rendering:optimizeLegibility}
+img{max-width:100%;height:auto;display:block}
+a{color:var(--route);text-decoration-thickness:1px;text-underline-offset:3px;transition:text-decoration-thickness .15s}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:2px solid var(--route);outline-offset:3px;border-radius:2px}
+code,kbd,pre{font-family:var(--mono)}
+p code,li code,td code,dd code{font-size:.84em;background:var(--rule2);padding:.08em .35em;border-radius:3px;white-space:nowrap}
+@media (max-width:560px){p code,li code,td code,dd code{white-space:normal;overflow-wrap:anywhere}}
+h1,h2,h3{margin:0;font-weight:700}
+p{margin:0 0 1em}
+.wrap{max-width:var(--max);margin:0 auto;padding-inline:var(--gut)}
+.skip{position:absolute;left:-999px;top:8px;background:var(--blaze);color:var(--on-blaze);padding:8px 12px;z-index:50}
+.skip:focus{left:8px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.glyph{width:24px;height:24px;color:var(--ink);flex:none}
 /* nav */
-nav{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:22px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:10px;font:800 22px/1 var(--display);color:var(--fg);text-decoration:none;letter-spacing:-.01em}
-.brand svg{width:28px;height:28px}
-.navlinks{display:flex;gap:22px;flex-wrap:wrap;font-size:15px}
-.navlinks a{color:var(--muted);text-decoration:none}
-.navlinks a:hover{color:var(--fg)}
-
-/* hero */
-.hero{display:grid;grid-template-columns:minmax(0,1fr);gap:36px;padding-block:40px 72px}
-.hero-copy{display:flex;flex-direction:column;gap:22px}
-.hero .lede{font-size:clamp(18px,2.1vw,21px);color:var(--muted);max-width:56ch}
-.hero .lede strong{color:var(--fg);font-weight:600}
-.cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-.btn{display:inline-flex;align-items:center;gap:8px;font:600 15px/1 var(--body);padding:13px 18px;border-radius:8px;text-decoration:none;border:1px solid transparent;cursor:pointer}
-.btn-primary{background:var(--fg);color:var(--bg)}
-.btn-ghost{border-color:var(--rule);color:var(--fg);background:transparent}
-.install{display:flex;align-items:center;gap:0;border:1px solid var(--rule);border-radius:8px;background:var(--surface);max-width:100%;min-width:0}
-.install code{padding:12px 14px;white-space:nowrap;overflow-x:auto;min-width:0;font-size:14px}
-.install button{border:0;border-left:1px solid var(--rule);background:transparent;color:var(--muted);font:500 13px var(--mono);padding:12px 14px;cursor:pointer;flex:none}
-.install button:hover{color:var(--fg)}
-.agents-line{font-size:14.5px;color:var(--muted)}
-.agents-line b{color:var(--fg);font-weight:600}
-
-/* the slab: real session-start panel */
-.slab{background:var(--slab);color:var(--slab-fg);border-radius:12px;padding:0;overflow:hidden;min-width:0;box-shadow:0 1px 0 rgba(0,0,0,.04),0 24px 48px -28px rgba(10,20,15,.45)}
-.slab-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);font:500 12px var(--mono);color:var(--slab-dim)}
-.dots{display:flex;gap:6px}.dots i{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.14);display:block}
-.slab pre{margin:0;padding:18px 18px 20px;font:13.5px/1.62 var(--mono);overflow-x:auto;white-space:pre}
-.slab .h{color:#fff;font-weight:500}.slab .k{color:#e3a552}.slab .g{color:#8fd1a8}.slab .d{color:var(--slab-dim)}
-.caption{font-size:13.5px;color:var(--muted);margin-top:10px}
-
-section{padding-block:72px;border-top:1px solid var(--rule)}
-.sec-head{display:flex;flex-direction:column;gap:14px;margin-bottom:34px}
-.sec-head p{color:var(--muted);font-size:18px;max-width:60ch}
-
-/* problem */
-.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:28px}
-.ledger{border:1px solid var(--rule);border-radius:10px;background:var(--surface);overflow:hidden;min-width:0}
-.ledger table{width:100%;border-collapse:collapse;font-size:15px;font-variant-numeric:tabular-nums}
-.ledger th,.ledger td{padding:11px 14px;border-bottom:1px solid var(--rule);text-align:left}
-.ledger th{font:500 11.5px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-.ledger td.n{text-align:right;font-family:var(--mono);font-size:14px}
-.ledger tr:last-child td{border-bottom:0}
-
-/* remembers */
-.remembers{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
-.rem{background:var(--surface);padding:22px 22px 24px;display:flex;flex-direction:column;gap:10px;min-width:0}
-.rem .q{font:500 13px/1.3 var(--mono);color:var(--marker)}
-.rem p{color:var(--muted);font-size:15.5px}
-.rem .tool{font:12.5px var(--mono);color:var(--muted);margin-top:auto;padding-top:6px}
-
-/* steps */
-.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px;counter-reset:s}
-.step{display:flex;flex-direction:column;gap:12px;min-width:0}
-.step .num{font:800 15px/1 var(--display);width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
-.step p{color:var(--muted);font-size:15.5px}
-.term{background:var(--slab);color:var(--slab-fg);border-radius:8px;padding:12px 14px;font:13.5px/1.6 var(--mono);overflow-x:auto;white-space:pre;min-width:0}
-.term .d{color:var(--slab-dim)}
-
-/* where data lives */
-.tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}
-.tier{border:1px solid var(--rule);border-radius:10px;padding:20px;background:var(--surface);display:flex;flex-direction:column;gap:10px;min-width:0}
-.tier .where{font:500 12px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
-.tier ul{margin:0;padding-left:1.1em;color:var(--muted);font-size:15.5px}
-.tier li{margin:4px 0}
-.badge{display:inline-block;font:500 11.5px/1 var(--mono);padding:5px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);align-self:flex-start}
-.badge.soon{background:var(--marker-soft);color:var(--marker)}
-
-/* agents */
-.agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
-.agent{border:1px solid var(--rule);border-radius:10px;padding:14px 16px;background:var(--surface);display:flex;flex-direction:column;gap:6px;min-width:0}
-.agent b{font-family:var(--display);font-size:17px}
-.agent span{font-size:13.5px;color:var(--muted)}
-
-/* plans */
-.plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;align-items:start}
-.plan{border:1px solid var(--rule);border-radius:12px;padding:24px;background:var(--surface);display:flex;flex-direction:column;gap:14px;min-width:0}
-.plan.main{border-color:var(--fg);box-shadow:0 0 0 1px var(--fg)}
-.plan .price{font:800 30px/1 var(--display)}
-.plan .price small{font:500 14px var(--body);color:var(--muted)}
-.plan ul{margin:0;padding-left:1.1em;color:var(--muted);font-size:15.5px}
-.plan li{margin:5px 0}
-
-footer{border-top:1px solid var(--rule);padding-block:36px 56px;display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;color:var(--muted);font-size:14.5px}
-footer nav{padding:0;gap:18px}
-footer a{color:var(--muted)}
-
-@media (min-width:980px){
-  .hero{grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);align-items:center}
+.nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--paper) 88%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid transparent;transition:border-color .3s}
+.nav.scrolled{border-bottom-color:var(--rule)}
+.nav .wrap{display:flex;align-items:center;gap:22px;height:60px}
+.brand{display:flex;align-items:center;gap:9px;color:var(--ink);text-decoration:none;font:800 25px/1 var(--display);letter-spacing:.01em}
+.nav nav{margin-left:auto}
+.nav ul{display:flex;gap:22px;list-style:none;margin:0;padding:0}
+.nav ul a{color:var(--ink2);text-decoration:none;font-size:15px}
+.nav ul a:hover{color:var(--ink);text-decoration:underline}
+.nav .gh{font:600 13px/1 var(--mono);color:var(--ink);text-decoration:none;border:1px solid var(--ink);padding:9px 12px;border-radius:2px}
+.nav .gh:hover{background:var(--ink);color:var(--paper)}
+.tgl{appearance:none;background:none;border:1px solid var(--rule);color:var(--ink);width:36px;height:34px;border-radius:2px;cursor:pointer;display:grid;place-items:center}
+.tgl:hover{border-color:var(--ink)}
+.tgl svg{width:16px;height:16px}
+@media (max-width:900px){.nav ul{display:none}.nav .gh{margin-left:auto}}
+/* section scaffolding */
+.sec{padding-block:clamp(76px,10vw,140px);position:relative}
+.sec+.sec{border-top:1px solid var(--rule)}
+.head{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,9fr);gap:24px clamp(24px,4vw,56px);margin-bottom:clamp(40px,6vw,72px)}
+.plate{display:inline-flex;align-items:center;gap:10px;align-self:start;background:var(--blaze);color:var(--on-blaze);font:600 11.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;padding:8px 22px 8px 10px;clip-path:polygon(0 0,calc(100% - 11px) 0,100% 50%,calc(100% - 11px) 100%,0 100%);white-space:nowrap;justify-self:start}
+.plate b{font-weight:600;opacity:.62}
+h2{font:700 clamp(38px,5.4vw,72px)/.95 var(--display);letter-spacing:-.005em;text-wrap:balance;margin-bottom:20px}
+.lede{font-size:clamp(18px,1.6vw,21px);line-height:1.55;color:var(--ink2);max-width:62ch;margin:0}
+@media (max-width:760px){.head{grid-template-columns:minmax(0,1fr)}}
+.kicker{font:600 11.5px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+/* reveal */
+.js .rv{opacity:0;transform:translateY(16px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1);transition-delay:calc(var(--d,0)*80ms)}
+.js .rv.in{opacity:1;transform:none}
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:10px;font:600 15px/1 var(--body);padding:14px 18px;border-radius:2px;text-decoration:none;border:1px solid var(--ink);color:var(--ink);transition:transform .15s,background .15s,color .15s}
+.btn:hover{transform:translateY(-1px)}
+.btn.pri{background:var(--ink);color:var(--paper)}
+.btn.pri:hover{background:var(--route);border-color:var(--route)}
+.btn .ar{transition:transform .2s}
+.btn:hover .ar{transform:translateX(3px)}
+/* code snippet with copy */
+.snip{background:var(--term);color:var(--t-fg);border-radius:3px;font:400 14px/1.75 var(--mono);position:relative;box-shadow:var(--shadow)}
+.snip ol{list-style:none;margin:0;padding:14px 76px 14px 16px}
+.snip li{display:flex;gap:10px;align-items:baseline;min-width:0}
+.snip li::before{content:"$";color:var(--t-y);flex:none}
+.snip li span{overflow-wrap:anywhere;min-width:0}
+.snip .cm{color:var(--t-dim)}
+.copy{position:absolute;top:8px;right:8px;appearance:none;border:1px solid #3a4651;background:var(--term2);color:var(--t-fg);font:600 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:7px 9px;border-radius:2px;cursor:pointer;transition:border-color .15s,color .15s}
+.copy:hover{border-color:var(--t-y);color:var(--t-y)}
+.copy.ok{border-color:var(--t-g);color:var(--t-g)}
+/* ===== HERO ===== */
+.hero{position:relative;padding:clamp(40px,6vw,84px) 0 clamp(64px,8vw,110px);overflow:hidden}
+.topo{position:absolute;pointer-events:none;fill:none;stroke:var(--contour);stroke-width:1.1;vector-effect:non-scaling-stroke}
+.topo .ix{stroke:var(--contour2);stroke-width:1.5}
+.hero .topo{right:-12vw;top:-6vw;width:min(980px,90vw);height:auto}
+.js .hero .topo{animation:drift 60s ease-in-out infinite alternate}
+@keyframes drift{to{transform:translate(-26px,14px) rotate(-2deg)}}
+.hgrid{display:grid;grid-template-columns:minmax(0,6.5fr) minmax(0,5.5fr);gap:clamp(28px,5vw,72px);align-items:start;position:relative}
+.eyebrow{display:flex;flex-wrap:wrap;gap:8px 18px;margin:0 0 26px;font:600 12px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.eyebrow span+span::before{content:"";display:inline-block;width:6px;height:6px;background:var(--blaze);margin:0 12px 1px 0;outline:1px solid var(--ink);outline-offset:-1px;transform:rotate(45deg)}
+h1{font:800 clamp(48px,8.2vw,118px)/.9 var(--display);letter-spacing:-.012em;margin:0 0 clamp(28px,4vw,48px);max-width:12.5em;position:relative;text-wrap:balance}
+h1 .l{display:block}
+h1 .l2{color:var(--muted)}
+h1 mark{background:linear-gradient(transparent 84%,var(--blaze) 84% 96%,transparent 96%);color:var(--ink);padding:0 .03em}
+.hsub{font-size:clamp(18px,1.55vw,21px);line-height:1.55;color:var(--ink2);max-width:40em;margin:0}
+.start .kicker{margin-bottom:12px;display:block}
+.start .snip{margin-bottom:18px}
+.ctas{display:flex;flex-wrap:wrap;gap:12px}
+.js .h-in{opacity:0;transform:translateY(18px);animation:hin .9s cubic-bezier(.2,.7,.2,1) forwards;animation-delay:calc(var(--d,0)*110ms + 80ms)}
+@keyframes hin{to{opacity:1;transform:none}}
+/* trail sheet: terminal + annotations */
+.sheet{display:grid;grid-template-columns:minmax(0,9.3fr) minmax(0,2.7fr);gap:clamp(20px,3vw,40px);margin-top:clamp(48px,6vw,80px);position:relative}
+.term{background:var(--term);color:var(--t-fg);border-radius:4px;box-shadow:var(--shadow);overflow:hidden;min-width:0}
+.term .bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--term2);border-bottom:1px solid #222c35;font:400 12px/1 var(--mono);color:var(--t-dim)}
+.term .bar i{width:10px;height:10px;border-radius:50%;background:#333f4a;display:block}
+.term .bar span{margin-left:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.term pre{margin:0;padding:16px 0 18px;font:400 12.2px/1.62 var(--mono);overflow-x:auto;tab-size:4;scrollbar-width:thin}
+.term pre:focus-visible{outline-offset:-3px}
+.ln{display:block;padding:0 18px 0 34px;position:relative;white-space:pre;min-height:1.62em}
+.ln[data-a]::before{content:attr(data-a);position:absolute;left:9px;top:.2em;width:16px;height:16px;border-radius:50%;background:var(--t-y);color:#141B22;font:700 10px/16px var(--mono);text-align:center}
+.ln.cmd{color:var(--t-fg)}
+.p{color:var(--t-y)}
+.y{color:var(--t-y)} .b{color:#fff;font-weight:600} .h{color:#fff;font-weight:600} .d{color:var(--t-dim)} .c{color:var(--t-b)} .g{color:var(--t-g)} .k{color:var(--t-k)} .r{color:var(--t-r)}
+.caret{display:inline-block;width:.6em;height:1.1em;background:var(--t-y);vertical-align:-.15em;margin-left:1px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.js .typing .ln{opacity:0;transform:translateX(-6px);transition:opacity .28s ease,transform .28s ease}
+.js .typing .ln.on{opacity:1;transform:none}
+.notes{list-style:none;margin:0;padding:0;counter-reset:n;align-self:start;display:grid;gap:18px;padding-top:40px}
+.notes li{position:relative;padding-left:32px;font-size:14.5px;line-height:1.5;color:var(--ink2)}
+.notes li b{display:block;color:var(--ink);font-weight:700;font-size:15.5px;margin-bottom:2px}
+.notes li::before{content:attr(data-n);position:absolute;left:0;top:1px;width:20px;height:20px;border-radius:50%;background:var(--blaze);color:var(--on-blaze);font:700 11px/20px var(--mono);text-align:center;outline:1px solid var(--ink);outline-offset:-1px}
+.js .sheet.typing .notes li{opacity:.25;transition:opacity .5s}
+.js .sheet.typing .notes li.on{opacity:1}
+.cap{font-size:13.5px;line-height:1.5;color:var(--muted);margin:14px 0 0;max-width:70ch}
+.cap code{font-size:.9em}
+@media (max-width:1180px){.sheet{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:1000px){.hgrid{grid-template-columns:minmax(0,1fr)}.notes{padding-top:0;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
+@media (max-width:560px){.term pre{font-size:11.4px}.ln{padding-left:30px}}
+/* proof strip */
+.proof{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-top:1px solid var(--ink);border-bottom:1px solid var(--rule);margin-top:clamp(48px,6vw,72px)}
+.proof div{padding:18px 18px 18px 0}
+.proof div+div{padding-left:18px;border-left:1px solid var(--rule)}
+.proof strong{display:block;font:700 clamp(30px,3.4vw,44px)/1 var(--display)}
+.proof span{display:block;font-size:13.5px;color:var(--muted);margin-top:6px;line-height:1.35}
+.proof-cap{font:400 12px/1.4 var(--mono);color:var(--muted);margin-top:10px}
+@media (max-width:900px){.proof{grid-template-columns:repeat(2,minmax(0,1fr))}.proof div{padding:16px 12px 16px 0;border-left:0!important;border-bottom:1px solid var(--rule2)}.proof div:nth-child(even){padding-left:14px;border-left:1px solid var(--rule)!important}.proof div:last-child{grid-column:1/-1;border-bottom:0}}
+/* ===== PROBLEM ===== */
+.fails{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 clamp(28px,5vw,72px);counter-reset:f;list-style:none;margin:0;padding:0}
+.fails li{display:grid;grid-template-columns:64px minmax(0,1fr);gap:16px;padding:26px 0;border-top:1px solid var(--rule)}
+.fails li::before{counter-increment:f;content:counter(f,decimal-leading-zero);font:700 44px/.9 var(--display);color:var(--rule);transition:color .3s}
+.fails li:hover::before{color:var(--warn)}
+.fails h3{font:700 19px/1.3 var(--body);margin-bottom:6px}
+.fails p{margin:0;color:var(--ink2);font-size:16px}
+@media (max-width:760px){.fails{grid-template-columns:minmax(0,1fr)}.fails li{grid-template-columns:48px minmax(0,1fr)}.fails li::before{font-size:34px}}
+.contrast{margin-top:clamp(40px,5vw,64px);display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(24px,4vw,56px);align-items:center}
+.bars{display:grid;gap:14px}
+.bar-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px;align-items:center;font-size:14.5px}
+.bar-row .tr{height:26px;background:var(--rule2);position:relative;overflow:hidden}
+.bar-row .fl{position:absolute;inset:0;background:var(--ink);transform-origin:left;transform:scaleX(var(--w))}
+.bar-row.c .fl{background:var(--blaze)}
+.bar-row.c .tr::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--blaze);box-shadow:0 0 0 1px var(--ink)}
+.bar-row b{font:700 22px/1 var(--display);display:block}
+.js .bars .fl{transform:scaleX(0);transition:transform 1.4s cubic-bezier(.2,.7,.2,1)}
+.js .bars.in .fl{transform:scaleX(var(--w))}
+.contrast .big{font:700 clamp(30px,3.6vw,48px)/1.02 var(--display);margin:0 0 10px}
+@media (max-width:760px){.contrast{grid-template-columns:minmax(0,1fr)}.bar-row{grid-template-columns:110px minmax(0,1fr)}}
+/* ===== BEFORE / AFTER ===== */
+.ba{border-top:1.5px solid var(--ink)}
+.ba-h,.ba-r{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,4fr) minmax(0,5fr);gap:clamp(14px,3vw,40px);padding:16px 0;border-bottom:1px solid var(--rule)}
+.ba-h{font:600 11px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:12px 0}
+.ba-r b{font:700 clamp(19px,1.8vw,23px)/1.1 var(--display)}
+.ba-r span{font-size:15.5px}
+.ba-r span:nth-child(2){color:var(--muted);padding-left:16px;border-left:3px solid var(--rule)}
+.ba-r span:nth-child(3){color:var(--ink);padding-left:16px;border-left:3px solid var(--blaze);transition:border-color .2s}
+.ba-r:hover span:nth-child(3){border-left-color:var(--ink)}
+@media (max-width:760px){.ba-h{display:none}.ba-r{grid-template-columns:minmax(0,1fr);gap:6px}.ba-r span:nth-child(2)::before{content:"Today: ";font-weight:600}.ba-r span:nth-child(3)::before{content:"With Cairn: ";font-weight:700}}
+/* ===== LIFECYCLE LOOP ===== */
+.loop{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(24px,5vw,72px);align-items:start}
+.loopfig{position:sticky;top:96px}
+#loopsvg{width:100%;max-width:470px;height:auto;overflow:visible}
+#loopsvg .ring{fill:none;stroke:var(--ink);stroke-width:1.5;stroke-dasharray:2 7}
+#loopsvg .ticks2 path{stroke:var(--ink);stroke-width:1.5;fill:none}
+#loopsvg .run{fill:var(--blaze);stroke:var(--ink);stroke-width:1.5}
+#runner{transform-origin:230px 230px;transform:rotate(var(--rot,0deg))}
+#loopsvg .hub circle{fill:var(--sheet);stroke:var(--ink);stroke-width:1.5}
+#loopsvg .hubg{color:var(--ink)}
+#loopsvg .h1t{font:800 26px var(--display);fill:var(--ink);text-anchor:middle}
+#loopsvg .h2t{font:600 9.5px var(--mono);letter-spacing:.06em;fill:var(--muted);text-anchor:middle;text-transform:uppercase}
+.node rect{fill:var(--paper);stroke:var(--ink);stroke-width:1.5;transition:fill .3s}
+.node text{font:700 17px var(--display);fill:var(--ink);text-anchor:middle;letter-spacing:.02em}
+.node .ni{font:600 10px var(--mono);fill:var(--muted)}
+.node.on rect{fill:var(--blaze)}
+.node.on text,.node.on .ni{fill:#141B22}
+.stages{list-style:none;margin:0;padding:0;counter-reset:st}
+.stages li{padding:16px 0 16px 46px;border-top:1px solid var(--rule);position:relative;transition:background .3s}
+.stages li::before{counter-increment:st;content:counter(st);position:absolute;left:0;top:16px;width:28px;height:28px;border:1.5px solid var(--ink);font:800 16px/25px var(--display);text-align:center;transition:background .3s}
+.stages li.on::before{background:var(--blaze);color:#141B22}
+.stages .sw{font:700 25px/1 var(--display);margin:0 0 6px;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.stages .sw span{font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.stages p{margin:0;font-size:15.5px;color:var(--ink2)}
+.poss-h{font:700 clamp(28px,3vw,40px)/1 var(--display);margin:clamp(48px,6vw,80px) 0 18px}
+.poss{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 clamp(20px,3vw,40px)}
+.poss li{border-top:1.5px solid var(--ink);padding:14px 0 22px;font:600 clamp(17px,1.5vw,19px)/1.35 var(--body)}
+@media (max-width:860px){.loop{grid-template-columns:minmax(0,1fr)}.loopfig{position:relative;top:0;max-width:380px}.poss{grid-template-columns:minmax(0,1fr)}}
+@media (min-width:861px) and (max-width:1100px){.poss{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* ===== WHY NOW ===== */
+.why3{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(20px,3vw,44px)}
+.why3 li{border-top:3px solid var(--ink);padding-top:16px}
+.why3 h3{font:700 clamp(23px,2.2vw,29px)/1.06 var(--display);margin:10px 0 12px}
+.why3 p{font-size:15.5px;color:var(--ink2);margin:0}
+@media (max-width:860px){.why3{grid-template-columns:minmax(0,1fr)}}
+/* ===== LAYERS (scroll-stacked) ===== */
+.layers{display:grid;grid-template-columns:minmax(0,4.4fr) minmax(0,7.6fr);gap:clamp(24px,5vw,72px)}
+.stackwrap{position:sticky;top:96px;align-self:start}
+.stack{width:100%;max-width:360px;height:auto;overflow:visible}
+.stack .gl{stroke:var(--contour2);fill:none}
+.st ellipse.hi{fill:var(--stone-hi)}
+.st ellipse.bd{fill:var(--stone)}
+.st text{font:600 11px var(--mono);letter-spacing:.12em;fill:var(--stone-ink);text-anchor:middle}
+.st.top ellipse.bd{fill:var(--blaze);stroke:var(--ink);stroke-width:1.2}
+.st.top ellipse.hi{fill:#FFE25C}
+.st.top text{fill:#141B22}
+.js .stack .st{opacity:0;transform:translateY(-46px);transition:opacity .45s ease,transform .75s cubic-bezier(.3,1.35,.5,1)}
+.js .stack .st.on{opacity:1;transform:none}
+.stack-cap{font:400 12.5px/1.5 var(--mono);color:var(--muted);margin-top:14px;max-width:34ch}
+.layer{padding:0 0 clamp(48px,7vw,88px);min-height:min(56vh,520px)}
+.layer:last-child{min-height:0;padding-bottom:0}
+.layer .lno{font:600 12px/1 var(--mono);letter-spacing:.09em;color:var(--muted);text-transform:uppercase;display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.layer .lno::after{content:"";height:1px;background:var(--rule);flex:1}
+.layer h3{font:800 clamp(44px,5vw,68px)/.9 var(--display);margin-bottom:6px}
+.layer .q{font:600 clamp(20px,2vw,25px)/1.25 var(--display);color:var(--route);margin:0 0 18px;letter-spacing:.01em}
+.layer p{max-width:60ch;color:var(--ink2)}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;border-top:1px solid var(--rule);margin:22px 0 0;font-size:14.5px}
+.facts div{padding:12px 14px 0 0}
+.facts div+div{padding-left:14px;border-left:1px solid var(--rule2)}
+.facts dt{font:600 11px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.facts dd{margin:0;color:var(--ink)}
+.shot{margin:26px 0 0;border:1px solid var(--rule);background:var(--sheet);padding:8px;box-shadow:var(--shadow)}
+.shot img{width:100%}
+.shot figcaption{font-size:13px;color:var(--muted);padding:10px 4px 2px}
+.shot.small{max-width:360px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .shot img{filter:brightness(.86)}}
+:root[data-theme="dark"] .shot img{filter:brightness(.86)}
+.fact-line{font:400 13px/1.55 var(--mono);background:var(--sheet);border-left:3px solid var(--blaze);padding:10px 14px;margin:18px 0 0;color:var(--ink2);overflow-wrap:anywhere}
+@media (max-width:860px){.layers{grid-template-columns:minmax(0,1fr)}.stackwrap{position:relative;top:0;display:flex;gap:18px;align-items:center}.stack{max-width:200px}.layer{min-height:0}.facts{grid-template-columns:minmax(0,1fr)}.facts div+div{padding-left:0;border-left:0}}
+/* ===== QUESTIONS ===== */
+.qs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 clamp(28px,5vw,72px);list-style:none;margin:0;padding:0}
+.qs li{border-top:1px solid var(--rule);padding:24px 0 26px;display:grid;grid-template-columns:44px minmax(0,1fr);gap:14px;transition:background .2s}
+.qs .n{font:600 12px/1.9 var(--mono);color:var(--muted)}
+.qs h3{font:700 clamp(23px,2.2vw,29px)/1.08 var(--display);margin-bottom:10px;letter-spacing:.005em}
+.qs .via{font:400 13.5px/1.5 var(--mono);color:var(--ink2);margin:0 0 10px;overflow-wrap:anywhere}
+.qs .via code{background:none;padding:0;font-size:1em;color:var(--route);white-space:normal}
+.qs .pv{margin:0;font-size:15.5px;color:var(--ink2);display:flex;gap:10px;align-items:baseline}
+.qs .pv strong{color:var(--ink)}
+.blz{flex:none;display:inline-block;width:20px;height:12px;background:linear-gradient(var(--warn) 0 33%,var(--sheet) 33% 67%,var(--warn) 67%);outline:1px solid var(--rule);transform:translateY(1px)}
+.qs li:hover h3{color:var(--route)}
+@media (max-width:760px){.qs{grid-template-columns:minmax(0,1fr)}}
+/* ===== DAY ===== */
+.day{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,9fr);gap:clamp(24px,4vw,56px)}
+.clock{position:sticky;top:110px;align-self:start}
+.clock .tm{font:800 clamp(64px,8vw,112px)/.85 var(--display);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.clock .who{font:600 12px/1.4 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-top:12px;min-height:3em}
+.sun{width:100%;max-width:220px;height:auto;margin-top:18px;overflow:visible}
+.sun path{fill:none;stroke:var(--muted);stroke-width:1.2;stroke-dasharray:3 5}
+.sun circle{fill:var(--blaze);stroke:var(--ink);stroke-width:1.2}
+.trail{list-style:none;margin:0;padding:0 0 0 34px;position:relative}
+.trail::before{content:"";position:absolute;left:9px;top:8px;bottom:8px;width:2px;background:repeating-linear-gradient(var(--rule) 0 6px,transparent 6px 12px)}
+.trail .prog{position:absolute;left:9px;top:8px;bottom:8px;width:2px;background:var(--ink);transform-origin:top;transform:scaleY(var(--p,1))}
+.js .trail .prog{transform:scaleY(var(--p,0))}
+.stop{position:relative;padding-bottom:clamp(44px,6vw,72px)}
+.stop:last-child{padding-bottom:0}
+.stop::before{content:"";position:absolute;left:-31px;top:6px;width:14px;height:14px;background:var(--paper);border:2px solid var(--ink);transform:rotate(45deg);transition:background .3s}
+.stop.on::before{background:var(--blaze)}
+.stop .meta{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;margin-bottom:6px}
+.stop .t{font:800 30px/1 var(--display);font-variant-numeric:tabular-nums}
+.stop .role{font:600 11.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;background:var(--ink);color:var(--paper);padding:5px 7px}
+.stop .via2{font:400 12.5px/1.3 var(--mono);color:var(--muted)}
+.stop h3{font:700 clamp(24px,2.4vw,32px)/1.05 var(--display);margin:4px 0 10px}
+.stop p{color:var(--ink2);max-width:62ch}
+.out{background:var(--term);color:var(--t-fg);border-radius:3px;box-shadow:var(--shadow);overflow:hidden;margin-top:6px}
+.out .cmdl{font:400 13px/1.4 var(--mono);padding:11px 14px;background:var(--term2);border-bottom:1px solid #222c35;overflow-wrap:anywhere}
+.out .cmdl::before{content:"$ ";color:var(--t-y)}
+.out pre{margin:0;padding:12px 14px 14px;font:400 12.3px/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;color:#C6CDC8}
+.day-note{font-size:14px;color:var(--muted);margin-top:28px;max-width:62ch}
+@media (max-width:860px){.day{grid-template-columns:minmax(0,1fr)}.clock{display:none}}
+/* ===== HOW ===== */
+.arch{display:grid;grid-template-columns:minmax(0,8fr) minmax(0,4fr);gap:clamp(16px,2.4vw,28px);font-size:15px}
+.zone{border:1.5px solid var(--ink);padding:18px;position:relative;background:var(--sheet)}
+.zone>.zl{position:absolute;top:-11px;left:14px;background:var(--paper);padding:0 8px;font:600 11.5px/20px var(--mono);letter-spacing:.09em;text-transform:uppercase}
+.zone.opt{border-style:dashed;border-color:var(--muted);background:transparent}
+.tier{border:1px solid var(--rule);background:var(--paper);padding:12px 14px}
+.tier .tl{font:600 11px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:400 13px/1 var(--mono);border:1px solid var(--rule);padding:6px 8px;background:var(--sheet);white-space:nowrap}
+.chip.y{background:var(--blaze);color:var(--on-blaze);border-color:var(--ink)}
+.flow{display:grid;justify-items:center;padding:4px 0;color:var(--muted);font:400 12px/1.3 var(--mono);text-align:center}
+.flow::before{content:"";width:1.5px;height:14px;background:var(--ink)}
+.flow::after{content:"";width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid var(--ink)}
+.flow.up{grid-auto-flow:row}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.core{border:1.5px solid var(--ink);background:var(--paper);padding:14px;display:grid;gap:10px}
+.core h4{margin:0;font:800 26px/1 var(--display)}
+.engines{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.engines span{font:600 11px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--rule);padding:8px 4px;text-align:center;background:var(--sheet)}
+.engines span:last-child{background:var(--blaze);color:var(--on-blaze);border-color:var(--ink)}
+.side{display:grid;gap:22px;align-content:start}
+.side p{margin:6px 0 0;font-size:14px;color:var(--ink2)}
+.side ul{margin:8px 0 0;padding-left:18px;font-size:14px;color:var(--ink2)}
+@media (max-width:900px){.arch{grid-template-columns:minmax(0,1fr)}.two{grid-template-columns:minmax(0,1fr)}.engines{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.where{width:100%;border-collapse:collapse;margin-top:clamp(40px,5vw,64px);font-size:15px}
+.where caption{text-align:left;font:700 clamp(26px,2.6vw,34px)/1 var(--display);padding-bottom:16px}
+.where th,.where td{text-align:left;vertical-align:top;padding:14px 16px 14px 0;border-top:1px solid var(--rule)}
+.where thead th{font:600 11px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-top:1px solid var(--ink)}
+.where tbody th{font-weight:700;width:22%}
+.where td{color:var(--ink2)}
+.tag{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:4px 6px;border:1px solid currentColor;margin-left:6px;vertical-align:2px;white-space:nowrap}
+.tag.dev{color:var(--warn)}
+.tag.ok{color:var(--ink)}
+@media (max-width:700px){.where thead{display:none}.where tr{display:block;border-top:1px solid var(--rule);padding:12px 0}.where th,.where td{display:block;border:0;padding:4px 0;width:auto!important}}
+.why4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(18px,2.4vw,32px);margin-top:clamp(40px,5vw,64px);list-style:none;padding:0}
+.why4 li{border-top:3px solid var(--ink);padding-top:14px}
+.why4 h3{font:700 22px/1.08 var(--display);margin-bottom:8px}
+.why4 p{font-size:15px;color:var(--ink2);margin:0}
+@media (max-width:900px){.why4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.why4{grid-template-columns:minmax(0,1fr)}}
+/* ===== SETUP & COMMANDS ===== */
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(16px,2.4vw,28px);list-style:none;margin:0 0 clamp(56px,7vw,96px);padding:0;counter-reset:s}
+.steps>li{display:flex;flex-direction:column;gap:12px;min-width:0}
+.steps h3{font:700 24px/1.05 var(--display);display:flex;gap:12px;align-items:baseline}
+.steps h3::before{counter-increment:s;content:counter(s);font:800 44px/.8 var(--display);color:var(--blaze);-webkit-text-stroke:1.2px var(--ink)}
+.steps p{margin:0;font-size:15px;color:var(--ink2)}
+.steps .snip{margin-top:auto}
+@media (max-width:900px){.steps{grid-template-columns:minmax(0,1fr)}}
+.cmds{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:clamp(24px,3vw,40px) clamp(24px,4vw,56px)}
+.cg h3{font:700 26px/1 var(--display);display:flex;align-items:baseline;gap:10px;padding-bottom:12px;border-bottom:1.5px solid var(--ink);margin-bottom:4px}
+.cg h3 small{font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.cg dl{margin:0}
+.cg dl>div{padding:11px 0;border-bottom:1px solid var(--rule2);transition:background .15s}
+.cg dl>div:hover{background:linear-gradient(90deg,var(--sheet),transparent)}
+.cg dt{font:600 13.5px/1.45 var(--mono);color:var(--ink);overflow-wrap:anywhere}
+.cg dt .a{color:var(--muted);font-weight:400}
+.cg dd{margin:2px 0 0;font-size:14.5px;color:var(--ink2);line-height:1.45}
+.tools{margin-top:clamp(48px,6vw,80px);display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:clamp(24px,4vw,56px);align-items:start}
+.tools h3{font:700 30px/1 var(--display);margin-bottom:10px}
+.tools p{color:var(--ink2);font-size:15.5px}
+.tlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:0 24px;list-style:none;margin:0;padding:0}
+.tlist li{border-top:1px solid var(--rule2);padding:9px 0;font-size:14px;color:var(--ink2)}
+.tlist code{display:block;background:none;padding:0;font-size:13px;color:var(--ink);font-weight:600;white-space:normal}
+@media (max-width:860px){.tools{grid-template-columns:minmax(0,1fr)}}
+/* ===== AGENTS / DATA / COST ===== */
+.agents{width:100%;border-collapse:collapse;font-size:15px}
+.agents th,.agents td{text-align:left;padding:13px 14px 13px 0;border-top:1px solid var(--rule);vertical-align:top}
+.agents thead th{font:600 11px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-top:1.5px solid var(--ink)}
+.agents tbody th{font:700 21px/1.1 var(--display);white-space:nowrap}
+.agents td{color:var(--ink2)}
+.st-ok,.st-w{font:600 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;display:inline-flex;align-items:center;gap:7px}
+.st-ok::before{content:"";width:9px;height:9px;background:var(--ink);transform:rotate(45deg)}
+.st-w{color:var(--muted)}
+.st-w::before{content:"";width:9px;height:9px;border:1.5px solid var(--muted);transform:rotate(45deg)}
+@media (max-width:700px){.agents thead{display:none}.agents tr{display:block;border-top:1px solid var(--rule);padding:12px 0}.agents th,.agents td{display:block;border:0;padding:3px 0}}
+.after{font-size:14.5px;color:var(--muted);margin-top:16px}
+.cols2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(32px,5vw,80px);margin-top:clamp(56px,7vw,96px)}
+.cols2 h3{font:700 clamp(30px,3vw,40px)/1 var(--display);margin-bottom:16px}
+.ticks{list-style:none;margin:0;padding:0}
+.ticks li{padding:11px 0 11px 28px;border-top:1px solid var(--rule2);position:relative;font-size:15.5px;color:var(--ink2)}
+.ticks li::before{content:"";position:absolute;left:2px;top:19px;width:12px;height:2px;background:var(--ink)}
+.ticks li strong{color:var(--ink)}
+.ledger{margin:20px 0 0}
+.ledger pre{margin:0;padding:14px 16px;font:400 12px/1.65 var(--mono);overflow-x:auto;white-space:pre}
+@media (max-width:860px){.cols2{grid-template-columns:minmax(0,1fr)}}
+/* ===== VISION / ROADMAP ===== */
+.vision{position:relative;overflow:hidden}
+.vision .topo{left:-20vw;bottom:-30%;width:min(1100px,110vw);height:auto;transform:scaleX(-1)}
+.quote{font:800 clamp(44px,7vw,104px)/.9 var(--display);letter-spacing:-.01em;max-width:15ch;margin:0 0 30px;position:relative}
+.quote span{color:var(--muted)}
+.vtext{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(24px,4vw,64px);position:relative}
+.vtext p{font-size:18px;color:var(--ink2)}
+@media (max-width:760px){.vtext{grid-template-columns:minmax(0,1fr)}}
+.road{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;margin-top:clamp(48px,6vw,80px);position:relative;list-style:none;padding:0}
+.road>li{padding:22px clamp(16px,2vw,28px) 6px 0;border-top:1.5px solid var(--ink)}
+.road>li+li{padding-left:clamp(16px,2vw,28px);border-left:1px solid var(--rule)}
+.road h3{font:700 26px/1 var(--display);margin:10px 0 12px}
+.road ul{margin:0;padding:0;list-style:none}
+.road ul li{font-size:15px;color:var(--ink2);padding:7px 0;border-top:1px solid var(--rule2)}
+.road ul li:first-child{border-top:0}
+@media (max-width:860px){.road{grid-template-columns:minmax(0,1fr)}.road>li+li{padding-left:0;border-left:0}}
+/* ===== PLANS ===== */
+.plans{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(16px,2vw,24px);align-items:stretch}
+.plan{border:1.5px solid var(--ink);padding:24px 22px;display:flex;flex-direction:column;gap:14px;background:var(--sheet);transition:transform .2s,box-shadow .2s}
+.plan:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+.plan.dim{border-style:dashed;background:transparent}
+.plan h3{font:800 38px/.95 var(--display)}
+.plan .pr{font:600 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.plan ul{margin:0;padding:0;list-style:none;font-size:15px;color:var(--ink2)}
+.plan ul li{padding:8px 0;border-top:1px solid var(--rule2)}
+.plan .btn{margin-top:auto;justify-content:space-between}
+@media (max-width:900px){.plans{grid-template-columns:minmax(0,1fr)}}
+.final{padding-block:clamp(80px,11vw,150px);border-top:1px solid var(--rule);position:relative;overflow:hidden}
+.final .fg{display:grid;grid-template-columns:minmax(0,6fr) minmax(0,6fr);gap:clamp(28px,5vw,72px);align-items:end}
+.final h2{font-size:clamp(48px,7.6vw,110px);margin:0}
+.final .fglyph{width:clamp(56px,7vw,92px);height:auto;margin-bottom:22px;color:var(--ink)}
+@media (max-width:860px){.final .fg{grid-template-columns:minmax(0,1fr)}}
+footer{border-top:1.5px solid var(--ink);padding:40px 0 56px;font-size:14.5px}
+.fgrid{display:grid;grid-template-columns:minmax(0,4fr) repeat(3,minmax(0,2.6fr));gap:28px}
+footer h4{margin:0 0 10px;font:600 11px/1.3 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+footer ul{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+footer a{color:var(--ink2);text-decoration:none}
+footer a:hover{color:var(--ink);text-decoration:underline}
+footer p{color:var(--muted);margin:10px 0 0;max-width:38ch}
+@media (max-width:760px){.fgrid{grid-template-columns:1fr 1fr}.fgrid>div:first-child{grid-column:1/-1}}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  .js .rv,.js .h-in,.js .typing .ln,.js .stack .st{opacity:1!important;transform:none!important}
+  .js .sheet.typing .notes li{opacity:1!important}
+  .js .bars .fl{transform:scaleX(var(--w))!important}
+  .js .trail .prog{transform:scaleY(1)!important}
 }
 </style>
 </head>
 <body>
-<div class="page">
 
-<nav aria-label="Main">
-  <a class="brand" href="#top" aria-label="Cairn home">
-    <svg viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="26" rx="12" ry="4.6" fill="currentColor"/><ellipse cx="16.6" cy="18.2" rx="8.6" ry="4" fill="currentColor"/><ellipse cx="15.6" cy="11.2" rx="5.6" ry="3.2" fill="currentColor"/><ellipse cx="16.2" cy="5.6" rx="3.2" ry="2.3" fill="var(--marker)"/></svg>
-    cairn
-  </a>
-  <div class="navlinks">
-    <a href="#how">How it works</a>
-    <a href="#data">Your data</a>
-    <a href="#plans">Plans</a>
-    <a href="https://github.com/Shashank2577/cairn">GitHub</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="cg" viewBox="0 0 32 32"><ellipse cx="16" cy="26" rx="12" ry="4.6" fill="currentColor"/><ellipse cx="16.6" cy="18.2" rx="8.6" ry="4" fill="currentColor"/><ellipse cx="15.6" cy="11.2" rx="5.6" ry="3.2" fill="currentColor"/><ellipse cx="16.2" cy="5.6" rx="3.2" ry="2.3" style="fill:var(--blaze)" stroke="currentColor" stroke-width="1"/></symbol>
+  <symbol id="topo" viewBox="-720 -520 1440 1040"><g><path d="M45 0C46 4 42 10 39 14C36 17 31 21 25 23C20 25 14 26 8 26C3 26 -1 22 -7 22C-13 22 -21 26 -27 25C-33 23 -42 19 -44 15C-46 11 -40 4 -39 0C-37 -4 -37 -8 -34 -12C-31 -15 -27 -18 -23 -21C-19 -23 -14 -26 -9 -28C-3 -30 5 -33 10 -32C15 -31 19 -24 23 -21C27 -17 28 -14 32 -11C35 -7 44 -4 45 0Z"/><path d="M114 0C117 10 104 24 95 33C86 42 73 50 60 55C48 59 32 61 19 61C6 61 -3 56 -18 56C-33 57 -55 66 -70 63C-84 60 -101 47 -104 36C-108 26 -94 11 -91 0C-87 -11 -89 -20 -84 -29C-79 -38 -68 -46 -58 -52C-48 -59 -36 -66 -22 -70C-8 -74 12 -80 24 -77C37 -73 44 -56 53 -48C63 -40 70 -36 80 -28C90 -20 112 -10 114 0Z"/><path d="M187 0C190 16 164 37 148 51C133 65 113 77 93 84C74 91 51 93 30 95C10 97 -6 93 -30 94C-54 96 -93 110 -115 104C-136 97 -156 73 -160 55C-164 38 -143 17 -139 0C-135 -17 -144 -33 -136 -47C-129 -62 -112 -75 -96 -86C-79 -97 -58 -108 -36 -113C-14 -118 18 -124 37 -117C57 -111 65 -85 82 -74C98 -62 116 -59 134 -46C151 -34 185 -16 187 0Z"/><path class="ix" d="M262 0C262 23 220 50 197 68C175 87 150 102 124 112C98 122 69 126 41 130C13 134 -10 134 -43 136C-77 139 -133 155 -160 145C-188 134 -205 97 -209 72C-213 48 -189 23 -186 0C-184 -23 -202 -47 -193 -67C-185 -87 -159 -107 -135 -122C-111 -137 -80 -150 -49 -155C-19 -161 22 -164 49 -154C75 -145 85 -113 109 -98C133 -84 168 -84 194 -67C219 -51 261 -23 262 0Z"/><path d="M334 0C331 29 271 60 241 84C211 107 186 125 154 139C123 153 88 160 53 167C18 174 -15 180 -58 182C-101 185 -172 200 -204 184C-236 168 -246 118 -251 87C-256 56 -234 29 -235 0C-236 -29 -266 -62 -256 -89C-246 -115 -207 -140 -175 -158C-143 -176 -101 -191 -62 -196C-23 -200 26 -199 59 -187C93 -175 105 -141 138 -125C172 -109 228 -111 261 -90C293 -70 337 -29 334 0Z"/><path d="M402 0C393 35 315 69 279 97C243 125 221 149 186 168C150 186 109 197 66 208C23 219 -21 229 -73 231C-125 233 -209 243 -245 221C-280 199 -280 136 -287 100C-295 63 -283 35 -289 0C-295 -35 -336 -80 -323 -112C-311 -144 -256 -173 -214 -193C-172 -213 -121 -228 -74 -232C-26 -236 28 -230 69 -217C109 -204 126 -171 170 -154C214 -137 295 -141 333 -116C372 -90 411 -35 402 0Z"/><path d="M461 0C445 42 354 76 314 109C273 142 258 174 219 198C180 222 131 239 80 252C29 266 -29 280 -89 280C-149 280 -242 282 -281 253C-319 225 -309 153 -320 111C-332 69 -338 41 -350 0C-363 -41 -411 -99 -395 -137C-378 -175 -302 -205 -250 -226C-199 -247 -139 -262 -84 -265C-29 -268 30 -260 78 -247C127 -234 152 -205 207 -187C263 -170 367 -173 410 -142C452 -111 477 -42 461 0Z"/><path class="ix" d="M511 0C488 48 389 81 347 120C304 159 299 202 257 232C215 262 155 284 95 300C35 316 -36 331 -104 328C-172 325 -270 315 -311 281C-353 247 -334 169 -353 122C-371 75 -403 47 -422 0C-441 -47 -491 -120 -468 -162C-445 -205 -345 -233 -283 -255C-220 -277 -155 -291 -93 -295C-32 -299 31 -289 88 -277C145 -266 183 -243 250 -225C316 -207 443 -206 486 -169C530 -131 534 -48 511 0Z"/><path d="M551 0C521 54 423 87 381 132C339 177 345 235 300 271C255 307 180 332 111 349C41 366 -43 380 -118 372C-193 365 -292 344 -337 305C-382 265 -360 185 -388 135C-416 84 -478 54 -504 0C-529 -54 -572 -140 -539 -187C-507 -234 -383 -257 -310 -280C-237 -302 -171 -318 -102 -323C-34 -328 32 -321 99 -312C165 -303 220 -287 297 -268C374 -248 518 -239 560 -194C602 -150 581 -54 551 0Z"/><path d="M581 0C547 61 460 93 421 146C382 198 398 273 349 315C300 357 206 382 126 398C46 414 -49 424 -130 411C-211 399 -310 368 -360 325C-410 281 -391 203 -430 149C-469 95 -565 60 -594 0C-624 -60 -649 -160 -606 -210C-562 -260 -414 -276 -332 -299C-249 -323 -185 -343 -112 -352C-38 -360 35 -358 111 -351C188 -345 261 -336 347 -314C433 -291 588 -270 627 -218C666 -165 616 -61 581 0Z"/><path d="M605 0C569 67 503 102 469 163C435 223 456 316 402 363C347 409 231 430 141 443C50 457 -54 462 -141 445C-228 428 -324 390 -380 343C-437 297 -429 224 -481 167C-533 109 -662 66 -692 0C-722 -66 -720 -177 -663 -230C-606 -282 -439 -289 -349 -315C-259 -341 -201 -370 -122 -384C-42 -397 39 -400 126 -397C213 -393 306 -387 400 -361C493 -334 651 -298 686 -238C720 -178 641 -67 605 0Z"/><path class="ix" d="M627 0C593 73 557 115 529 183C501 252 520 363 457 413C395 463 254 473 153 483C52 493 -57 493 -150 473C-242 453 -336 410 -402 363C-467 315 -477 249 -542 188C-607 128 -764 72 -792 0C-820 -72 -780 -191 -709 -246C-638 -301 -460 -299 -364 -328C-268 -357 -218 -401 -133 -421C-49 -441 44 -450 142 -447C239 -445 353 -439 451 -407C550 -375 704 -322 733 -254C762 -186 661 -73 627 0Z"/></g></symbol>
+</svg>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Cairn, back to top"><svg class="glyph" aria-hidden="true"><use href="#cg"/></svg>cairn</a>
+    <nav aria-label="Sections"><ul>
+      <li><a href="#problem">Problem</a></li><li><a href="#layers">Layers</a></li><li><a href="#day">A day</a></li><li><a href="#how">How it works</a></li><li><a href="#commands">Commands</a></li><li><a href="#plans">Plans</a></li>
+    </ul></nav>
+    <a class="gh" href="https://github.com/Shashank2577/cairn">GitHub</a>
+    <button class="tgl" id="tgl" type="button" aria-label="Switch colour theme"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg></button>
   </div>
-</nav>
-
-<header class="hero" id="top">
-  <div class="hero-copy">
-    <span class="eyebrow">Memory for coding agents · open source</span>
-    <h1>Your agents forget. Your team shouldn’t have to.</h1>
-    <p class="lede">Cairn gives every coding agent your team uses the same memory: <strong>what the code does, why it is that way, what was already tried, and where the last session stopped.</strong> It runs on your machine, and your code stays there.</p>
-    <div class="cta">
-      <div class="install">
-        <code id="install-cmd">uv tool install --python 3.12 cairn-brain</code>
-        <button type="button" id="copy-install" aria-label="Copy install command">Copy</button>
-      </div>
-      <a class="btn btn-ghost" href="#how">See how it works</a>
-    </div>
-    <p class="agents-line">Works with <b>Claude Code</b>, <b>Codex</b>, <b>Cursor</b>, <b>Copilot CLI</b>, <b>Gemini CLI</b>, <b>OpenCode</b> and <b>Antigravity</b>. Apache-2.0.</p>
-  </div>
-
-  <figure style="margin:0;min-width:0">
-    <div class="slab" role="img" aria-label="The panel an agent session opens with: where the last session stopped, what is new, what the team knows, risky files and open work">
-      <div class="slab-bar"><span class="dots"><i></i><i></i><i></i></span><span>claude · session start</span></div>
-<pre><span class="h">▲ cairn · cairn — what this project remembers</span>
-
- <span class="k">Pick up where you left off</span> <span class="d">· 2h ago in Claude Code</span>
-   Asked  Make the MCP server create nothing where Cairn isn’t set up
-   Done   Tools answer with a one-line setup offer <span class="d">(+3 more)</span>
-   Next   Verify the fix with Codex and OpenCode
-
- <span class="k">New since then</span>
-   <span class="g">+ gotcha</span>     Session capture never climbs above the repository root
-   <span class="g">+ commit</span>     fix: injected context names real tools
-
- <span class="k">What the team knows</span> <span class="d">(32 memories)</span>
-   decision   One read model for every surface: engines write their own
-              stores; every surface reads .cairn/brain.db <span class="d">(ADR 0001, 11d ago)</span>
-   gotcha     Agent hooks never fail on a busy store <span class="d">(commit 81efc41)</span>
-
- <span class="k">Handle with care</span>
-   src/cairn/hooks.py — 6 of 13 commits were fixes or reverts
-
- <span class="d">875 files mapped · 32 memories · 1,216 session notes</span></pre>
-    </div>
-    <figcaption class="caption">A session opening in Cairn’s own repository, trimmed for space. You see the panel; the agent gets the same memory in its context.</figcaption>
-  </figure>
 </header>
 
-<section id="problem" aria-labelledby="problem-h">
-  <div class="split">
-    <div class="sec-head" style="margin:0">
-      <span class="eyebrow">The problem</span>
-      <h2 id="problem-h">Every session starts from zero.</h2>
-      <p>A new agent session doesn’t know what the last one learned, what your teammate’s agent found yesterday, or which fix was already reverted twice. It rereads the same files, repeats the same mistakes, and spends your tokens doing it.</p>
-      <p>Cairn keeps that knowledge between sessions and between people, and hands it to whichever agent you open next.</p>
+<main id="main">
+<!-- ============ HERO ============ -->
+<section class="hero" id="top" aria-labelledby="h1">
+  <svg class="topo" viewBox="-720 -520 1440 1040" aria-hidden="true" focusable="false"><use href="#topo"/></svg>
+  <div class="wrap">
+    <p class="eyebrow h-in" style="--d:0"><span>Open source</span><span>Apache-2.0</span><span>v0.2.1</span></p>
+    <h1 id="h1"><span class="l h-in" style="--d:1">Your agents forget between sessions.</span><span class="l l2 h-in" style="--d:2">Cairn <mark>remembers</mark> for them.</span></h1>
+    <div class="hgrid">
+      <div>
+        <p class="hsub h-in" style="--d:5">Cairn keeps a working memory of your repository: the code map, the specs, what happened, what the team decided and what every agent session did. It hands that memory to every agent your team uses, and your code never leaves your machine.</p>
+      </div>
+      <div class="start h-in" style="--d:6">
+        <span class="kicker">Start in three commands</span>
+        <div class="snip"><button class="copy" type="button" data-copy="uv tool install --python 3.12 cairn-brain&#10;cairn global install&#10;cd your-repo &amp;&amp; cairn init --no-deep">Copy</button><ol>
+          <li><span>uv tool install --python 3.12 cairn-brain</span></li>
+          <li><span>cairn global install</span></li>
+          <li><span>cd your-repo &amp;&amp; cairn init --no-deep</span></li>
+        </ol></div>
+        <div class="ctas">
+          <a class="btn pri" href="#setup">How setup works <span class="ar" aria-hidden="true">&rarr;</span></a>
+          <a class="btn" href="https://github.com/Shashank2577/cairn">Source on GitHub</a>
+        </div>
+      </div>
     </div>
-    <div class="ledger">
-      <table>
-        <thead><tr><th>At session start</th><th style="text-align:right">Cost</th></tr></thead>
-        <tbody>
-          <tr><td>Model calls to build the panel and brief</td><td class="n">0</td></tr>
-          <tr><td>Context the agent receives, unasked</td><td class="n">≈ 2,600 tokens</td></tr>
-          <tr><td>Extra context on a code question</td><td class="n">≤ 500 tokens</td></tr>
-          <tr><td>Where it runs</td><td class="n">your machine</td></tr>
-        </tbody>
-      </table>
+
+    <div class="sheet">
+      <figure class="term-fig" style="margin:0;min-width:0">
+        <div class="term h-in" style="--d:7" id="panel">
+          <div class="bar" aria-hidden="true"><i></i><i></i><i></i><span>~/code/cairn · claude</span></div>
+          <pre tabindex="0" aria-label="The Cairn session-start panel, as shown when Claude Code opens in Cairn's own repository"><span class="ln cmd"><span class="p">$ </span><span class="typed">claude</span></span><span class="ln"><span class="d">SessionStart · cairn hook session-start · 0 model calls</span></span><span class="ln"> </span><span class="ln"><span class="y">▲</span><span class="b"> cairn · cairn</span><span class="d"> — what this project remembers</span></span><span class="ln"> </span><span class="ln" data-a="1"><span class="h"> Pick up where you left off</span><span class="d"> · 3h ago in OpenCode</span></span><span class="ln">   <span class="c">Asked</span>  Verify cairn MCP server status by calling cairn_status tool and report first two lines of…</span><span class="ln">   <span class="c">Done </span>  Successfully invoked cairn_status MCP tool; tool returned "# cairn" and "model: available…</span><span class="ln">   <span class="c">Next </span>  Session idle pending next user request; no active development work currently in progress</span><span class="ln"> </span><span class="ln" data-a="2"><span class="h"> New since then</span></span><span class="ln">   <span class="g">+</span><span class="k"> gotcha    </span> Injected context, hints and tool descriptions must name real MCP tools: the session…</span><span class="ln">   <span class="g">+</span><span class="k"> gotcha    </span> Worktrees, the home folder, local config, ambient default, and an honest doctor: Wo…</span><span class="ln">   <span class="g">+</span><span class="k"> commit    </span> fix: injected context names real tools; setup offer from sub-folders; panel skips t…</span><span class="ln">   <span class="g">+</span><span class="k"> commit    </span> fix: session capture never climbs above the repository root</span><span class="ln">   <span class="g">+</span><span class="d"> 1 more commits</span></span><span class="ln"> </span><span class="ln" data-a="3"><span class="h"> What the team knows</span><span class="d"> (32 memories)</span></span><span class="ln">   <span class="k">gotcha    </span> The MCP server creates nothing where Cairn is not set up: `cairn mcp` opened the</span><span class="ln">              repository with Cairn.here(), which creates .cairn/ an… <span class="d">(commit 7a6c581, 4h ago)</span></span><span class="ln">   <span class="k">gotcha    </span> Agent hooks never fail on a busy store: Opening the store wrote schema_version every</span><span class="ln">              time, so a read-only session-start hook queued beh… <span class="d">(commit 81efc41, 6h ago)</span></span><span class="ln">   <span class="k">gotcha    </span> Re-enable the recall worker so captured sessions become observations: worker_spawn =</span><span class="ln">              false (since 3255c5a) left every captured event qu… <span class="d">(commit 4dc3bac, 1d ago)</span></span><span class="ln">   <span class="k">gotcha    </span> Windows support: cross-process file locks use msvcrt where fcntl is absent (vector</span><span class="ln">              store, recall worker); read-only git objects no long… <span class="d">(commit 1481d1c, 1d ago)</span></span><span class="ln"> </span><span class="ln" data-a="4"><span class="h"> Handle with care</span></span><span class="ln">   <span class="r">src/cairn/hooks.py</span> — 6 of 13 commits were fixes or reverts, last 2h ago</span><span class="ln">   <span class="r">src/cairn/cli.py</span> — 4 of 13 commits were fixes or reverts, last 3h ago</span><span class="ln">   <span class="r">src/cairn/project.py</span> — 4 of 7 commits were fixes or reverts, last 3h ago</span><span class="ln"> </span><span class="ln" data-a="5"><span class="h"> Open work</span></span><span class="ln">   90 drift findings, e.g. `pyproject.toml` changed after T001 was completed — re-… <span class="c">→ cairn drift</span></span><span class="ln"> </span><span class="ln"><span class="d"> 875 files mapped · 32 memories · 1,216 session notes · http://127.0.0.1:4747</span></span></pre>
+        </div>
+        <figcaption class="cap">What the developer sees when a Claude Code session opens in Cairn's own repository, unedited, captured October 6, 2026. It is built from the local store with no model calls. The model gets a shorter written brief alongside it.</figcaption>
+      </figure>
+      <ol class="notes" aria-label="What the panel shows">
+        <li data-n="1"><b>Pick up where you left off</b>What the last working session asked, did and planned next, from whichever agent ran it. Here that was OpenCode.</li>
+        <li data-n="2"><b>New since then</b>Memories and commits that arrived after that session ended.</li>
+        <li data-n="3"><b>What the team knows</b>Decisions, conventions and gotchas, one sentence each, with the commit or document they came from and how old they are.</li>
+        <li data-n="4"><b>Handle with care</b>Files whose recent history is mostly fixes and reverts.</li>
+        <li data-n="5"><b>Open work</b>Drift between code and spec, with the command that lists it.</li>
+      </ol>
+    </div>
+
+    <div class="proof rv" aria-label="Cairn measured on its own repository">
+      <div><strong>875</strong><span>files mapped, 16,906 nodes</span></div>
+      <div><strong>32</strong><span>team memories, each with a source</span></div>
+      <div><strong>1,216</strong><span>session notes from agents' work</span></div>
+      <div><strong>~448k</strong><span>tokens of file reading saved across 21 answers</span></div>
+      <div><strong>0</strong><span>model calls to open a session, about 2,200 tokens of context</span></div>
+    </div>
+    <p class="proof-cap">Cairn on its own repository, October 6, 2026. Source: <code>cairn status</code>, <code>cairn recap</code> and the session-start hook.</p>
+  </div>
+</section>
+
+<!-- ============ PROBLEM ============ -->
+<section class="sec" id="problem" aria-labelledby="problem-h">
+  <div class="wrap">
+    <div class="head">
+      <span class="plate rv"><b>WP 01</b> The problem</span>
+      <div class="rv" style="--d:1">
+        <h2 id="problem-h">Every session starts back at the trailhead.</h2>
+        <p class="lede">A coding agent arrives knowing nothing about your project. It is capable, and it spends the first stretch of every session rediscovering what the last session already knew. Then it leaves, and the next one starts over.</p>
+      </div>
+    </div>
+    <ol class="fails">
+      <li class="rv"><div><h3>It re-reads the same files</h3><p>To change one module it opens the module, its callers and their callers, every session, for every developer.</p></div></li>
+      <li class="rv" style="--d:1"><div><h3>It misses the caller three hops away</h3><p>A search finds the direct imports. The break shows up later, in a test nobody thought to run.</p></div></li>
+      <li class="rv"><div><h3>It repeats the fix you reverted</h3><p>Why that change was rolled back lives in a commit message and a closed pull request. The agent reads neither.</p></div></li>
+      <li class="rv" style="--d:1"><div><h3>It never heard the decision</h3><p>The convention your team agreed on in review last month lives in someone's head and a chat thread.</p></div></li>
+      <li class="rv"><div><h3>Every teammate's agent learns it again</h3><p>Five developers, five agents, five separate discoveries of the same gotcha. Switch from Claude Code to Codex and the count starts over.</p></div></li>
+      <li class="rv" style="--d:1"><div><h3>You pay for the rediscovery</h3><p>Reading whole files to find one answer is the most expensive context an agent can load, and it lands on every session's bill.</p></div></li>
+    </ol>
+    <div class="contrast">
+      <div class="rv">
+        <p class="big">391 tokens instead of 144,228.</p>
+        <p style="color:var(--ink2);margin:0">An agent asked Cairn about <code>src/cairn/router.py</code> before editing it. The cited answer cost 391 tokens. The 33 files behind that answer come to 144,228 tokens: 369 times more to read.</p>
+      </div>
+      <div class="bars rv" style="--d:1" role="img" aria-label="Bar comparison: 144,228 tokens to read the files versus 391 tokens for Cairn's answer">
+        <div class="bar-row"><span><b>144,228</b>reading the 33 files</span><div class="tr"><div class="fl" style="--w:1"></div></div></div>
+        <div class="bar-row c"><span><b>391</b>Cairn's cited answer</span><div class="tr"><div class="fl" style="--w:.0027"></div></div></div>
+        <p class="cap" style="margin:0">From the Overview page of Cairn's own instance (shown further down).</p>
+      </div>
     </div>
   </div>
 </section>
 
-<section id="remembers" aria-labelledby="rem-h">
-  <div class="sec-head">
-    <span class="eyebrow">What it remembers</span>
-    <h2 id="rem-h">Answers your agent would otherwise go looking for.</h2>
-    <p>Cairn builds this from your code, your git history, your specs and docs, and the sessions your agents run. Agents read it through the tools they already speak (MCP), and the most useful parts arrive on their own at session start.</p>
-  </div>
-  <div class="remembers">
-    <div class="rem"><span class="q">Where did we leave off?</span><h3>Session memory</h3><p>What each session was asked, what it did, what it learned and what it left unfinished, searchable across every agent.</p><span class="tool">cairn_session_search</span></div>
-    <div class="rem"><span class="q">Why is it like this?</span><h3>Decisions and history</h3><p>The ADR, commit, spec task or reverted fix behind a file or function, with the source cited.</p><span class="tool">cairn_why</span></div>
-    <div class="rem"><span class="q">What breaks if I change it?</span><h3>Impact</h3><p>Callers, dependents, files that usually change together, and past incidents in that area.</p><span class="tool">cairn_impact</span></div>
-    <div class="rem"><span class="q">What does the team already know?</span><h3>Team memory</h3><p>Conventions, decisions and gotchas, from people and from agents, each one sentence with its source.</p><span class="tool">cairn_remember · cairn_recall</span></div>
-    <div class="rem"><span class="q">Does the code still match the plan?</span><h3>Specs and drift</h3><p>A spec-driven workflow that traces every task to the files it touched, and flags where code and spec disagree.</p><span class="tool">cairn_specs · cairn drift</span></div>
-    <div class="rem"><span class="q">Where does everything connect?</span><h3>Code map</h3><p>A graph of the codebase across 25 languages, with its hubs and areas, built without a model.</p><span class="tool">cairn_context · cairn_trace</span></div>
-  </div>
-</section>
-
-<section id="how" aria-labelledby="how-h">
-  <div class="sec-head">
-    <span class="eyebrow">How it works</span>
-    <h2 id="how-h">Install once. Set up a repository in seconds. Keep working.</h2>
-  </div>
-  <div class="steps">
-    <div class="step">
-      <span class="num" aria-hidden="true">1</span>
-      <h3>Install, and wire your agents once</h3>
-      <div class="term">uv tool install --python 3.12 cairn-brain
-cairn global install</div>
-      <p>Every agent on your machine gets Cairn’s tools and memory, at user level. Repositories without Cairn get a one-line offer to set it up, and nothing is written to them until you say yes.</p>
+<!-- ============ BEFORE / AFTER ============ -->
+<section class="sec" id="compare" aria-labelledby="ba-h">
+  <div class="wrap">
+    <div class="head">
+      <span class="plate rv"><b>WP 02</b> Before and after</span>
+      <div class="rv" style="--d:1">
+        <h2 id="ba-h">How teams work today, and the same moments with Cairn.</h2>
+        <p class="lede">Most of what a team knows lives in people's heads, review threads and docs that went stale. Each new hire and each new agent session pays to learn it again.</p>
+      </div>
     </div>
-    <div class="step">
-      <span class="num" aria-hidden="true">2</span>
-      <h3>Set up a repository</h3>
-      <div class="term">cd your-repo
-cairn init --no-deep</div>
-      <p>About fifteen seconds and no model needed: the code map, git history, specs and memories seeded from your docs and commits. Worktrees of the repository share its memory automatically.</p>
-    </div>
-    <div class="step">
-      <span class="num" aria-hidden="true">3</span>
-      <h3>Work as usual</h3>
-      <div class="term"><span class="d"># any agent, any session</span>
-cairn status      <span class="d"># what it knows</span>
-cairn ui          <span class="d"># browse it</span></div>
-      <p>Each session opens with the panel above. Agents capture what they do, and the next session, in any tool, starts from there.</p>
+    <div class="ba" role="table" aria-label="Today compared with Cairn">
+      <div class="ba-h" role="row"><span role="columnheader">The moment</span><span role="columnheader">Today</span><span role="columnheader">With Cairn</span></div>
+      <div class="ba-r rv" role="row"><b role="rowheader">An agent starts a session</b><span role="cell">Starts from zero, opens files to rebuild context and guesses at intent.</span><span role="cell">Gets the last session, the team's knowledge, fragile files and open drift before the first prompt.</span></div>
+      <div class="ba-r rv" role="row"><b role="rowheader">A new developer joins</b><span role="cell">Reads stale docs, asks around and learns the conventions from review comments over weeks.</span><span role="cell">Their agent starts with the team's decisions and gotchas, each with its source. <code>cairn hubs</code> shows what everything flows through.</span></div>
+      <div class="ba-r rv" role="row"><b role="rowheader">Someone changes a shared module</b><span role="cell">Searches for imports and hopes the tests catch the rest.</span><span role="cell">Sees dependents, tests to run, files that change with it, past fixes and reverts, and a risk level.</span></div>
+      <div class="ba-r rv" role="row"><b role="rowheader">The team makes a decision</b><span role="cell">It lives in a pull request thread until someone forgets it.</span><span role="cell">It becomes one sentence in memory with its source, and every agent recalls it.</span></div>
+      <div class="ba-r rv" role="row"><b role="rowheader">A pull request needs review</b><span role="cell">The reviewer sees the diff.</span><span role="cell">The reviewer sees the diff with its callers, tests and history.</span></div>
+      <div class="ba-r rv" role="row"><b role="rowheader">Someone leaves</b><span role="cell">What they knew leaves with them.</span><span role="cell">What they wrote in specs, ADRs and commits stays with the repository and keeps answering questions, along with what they shared through a team server.</span></div>
+      <div class="ba-r rv" role="row"><b role="rowheader">The team adds another agent</b><span role="cell">New tool, empty memory, start again.</span><span role="cell">The same memory reaches seven agents.</span></div>
     </div>
   </div>
 </section>
 
-<section id="agents" aria-labelledby="agents-h">
-  <div class="sec-head">
-    <span class="eyebrow">Agent-neutral</span>
-    <h2 id="agents-h">One memory, whichever agent you open.</h2>
-    <p>Built-in memories belong to one tool. Teams mix tools and switch often; Cairn’s memory follows the repository, not the vendor.</p>
-  </div>
-  <div class="agents">
-    <div class="agent"><b>Claude Code</b><span>Tools, panel, capture, per-prompt context</span></div>
-    <div class="agent"><b>Codex</b><span>Tools, memory and capture via plugin</span></div>
-    <div class="agent"><b>Cursor</b><span>Tools, memory and capture hooks</span></div>
-    <div class="agent"><b>Copilot CLI</b><span>Tools; capture per repository</span></div>
-    <div class="agent"><b>Gemini CLI</b><span>Tools, memory and capture hooks</span></div>
-    <div class="agent"><b>OpenCode</b><span>Tools, memory and capture via plugin</span></div>
-    <div class="agent"><b>Antigravity</b><span>Tools, memory and capture hooks</span></div>
+<!-- ============ LAYERS ============ -->
+<section class="sec" id="layers" aria-labelledby="layers-h">
+  <div class="wrap">
+    <div class="head">
+      <span class="plate rv"><b>WP 03</b> What it remembers</span>
+      <div class="rv" style="--d:1">
+        <h2 id="layers-h">Five layers, stacked from what your repository already holds.</h2>
+        <p class="lede">Run one setup command and Cairn reads your code, git history, specs, ADRs and docs. From then on every commit, spec and agent session adds to it. The first four layers need no model at all.</p>
+      </div>
+    </div>
+    <div class="layers">
+      <div class="stackwrap">
+        <svg class="stack" id="stack" viewBox="0 0 320 380" role="img" aria-label="A cairn of five stones: Map at the base, then Specs, Timeline, Memory, and Sessions on top">
+          <g class="gl"><path d="M8 352c60-8 120 6 160-2s100-10 144-2"/><path d="M28 366c50-5 100 4 150-1s90-6 120 0"/></g>
+          <g class="st" data-i="0"><ellipse class="bd" cx="160" cy="318" rx="136" ry="34"/><ellipse class="hi" cx="152" cy="306" rx="96" ry="14" opacity=".55"/><text x="160" y="330">MAP</text></g>
+          <g class="st" data-i="1"><ellipse class="bd" cx="167" cy="254" rx="108" ry="30"/><ellipse class="hi" cx="160" cy="243" rx="74" ry="12" opacity=".55"/><text x="167" y="265">SPECS</text></g>
+          <g class="st" data-i="2"><ellipse class="bd" cx="153" cy="196" rx="86" ry="27"/><ellipse class="hi" cx="148" cy="186" rx="58" ry="10" opacity=".55"/><text x="153" y="206">TIMELINE</text></g>
+          <g class="st" data-i="3"><ellipse class="bd" cx="165" cy="144" rx="66" ry="24"/><ellipse class="hi" cx="160" cy="135" rx="42" ry="9" opacity=".55"/><text x="165" y="154">MEMORY</text></g>
+          <g class="st top" data-i="4"><ellipse class="bd" cx="158" cy="98" rx="48" ry="21"/><ellipse class="hi" cx="154" cy="90" rx="28" ry="7" opacity=".7"/><text x="158" y="107">SESSIONS</text></g>
+        </svg>
+        <p class="stack-cap">The base never needs a model. The top stone changes every session.</p>
+      </div>
+      <div>
+        <article class="layer" data-i="0">
+          <p class="lno">Layer 1 · base</p>
+          <h3>Map</h3>
+          <p class="q">What is the code, and what depends on what?</p>
+          <p>Tree-sitter parses your source into a graph of files, symbols, imports and calls, with 25 languages built in. Cairn finds the hubs everything flows through and the areas the code falls into, so an impact question can follow a change three hops out.</p>
+          <dl class="facts"><div><dt>Built from</dt><dd>Source, docs, schemas, rationale comments</dd></div><div><dt>Model</dt><dd>None for code</dd></div><div><dt>On Cairn's repo</dt><dd>875 files, 16,906 nodes, 588 areas</dd></div></dl>
+          <figure class="shot rv"><img src="assets/landing/map.webp" width="1208" height="830" loading="lazy" decoding="async" alt="The Map page of the Cairn web UI. Code communities are drawn as nested circles inside their folders, labelled workflow, temporal, graph, recall, platform and others, with a ranked list of areas by size on the right."><figcaption>The Map page in <code>cairn ui</code> opens on areas, so a newcomer sees the shape of the code before the details.</figcaption></figure>
+        </article>
+        <article class="layer" data-i="1">
+          <p class="lno">Layer 2</p>
+          <h3>Specs</h3>
+          <p class="q">What did we intend to build?</p>
+          <p>A spec-driven workflow your agent runs as commands: <code>/cairn.specify</code>, <code>/cairn.plan</code>, <code>/cairn.tasks</code>, <code>/cairn.implement</code>. Every task names its files, so Cairn traces intent to code and reports drift: done tasks whose files are missing, requirements no task covers, and code that changed after its task closed.</p>
+          <dl class="facts"><div><dt>Built from</dt><dd><code>specs/</code> and the project constitution</dd></div><div><dt>Model</dt><dd>None for checks; optional for <code>drift --deep</code></dd></div><div><dt>On Cairn's repo</dt><dd>75 of 75 tasks done</dd></div></dl>
+        </article>
+        <article class="layer" data-i="2">
+          <p class="lno">Layer 3</p>
+          <h3>Timeline</h3>
+          <p class="q">What happened, and when was it true?</p>
+          <p>Cairn reads git history for files that change together, fixes and reverts. With a model, it also writes facts with validity windows, so an agent can ask what was true before the refactor as well as what is true now.</p>
+          <p class="fact-line">The per-layer Cairn panel feature shown at session start is implemented in src/cairn/hooks.py [2026-10-05 → now]</p>
+          <dl class="facts"><div><dt>Built from</dt><dd>Commits, spec progress, sessions, memory changes</dd></div><div><dt>Model</dt><dd>Optional, capped per sync</dd></div><div><dt>On Cairn's repo</dt><dd>47 commits, 546 facts</dd></div></dl>
+        </article>
+        <article class="layer" data-i="3">
+          <p class="lno">Layer 4</p>
+          <h3>Memory</h3>
+          <p class="q">What did we learn?</p>
+          <p>Decisions, conventions and gotchas, one sentence each with its source. Cairn seeds them from ADRs, contributing guides, spec clarifications and reverted fixes. People and agents add more with <code>remember</code>. With a model, a new memory updates, merges with or retires the ones it overlaps, so the list stays current.</p>
+          <dl class="facts"><div><dt>Built from</dt><dd>ADRs, docs, specs, commits, people, agents</dd></div><div><dt>Model</dt><dd>Optional, for reconciling</dd></div><div><dt>On Cairn's repo</dt><dd>32 memories</dd></div></dl>
+        </article>
+        <article class="layer" data-i="4">
+          <p class="lno">Layer 5 · top stone</p>
+          <h3>Sessions</h3>
+          <p class="q">What did the agents do?</p>
+          <p>Hooks record prompts, files read and changed, and commands from every wired agent. A worker turns them into observations and session summaries: what was asked, investigated, learned, completed and left for next time. Text inside <code>&lt;private&gt;</code> tags is never stored, and values that look like credentials are masked before anything is written.</p>
+          <dl class="facts"><div><dt>Built from</dt><dd>Agent hooks and plugins</dd></div><div><dt>Model</dt><dd>Optional; without one, records come from the tool events</dd></div><div><dt>On Cairn's repo</dt><dd>1,216 session notes</dd></div></dl>
+          <figure class="shot small rv"><img src="assets/landing/session-brief.webp" width="352" height="364" loading="lazy" decoding="async" alt="The 'What the next session starts with' panel on the Sessions page: a recent-context block with a legend of observation types and stats of 50 observations and 98 percent savings."><figcaption>The Sessions page shows the exact text the next session will start with.</figcaption></figure>
+        </article>
+      </div>
+    </div>
   </div>
 </section>
 
-<section id="data" aria-labelledby="data-h">
-  <div class="sec-head">
-    <span class="eyebrow">Your data</span>
-    <h2 id="data-h">Your code never leaves your machine.</h2>
-    <p>What an agent reads and runs is the most sensitive thing it captures, and the least useful to share. Cairn keeps it local. What your team does share is small, readable and stored where you already keep your code.</p>
+<!-- ============ QUESTIONS ============ -->
+<section class="sec" id="questions" aria-labelledby="q-h">
+  <div class="wrap">
+    <div class="head">
+      <span class="plate rv"><b>WP 04</b> Field guide</span>
+      <div class="rv" style="--d:1">
+        <h2 id="q-h">Every feature answers a question and prevents a mistake.</h2>
+        <p class="lede">Agents reach these through MCP tools and hooks. People reach the same answers in the terminal and on the local page. Each answer is a short, cited pack that fits a token budget.</p>
+      </div>
+    </div>
+    <ol class="qs">
+      <li class="rv"><span class="n">01</span><div><h3>Where did I leave off?</h3><p class="via">Session-start brief in every wired agent · the visible panel in Claude Code</p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> redoing yesterday's work, or quietly undoing it.</span></p></div></li>
+      <li class="rv" style="--d:1"><span class="n">02</span><div><h3>What breaks if I change this?</h3><p class="via"><code>cairn impact</code> · <code>cairn_impact</code></p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> breaking a caller three hops away and skipping the tests that cover it.</span></p></div></li>
+      <li class="rv"><span class="n">03</span><div><h3>Why is the code like this?</h3><p class="via"><code>cairn why</code> · <code>cairn_why</code></p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> re-introducing a fix that was reverted, or reversing a decision nobody wrote down in the code.</span></p></div></li>
+      <li class="rv" style="--d:1"><span class="n">04</span><div><h3>Which files are fragile?</h3><p class="via">Handle with care in the panel · risk level in every impact answer</p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> editing a file with a long run of fixes and reverts without knowing it.</span></p></div></li>
+      <li class="rv"><span class="n">05</span><div><h3>Does the code still match the spec?</h3><p class="via"><code>cairn drift</code> · <code>cairn_specs</code> with drift</p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> code silently drifting away from what the spec promised.</span></p></div></li>
+      <li class="rv" style="--d:1"><span class="n">06</span><div><h3>What does the team know about this?</h3><p class="via"><code>cairn recall</code> · <code>cairn_recall</code> · <code>cairn remember</code></p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> making the same correction to an agent in every session.</span></p></div></li>
+      <li class="rv"><span class="n">07</span><div><h3>Did an agent already solve this?</h3><p class="via"><code>cairn sessions search</code> · <code>cairn_session_search</code></p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> solving the same problem twice in two agents.</span></p></div></li>
+      <li class="rv" style="--d:1"><span class="n">08</span><div><h3>What was true, and when?</h3><p class="via"><code>cairn timeline search --at</code> · <code>cairn_facts</code></p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> acting on a fact that stopped being true after a refactor.</span></p></div></li>
+      <li class="rv"><span class="n">09</span><div><h3>What does this prompt need?</h3><p class="via">Ambient context on each Claude Code prompt · 500 tokens at most · code prompts only</p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> the agent skipping memory because it did not think to ask.</span></p></div></li>
+      <li class="rv" style="--d:1"><span class="n">10</span><div><h3>What should the reviewer look at?</h3><p class="via"><code>cairn review-context --files</code></p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> approving a diff without seeing its callers, tests and history.</span></p></div></li>
+      <li class="rv"><span class="n">11</span><div><h3>What happened since yesterday?</h3><p class="via"><code>cairn standup</code></p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> a standup pieced together from memory and scrollback.</span></p></div></li>
+      <li class="rv" style="--d:1"><span class="n">12</span><div><h3>Where is it, and how does it connect?</h3><p class="via"><code>cairn search</code> · <code>cairn trace path</code> · <code>cairn hubs</code></p><p class="pv"><span class="blz" aria-hidden="true"></span><span><strong>Prevents</strong> opening whole files to find one symbol.</span></p></div></li>
+    </ol>
   </div>
-  <div class="tiers">
-    <div class="tier">
-      <span class="where">On your laptop</span>
-      <h3>Everything raw</h3>
-      <ul><li>Files read and command output</li><li>Prompts and the code map</li><li>Never uploaded</li></ul>
-      <span class="badge">Today</span>
-    </div>
-    <div class="tier">
-      <span class="where">In your git</span>
-      <h3>What the team learned</h3>
-      <ul><li>Decisions, conventions and gotchas</li><li>Session summaries and timeline facts</li><li>Reviewed like code, owned by you</li></ul>
-      <span class="badge soon">In development</span>
-    </div>
-    <div class="tier">
-      <span class="where">On a server you run</span>
-      <h3>One place for the team</h3>
-      <ul><li>Shared memory over HTTPS for remote teams</li><li>Roles, tokens and an audit log</li><li>Self-hosted with Docker</li></ul>
-      <span class="badge">Today</span>
-    </div>
-  </div>
-  <p class="caption" style="margin-top:18px">Every model call Cairn makes is recorded in a local ledger with its size. With no model available, everything except written summaries still works.</p>
 </section>
 
-<section id="plans" aria-labelledby="plans-h">
-  <div class="sec-head">
-    <span class="eyebrow">Plans</span>
-    <h2 id="plans-h">Free for you. Built for teams.</h2>
+<!-- ============ LIFECYCLE ============ -->
+<section class="sec" id="lifecycle" aria-labelledby="lc-h">
+  <div class="wrap">
+    <div class="head">
+      <span class="plate rv"><b>WP 05</b> The whole lifecycle</span>
+      <div class="rv" style="--d:1">
+        <h2 id="lc-h">The memory under an AI-native development cycle.</h2>
+        <p class="lede">People and agents trade work at every stage, from spec to ship. Cairn is what both sides read from and write to, so each stage starts with what the last one learned, and the next cycle starts ahead of this one.</p>
+      </div>
+    </div>
+    <div class="loop">
+      <div class="loopfig">
+        <svg id="loopsvg" viewBox="0 0 460 460" role="img" aria-label="A loop of six stages: Specify, Plan, Implement, Review, Ship, Learn, around a shared Cairn memory at the centre">
+          <circle class="ring" cx="230" cy="230" r="168"/>
+          <g class="ticks2"><path d="M310.9 75.8L316.6 86.0L304.9 86.2"/><path d="M404.0 223.0L398.0 233.0L392.0 223.0"/><path d="M323.1 377.2L311.4 377.0L317.1 366.8"/><path d="M149.1 384.2L143.4 374.0L155.1 373.8"/><path d="M56.0 237.0L62.0 227.0L68.0 237.0"/><path d="M136.9 82.8L148.6 83.0L142.9 93.2"/></g>
+          <g id="runner"><circle class="run" cx="230" cy="62" r="7"/></g>
+          <g class="hub"><circle cx="230" cy="230" r="78"/><use href="#cg" x="212" y="168" width="36" height="36" class="hubg"/><text x="230" y="234" class="h1t">memory</text><text x="230" y="254" class="h2t">compounds each cycle</text></g>
+          <g class="node"><rect x="186.1" y="43.0" width="87.8" height="38"/><text x="230.0" y="68.0">Specify</text></g><g class="node"><rect x="345.7" y="127.0" width="59.6" height="38"/><text x="375.5" y="152.0">Plan</text></g><g class="node"><rect x="322.2" y="295.0" width="106.6" height="38"/><text x="375.5" y="320.0">Implement</text></g><g class="node"><rect x="190.8" y="379.0" width="78.4" height="38"/><text x="230.0" y="404.0">Review</text></g><g class="node"><rect x="54.7" y="295.0" width="59.6" height="38"/><text x="84.5" y="320.0">Ship</text></g><g class="node"><rect x="50.0" y="127.0" width="69.0" height="38"/><text x="84.5" y="152.0">Learn</text></g>
+        </svg>
+      </div>
+      <ol class="stages">
+        <li class="rv" data-s="0"><p class="sw">Specify <span>person + agent</span></p><p><code>/cairn.specify</code> and <code>/cairn.clarify</code> write the spec. Answers that are lasting decisions are stored as memory.</p></li>
+        <li class="rv" data-s="1"><p class="sw">Plan <span>agent</span></p><p><code>/cairn.plan</code> grounds the plan in context, impact and recall. <code>/cairn.tasks</code> checks impact for every file the tasks name.</p></li>
+        <li class="rv" data-s="2"><p class="sw">Implement <span>agent</span></p><p>The panel and brief at session start, context on each prompt, impact and why before edits. Hooks capture the session.</p></li>
+        <li class="rv" data-s="3"><p class="sw">Review <span>person + agent</span></p><p><code>cairn review-context</code> for the changed files, and <code>cairn drift</code> until it is clean or every finding is explained.</p></li>
+        <li class="rv" data-s="4"><p class="sw">Ship <span>person</span></p><p>Git hooks re-sync after the merge. <code>cairn standup</code> reports commits against the requirements they touch.</p></li>
+        <li class="rv" data-s="5"><p class="sw">Learn <span>agent + person</span></p><p>Session summaries, timeline facts and one to three recorded learnings per implemented spec. The next cycle starts with them.</p></li>
+      </ol>
+    </div>
+    <h3 class="poss-h rv">What becomes possible</h3>
+    <ul class="poss">
+      <li class="rv">Agents that check the history before repeating a reverted fix.</li>
+      <li class="rv" style="--d:1">A new hire whose agent knows the team's conventions on the first day.</li>
+      <li class="rv" style="--d:2">Reviews that see callers, tests and past reverts next to the diff.</li>
+      <li class="rv">Impact across repositories: name sibling repos in <code>system.yaml</code> and review packs include hits in them.</li>
+      <li class="rv" style="--d:1">Knowledge that stays when people move on to other work.</li>
+      <li class="rv" style="--d:2">Mixing and switching agents without losing what any of them learned.</li>
+    </ul>
   </div>
-  <div class="plans">
-    <div class="plan main">
-      <span class="badge">Available now</span>
-      <h3>Open source</h3>
-      <div class="price">Free <small>Apache-2.0</small></div>
-      <ul><li>Every feature on this page, on your machine</li><li>Every supported agent</li><li>Self-hosted team server</li></ul>
-      <a class="btn btn-primary" href="#how">Get started</a>
+</section>
+
+<!-- ============ DAY ============ -->
+<section class="sec" id="day" aria-labelledby="day-h">
+  <div class="wrap">
+    <div class="head">
+      <span class="plate rv"><b>WP 06</b> A day with Cairn</span>
+      <div class="rv" style="--d:1">
+        <h2 id="day-h">One team, one repository, morning to evening.</h2>
+        <p class="lede">The people are illustrative. Every command output below is real, from Cairn's own repository on October 6, 2026, trimmed where it runs long.</p>
+      </div>
     </div>
-    <div class="plan">
-      <span class="badge soon">Early access</span>
-      <h3>Team</h3>
-      <div class="price">Hosted <small>per active developer</small></div>
-      <ul><li>One dashboard across your repositories</li><li>Review queue for shared memories</li><li>Cross-repo search and impact</li><li>Savings and usage analytics</li></ul>
-      <a class="btn btn-ghost" href="https://github.com/Shashank2577/cairn/issues/new?title=Early%20access%3A%20Team%20plan">Ask for early access</a>
-    </div>
-    <div class="plan">
-      <span class="badge soon">Talk to us</span>
-      <h3>Enterprise</h3>
-      <div class="price">Your cloud <small>or ours</small></div>
-      <ul><li>Self-hosted or in your cloud</li><li>SSO, SCIM and audit export</li><li>Redaction and retention policy</li><li>Support and SLA</li></ul>
-      <a class="btn btn-ghost" href="https://github.com/Shashank2577/cairn/issues/new?title=Enterprise%20enquiry">Start a conversation</a>
+    <div class="day">
+      <div class="clock" aria-hidden="true">
+        <div class="tm" id="clock">08:40</div>
+        <div class="who" id="clockwho">Developer</div>
+        <svg class="sun" viewBox="0 0 220 90"><path d="M10 80 Q110 -20 210 80"/><circle id="sun" cx="10" cy="80" r="7"/></svg>
+      </div>
+      <div>
+        <ol class="trail" id="trail"><span class="prog" aria-hidden="true"></span><li class="stop rv" data-t="08:40" data-role="Developer"><div class="meta"><span class="t">08:40</span><span class="role">Developer</span><span class="via2">SessionStart hook · automatic · 0 model calls</span></div><h3>Ana opens Claude Code</h3><p>Before she types anything, the panel shows where yesterday's session stopped and the model receives a brief of about 550 tokens: hubs, the active spec, the team's gotchas and how to ask for more.</p><div class="out"><div class="cmdl">cairn brief</div><pre># Cairn brief: cairn
+Map: 875 files, 16906 nodes; hubs: QueryExecutor (src/cairn/engines/temporal/driver/query_executor.py), …
+Specs: 1 features, 75/75 tasks done
+Principles: I. One Product, Invisible Seams; II. Deterministic First, Models Second (NON-NEGOTIABLE); …
+Team knowledge:
+- [gotcha] Agent hooks never fail on a busy store: Opening the store wrote schema_version every time, … [memory:34ffa43cc4]
+Open drift findings: 90 (run `cairn drift`)
+Before editing: call cairn_context (or cairn_impact) for the files/symbols you will touch. Record durable learnings with cairn_remember.</pre></div></li><li class="stop rv" data-t="09:05" data-role="Team lead"><div class="meta"><span class="t">09:05</span><span class="role">Team lead</span><span class="via2">Terminal</span></div><h3>Sam runs standup from the log</h3><p>Commits with the requirements they touch, new memories, timeline facts, agent sessions and open drift. Read from the local store, so it costs nothing to run every morning.</p><div class="out"><div class="cmdl">cairn standup</div><pre>▲ cairn  standup
+ 2026-10-06
+   ✓ fix: injected context names real tools; setup offer from sub-folders; panel skips test files  Shashank2577
+   ✓ fix: session capture never climbs above the repository root  Shashank2577
+   ✓ feat: cairn global install — one install for every agent  Shashank2577
+   ● Agent hooks never fail on a busy store: Opening the store wrote schema_version every time, … gotcha
+   ◆ src/cairn/hooks.py implements the session-start panel, which was changed to show the memory itself …
+   … +70 more facts
+   ◇ 6 agent sessions
+   ⚠ 90 drift findings → cairn drift</pre></div></li><li class="stop rv" data-t="09:40" data-role="Developer"><div class="meta"><span class="t">09:40</span><span class="role">Developer</span><span class="via2">MCP · cairn_why</span></div><h3>Raj picks up a teammate's branch in Codex</h3><p>He did not write this file. His agent asks why it is shaped this way and gets the rationale comments, the commits behind the lines, the requirement and the team's convention.</p><div class="out"><div class="cmdl">cairn why src/cairn/hooks.py</div><pre>Why: src/cairn/hooks.py
+
+Rationale
+  • "Claude Code UserPromptSubmit hook: a small, budget-capped context nugget for…" — src/cairn/hooks.py:290
+Origin (+2 more)
+  • 5710924cd4 feat: ambient context, system layer, review-context pack — Shashank2577, 2026-10-04, wrote 26 of these lines
+Intent (+4 more)
+  • FR-016 The system MUST install git hooks that sync in the background after commit, merge, checkout and rewrite …
+Memory (+4 more)
+  • [convention] Capture hooks stay standard-library only and never fail or slow the agent. (2026-09-24)</pre></div></li><li class="stop rv" data-t="11:15" data-role="Agent"><div class="meta"><span class="t">11:15</span><span class="role">Agent</span><span class="via2">MCP · cairn_impact</span></div><h3>An agent checks impact before a refactor</h3><p>Asked to restructure the model router, the agent calls impact first. The answer: high risk, 137 dependents in 40 files, the tests to re-run, three past fixes or reverts and the task that owns the code.</p><div class="out"><div class="cmdl">cairn impact src/cairn/router.py</div><pre>Impact: src/cairn/router.py
+ HIGH  — 137 dependents in 40 other files; 3 past fix/reverts; 5 files usually change with it
+
+Dependents (+86 more)
+  • .__init__() src/cairn/core.py:208 — calls Router (depth 1, EXTRACTED)
+Tests likely affected (+47 more)
+  • test_default_router_is_cairns() tests/engines/test_graph_models.py:226 — uses Router (depth 1, INFERRED)
+Changes together (+3 more)
+  • src/cairn/store.py — changed together in 2 commits (67%)
+Historical warnings (+1 more)
+  • 1481d1cf50 fix: Windows support in locks, paths, bash resolution and piped output — fix, 2026-10-05
+Intent (+1 more)
+  • T006 Model router with providers, task tiers, escalation, budgets and ledger in `src/cairn/router.py` (done)</pre></div></li><li class="stop rv" data-t="13:30" data-role="New joiner"><div class="meta"><span class="t">13:30</span><span class="role">New joiner</span><span class="via2">Terminal</span></div><h3>Lee clones the repo on day one</h3><p>One setup command on the new clone, then two questions: what does everything flow through, and how does this team work? Memory seeded from ADRs, docs, specs and commits comes with the clone. What teammates' agents learned comes through a team server today.</p><div class="out"><div class="cmdl">cairn hubs --top 4  ·  cairn recall "spec workflow"</div><pre>  1 QueryExecutor      580 links  src/cairn/engines/temporal/driver/query_executor.py
+  2 Transaction        345 links  src/cairn/engines/temporal/driver/query_executor.py
+  3 extract.py         300 links  src/cairn/engines/graph/extract.py
+  4 _make_id()         218 links  src/cairn/engines/graph/extractors/base.py
+
+ decision   The spec workflow's constitution, templates, scripts and integrations live in `.cairn/workflow` …
+ convention Non-trivial changes follow the spec workflow: `/cairn.specify`, `/cairn.clarify`, `/cairn.plan`, …</pre></div></li><li class="stop rv" data-t="15:50" data-role="Reviewer"><div class="meta"><span class="t">15:50</span><span class="role">Reviewer</span><span class="via2">Terminal</span></div><h3>Mo reviews a pull request</h3><p>Two changed files. The review pack lists who calls the changed code, the tests that cover it, files that usually change alongside, and a recent commit tagged as a fix and a revert. No model calls.</p><div class="out"><div class="cmdl">cairn review-context --files src/cairn/hooks.py,src/cairn/cli.py</div><pre>## Review context — cairn (main)
+### Local impact
+- src/cairn/hooks.py:
+  - hook() src/cairn/cli.py:1128 — calls ambient() (depth 1, EXTRACTED)
+  - install_git_hooks() src/cairn/hooks.py:68 — calls hook_line() (depth 1, EXTRACTED)
+  - 083aafb94b feat: the session-start panel shows the memory itself, not counts — fix, revert, 2026-10-06
+- src/cairn/cli.py:
+  - test_statusline_cwd_reads_a_valid_payload() tests/test_dogfood_fixes.py:32 — calls _statusline_cwd()
+  - src/cairn/speckit_extension/README.md — changed together in 2 commits (100%)
+### Cross-repo
+- no system.yaml — sibling repos unknown (see `cairn system`)</pre></div></li><li class="stop rv" data-t="18:10" data-role="Everyone"><div class="meta"><span class="t">18:10</span><span class="role">Everyone</span><span class="via2">Terminal</span></div><h3>The day's work becomes tomorrow's context</h3><p>Capture hooks wrote each session up as it ended. Learnings went into memory with their source. The receipt shows what Cairn has done for this repository so far.</p><div class="out"><div class="cmdl">cairn recap</div><pre>▲ cairn  recap — tracking since 12d ago
+  learned     54 memories from this repo's history
+  watched     47 commits, 1317 agent sessions
+  watching    90 drift findings right now
+  answered    21 queries — saved ~447,988 tokens (97% vs reading the files)</pre></div></li></ol>
+      </div>
     </div>
   </div>
 </section>
+
+<!-- ============ HOW ============ -->
+<section class="sec" id="how" aria-labelledby="how-h">
+  <div class="wrap">
+    <div class="head">
+      <span class="plate rv"><b>WP 07</b> How it works</span>
+      <div class="rv" style="--d:1">
+        <h2 id="how-h">It runs on your laptop, next to your agents.</h2>
+        <p class="lede">Hooks and an MCP server connect each agent to one local Cairn. Five engines write their results into a single SQLite read model inside the repository, and every surface reads from it: the CLI, the agents' tools and the local page. A team server and a model are optional.</p>
+      </div>
+    </div>
+    <div class="arch rv" role="group" aria-label="Architecture diagram">
+      <div class="zone">
+        <span class="zl">Your laptop</span>
+        <div class="tier"><span class="tl">Agents</span><div class="chips"><span class="chip">Claude Code</span><span class="chip">Codex</span><span class="chip">Cursor</span><span class="chip">Copilot CLI</span><span class="chip">Gemini CLI</span><span class="chip">OpenCode</span><span class="chip">Antigravity</span></div></div>
+        <div class="two">
+          <div class="flow">pushed: brief, panel, per-prompt context<br>captured: prompts, files, commands</div>
+          <div class="flow">pulled: 13 MCP tools over stdio<br>impact, why, recall, search, specs…</div>
+        </div>
+        <div class="core">
+          <h4>cairn</h4>
+          <div class="two"><div class="tier"><span class="tl">Surfaces</span>CLI · MCP server · capture hooks · local page on 127.0.0.1</div><div class="tier"><span class="tl">Read model</span><code>.cairn/brain.db</code>, one SQLite file. Index lookups; works offline.</div></div>
+          <div><span class="tl kicker" style="display:block;margin-bottom:6px">Engines</span><div class="engines"><span>Map</span><span>Specs</span><span>Timeline</span><span>Memory</span><span>Sessions</span></div></div>
+        </div>
+        <div class="flow">sync runs in the background after every commit, merge, checkout and rebase</div>
+        <div class="tier"><span class="tl">Your repository</span>Code · git history · <code>specs/</code> · ADRs · contributing and style docs</div>
+      </div>
+      <div class="side">
+        <div class="zone opt"><span class="zl">Model · optional</span><p>Your API key, any OpenAI-compatible endpoint (local ones too), or your signed-in Claude Code plan. Writes observations, summaries, timeline facts and narrated answers. Every call lands in the local ledger.</p></div>
+        <div class="zone opt"><span class="zl">Team server · optional</span><p>Self-hosted with <code>cairn serve --team</code> behind your HTTPS proxy.</p><ul><li>Sign-in, four roles, API tokens, audit log</li><li>Git projects re-synced by push webhooks</li><li>The same MCP tools at <code>/mcp/&lt;project&gt;/</code></li><li>Sessions arrive only when a member connects, cleaned, under that member's token</li><li>Docker files in <code>deploy/</code></li></ul></div>
+        <div class="zone opt"><span class="zl">Your git host</span><p>Specs, ADRs, the constitution and <code>.cairn/config.toml</code> travel with the code, reviewed like code.</p></div>
+      </div>
+    </div>
+
+    <table class="where rv">
+      <caption>What stays where</caption>
+      <thead><tr><th scope="col">Place</th><th scope="col">What lives there</th><th scope="col">When it leaves</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Your laptop</th><td>Raw session capture, the code map, the read model, memories, the token ledger. All in the repository's <code>.cairn/</code> folder; memory files written for agents are excluded from git.</td><td>Never, unless you connect a team server.</td></tr>
+        <tr><th scope="row">Your git host</th><td>Specs, ADRs, the constitution, workflow templates and shared config. Shared team knowledge in git (memories, decisions and session summaries on a branch) <span class="tag dev">In development</span></td><td>It is already your repository.</td></tr>
+        <tr><th scope="row">Your team server</th><td>Shared memories, pushed sessions with private blocks removed and secrets masked, the audit log. <span class="tag ok">Available, self-hosted</span></td><td>Each member pushes under their own token.</td></tr>
+        <tr><th scope="row">A model provider</th><td>Prompts for observations, summaries, facts and narration, only when a model is configured or detected.</td><td>Per call, on your key or plan. Turn it off and everything above still works.</td></tr>
+      </tbody>
+    </table>
+
+    <ul class="why4">
+      <li class="rv"><h3>Your code is the input</h3><p>Reading it where it already lives means no upload and no second copy of your source to secure.</p></li>
+      <li class="rv" style="--d:1"><h3>Capture is the sensitive part</h3><p>File contents, command output and prompts are most of what Cairn records. They stay on the machine that produced them.</p></li>
+      <li class="rv" style="--d:2"><h3>Useful on day one, offline</h3><p>Map, impact, why, drift, recall and the session panel run without a model, a server or an API key.</p></li>
+      <li class="rv" style="--d:3"><h3>Deterministic first</h3><p>Answers are computed, cited and budgeted. A model narrates and summarises on top, and never decides what is true.</p></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ SETUP + COMMANDS ============ -->
+<section class="sec" id="commands" aria-labelledby="cmd-h">
+  <div class="wrap">
+    <div class="head" id="setup">
+      <span class="plate rv"><b>WP 08</b> Setup and commands</span>
+      <div class="rv" style="--d:1">
+        <h2 id="cmd-h">Install once. Then mostly forget the commands.</h2>
+        <p class="lede">Agents call Cairn on their own. The commands are for you: to check what an agent will be told, to review, and to run the team's day. You need Python 3.11 to 3.13 and git. No Docker, database server or API key.</p>
+      </div>
+    </div>
+    <ol class="steps">
+      <li class="rv"><h3>Install the CLI</h3><p>One tool on your PATH. The Python pin matters: a dependency has no 3.14 wheels yet on macOS and Windows.</p><div class="snip"><button class="copy" type="button" data-copy="uv tool install --python 3.12 cairn-brain">Copy</button><ol><li><span>uv tool install --python 3.12 cairn-brain</span></li></ol></div></li>
+      <li class="rv" style="--d:1"><h3>Wire every agent</h3><p>Adds Cairn's tools, memory at session start and session capture to each agent's user-level config. In a repository without Cairn, your agent offers setup in one line and writes nothing until you say yes.</p><div class="snip"><button class="copy" type="button" data-copy="cairn global install">Copy</button><ol><li><span>cairn global install</span></li></ol></div></li>
+      <li class="rv" style="--d:2"><h3>Set up a repository</h3><p>Builds the map, seeds memory and installs git hooks. About 15 seconds with no model. Worktrees share the main checkout's memory automatically.</p><div class="snip"><button class="copy" type="button" data-copy="cairn init --no-deep">Copy</button><ol><li><span>cairn init --no-deep</span></li></ol></div></li>
+    </ol>
+
+    <div class="cmds">
+      <section class="cg rv" aria-labelledby="cg1"><h3 id="cg1">Set up <small>once</small></h3><dl>
+        <div><dt>cairn global install</dt><dd>Wire every agent on this machine at user level.</dd></div>
+        <div><dt>cairn init <span class="a">--no-deep</span></dt><dd>Set up this repository without the model-backed timeline pass.</dd></div>
+        <div><dt>cairn agents connect <span class="a">--server URL --project ID</span></dt><dd>Point this repository's agents at a team server.</dd></div>
+        <div><dt>cairn ui</dt><dd>Open the local page. One server serves every repository.</dd></div>
+        <div><dt>cairn uninstall <span class="a">[--purge]</span></dt><dd>Remove exactly what Cairn added; <code>--purge</code> also deletes <code>.cairn/</code>.</dd></div>
+      </dl></section>
+      <section class="cg rv" style="--d:1" aria-labelledby="cg2"><h3 id="cg2">Ask <small>before an edit</small></h3><dl>
+        <div><dt>cairn impact <span class="a">&lt;file|symbol&gt;</span></dt><dd>What breaks if this changes.</dd></div>
+        <div><dt>cairn why <span class="a">&lt;file|symbol&gt;</span></dt><dd>Why this code is the way it is.</dd></div>
+        <div><dt>cairn ask <span class="a">"&lt;question&gt;"</span></dt><dd>Evidence first; a narrated answer when a model is available.</dd></div>
+        <div><dt>cairn search <span class="a">&lt;query&gt;</span></dt><dd>Search every layer.</dd></div>
+        <div><dt>cairn recall <span class="a">&lt;topic&gt;</span></dt><dd>What the team knows about a topic.</dd></div>
+        <div><dt>cairn hubs · cairn areas</dt><dd>The most-connected code, and the subsystems in the map.</dd></div>
+        <div><dt>cairn trace path <span class="a">&lt;a&gt; &lt;b&gt;</span></dt><dd>The shortest path between two things in the map.</dd></div>
+        <div><dt>cairn sessions search <span class="a">&lt;query&gt;</span></dt><dd>What earlier agent sessions did.</dd></div>
+        <div><dt>cairn brief</dt><dd>The briefing agents receive at session start.</dd></div>
+      </dl></section>
+      <section class="cg rv" aria-labelledby="cg3"><h3 id="cg3">Review <small>before merge</small></h3><dl>
+        <div><dt>cairn review-context <span class="a">--files a,b</span></dt><dd>A reviewer's pack: ticket signals, local impact, sibling-repo hits. No model calls.</dd></div>
+        <div><dt>cairn drift</dt><dd>Where the code disagrees with its specs.</dd></div>
+        <div><dt>cairn specs</dt><dd>The spec board: features, stories, progress, file trace.</dd></div>
+        <div><dt>cairn prs</dt><dd>Open pull requests with their map impact (needs the GitHub CLI).</dd></div>
+        <div><dt>cairn spec new <span class="a">"&lt;description&gt;"</span></dt><dd>Start the next numbered spec from the template.</dd></div>
+      </dl></section>
+      <section class="cg rv" style="--d:1" aria-labelledby="cg4"><h3 id="cg4">Team <small>shared knowledge</small></h3><dl>
+        <div><dt>cairn standup <span class="a">--days 1</span></dt><dd>Commits and their requirements, memories, facts and sessions.</dd></div>
+        <div><dt>cairn remember <span class="a">"&lt;text&gt;" --kind decision</span></dt><dd>Teach every agent something durable.</dd></div>
+        <div><dt>cairn memories · cairn forget <span class="a">&lt;id&gt;</span></dt><dd>List memories, or retire one.</dd></div>
+        <div><dt>cairn system</dt><dd>Sibling repositories of this product, from <code>system.yaml</code>.</dd></div>
+        <div><dt>cairn team · project · token · user</dt><dd>Run the self-hosted team server: members, projects, API tokens, accounts.</dd></div>
+      </dl></section>
+      <section class="cg rv" aria-labelledby="cg5"><h3 id="cg5">Maintain <small>health and cost</small></h3><dl>
+        <div><dt>cairn status</dt><dd>Every layer, the active spec, drift and the page address.</dd></div>
+        <div><dt>cairn doctor</dt><dd>Every capability, its state, and the command that fixes it.</dd></div>
+        <div><dt>cairn sync</dt><dd>Incremental refresh. Git hooks run it for you.</dd></div>
+        <div><dt>cairn models <span class="a">--ledger</span></dt><dd>Which model does which job, and every call's tokens.</dd></div>
+        <div><dt>cairn recap</dt><dd>What Cairn has done for this repository, and what it saved.</dd></div>
+        <div><dt>cairn up · cairn down</dt><dd>Start or stop the local server.</dd></div>
+      </dl></section>
+    </div>
+
+    <div class="tools">
+      <div class="rv"><h3>The agent's side: 13 MCP tools</h3><p>A compact core set, so tool schemas stay small on every turn. Set <code>[mcp] tools = "all"</code> to add the full map, timeline and session toolsets.</p><p><a href="https://github.com/Shashank2577/cairn/blob/main/docs/mcp.md">MCP reference</a></p></div>
+      <ul class="tlist rv" style="--d:1">
+        <li><code>cairn_context</code>Ranked context for a task. Called first.</li>
+        <li><code>cairn_impact</code>Risk, dependents, tests, co-change, owners.</li>
+        <li><code>cairn_why</code>Rationale, origin commits, spec task, decisions.</li>
+        <li><code>cairn_search</code>Anything, across every layer.</li>
+        <li><code>cairn_trace</code>Explain a node, or the path between two.</li>
+        <li><code>cairn_specs</code>The spec board, or drift.</li>
+        <li><code>cairn_remember</code>Store one durable sentence.</li>
+        <li><code>cairn_recall</code>What the team knows about X.</li>
+        <li><code>cairn_facts</code>What was true, and when.</li>
+        <li><code>cairn_status</code>Project health in one call.</li>
+        <li><code>cairn_session_search</code>Index of past sessions' work.</li>
+        <li><code>cairn_session_timeline</code>What happened around a result.</li>
+        <li><code>cairn_session_observations</code>Full details for chosen ids.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ AGENTS / DATA / COST ============ -->
+<section class="sec" id="agents" aria-labelledby="ag-h">
+  <div class="wrap">
+    <div class="head">
+      <span class="plate rv"><b>WP 09</b> Agents, data, cost</span>
+      <div class="rv" style="--d:1">
+        <h2 id="ag-h">One memory for every agent you use.</h2>
+        <p class="lede">Cairn writes only what each agent supports, in its own config, and <code>cairn uninstall</code> removes exactly that. Switch agents mid-week and the memory comes along.</p>
+      </div>
+    </div>
+    <table class="agents rv">
+      <caption class="sr">Supported agents, how memory reaches each at session start, and test status</caption>
+      <thead><tr><th scope="col">Agent</th><th scope="col">How memory arrives at session start</th><th scope="col">Status</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Claude Code</th><td>Session-start hooks for the panel, the brief and the session timeline, plus ambient context on each code prompt</td><td><span class="st-ok">Verified live</span></td></tr>
+        <tr><th scope="row">Codex</th><td>A session-start hook; approve Cairn's hooks once under <code>/hooks</code></td><td><span class="st-ok">Verified live</span></td></tr>
+        <tr><th scope="row">OpenCode</th><td>A plugin that adds the memory to the system prompt</td><td><span class="st-ok">Verified live</span></td></tr>
+        <tr><th scope="row">Copilot CLI</th><td>An instructions file kept out of git</td><td><span class="st-ok">Verified live</span></td></tr>
+        <tr><th scope="row">Antigravity</th><td>An always-on rule kept out of git</td><td><span class="st-ok">Verified live</span></td></tr>
+        <tr><th scope="row">Cursor</th><td>A session-start hook, in the IDE and <code>cursor-agent</code></td><td><span class="st-w">Wired, not yet tested live</span></td></tr>
+        <tr><th scope="row">Gemini CLI</th><td>A session-start hook, also under <code>gemini -p</code></td><td><span class="st-w">Wired, not yet tested live</span></td></tr>
+      </tbody>
+    </table>
+    <p class="after">Also wired: VS Code with Copilot and Windsurf. Any other MCP client can run <code>cairn mcp</code> and read the Cairn block in <code>AGENTS.md</code>. <a href="https://github.com/Shashank2577/cairn/blob/main/docs/agents.md">What each agent gets</a></p>
+
+    <div class="cols2">
+      <div class="rv" id="privacy">
+        <h3>Where your data lives</h3>
+        <ul class="ticks">
+          <li><strong>On your machine.</strong> Capture, map, memory and ledger live in the repository's <code>.cairn/</code> folder.</li>
+          <li><strong>Private stays private.</strong> Anything inside <code>&lt;private&gt;</code> tags is never stored. Values that look like keys, passwords or bearer tokens are masked before they are written.</li>
+          <li><strong>Out of git.</strong> Memory files written for Copilot, Antigravity and Windsurf are excluded locally, so they are never committed.</li>
+          <li><strong>Local embeddings.</strong> Search vectors are computed on your machine. Offline, a built-in hashing embedder takes over.</li>
+          <li><strong>Loopback only.</strong> The local server listens on 127.0.0.1. Anything wider requires team mode with sign-in.</li>
+          <li><strong>Cairn does not watch itself.</strong> Its own model calls are never recorded as sessions.</li>
+        </ul>
+      </div>
+      <div class="rv" style="--d:1" id="cost">
+        <h3>What it costs to run</h3>
+        <ul class="ticks">
+          <li><strong>No model on day one.</strong> The map, impact, why, drift, recall and the session panel are computed from your repository with no model.</li>
+          <li><strong>Your model, when you want one.</strong> Cairn uses an Anthropic or OpenAI-compatible key, a local endpoint, or your signed-in Claude Code plan, and gives each job to the cheapest tier that does it well.</li>
+          <li><strong>Budgets you set.</strong> Timeline facts stop at 150,000 tokens per sync by default. Turn them off with <code>[deep] enabled = false</code>, or queue session notes for later with <code>[recall] worker_spawn = false</code>.</li>
+          <li><strong>A ledger of every call.</strong> Task, tier, model and tokens, on your machine.</li>
+        </ul>
+        <div class="out ledger"><pre>$ cairn models --ledger
+  tier      model                       calls   input       output
+  fast      claude-haiku-4-5-20251001   878     1,021,846   1,909,422
+  balanced  claude-sonnet-5             217     432         442,679
+  deep      claude-opus-5-5             22      5,213       18,497</pre></div>
+        <p class="cap">Cairn's own repository, all calls to date; cache column trimmed. With the Claude Code provider, these tokens count against your plan's usage.</p>
+      </div>
+    </div>
+    <figure class="shot rv" style="margin-top:clamp(40px,5vw,64px)"><img src="assets/landing/overview-context.webp" width="1170" height="516" loading="lazy" decoding="async" alt="The Overview page's Context served panel: 391 tokens sent to agents against 144,228 tokens in 33 files behind the answers, 369 times fewer, with a breakdown by session start, terminal impact, terminal why and agent tool calls."><figcaption>Savings are measured as they happen: each answer is logged with its size and the size of the files it cites. Session briefings count as cost, since nothing replaces them.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ VISION ============ -->
+<section class="sec vision" id="vision" aria-labelledby="v-h">
+  <svg class="topo" viewBox="-720 -520 1440 1040" aria-hidden="true" focusable="false"><use href="#topo"/></svg>
+  <div class="wrap">
+    <div class="head" style="margin-bottom:24px"><span class="plate rv"><b>WP 10</b> Why a cairn</span></div>
+    <h2 class="quote rv" id="v-h">Every session leaves the route <span>better marked.</span></h2>
+    <div class="vtext">
+      <p class="rv">A cairn is a pile of stones that walkers leave to mark a route for whoever comes next. Nobody builds one alone. Each person who passes adds a stone, and the path gets easier to follow.</p>
+      <p class="rv" style="--d:1">Cairn is institutional memory for teams of people and agents. Every commit, spec, review and session adds a stone. Whoever comes next, a teammate, a new hire or an agent in a different tool, finds the way already marked.</p>
+    </div>
+    <ol class="road">
+      <li class="rv"><span class="tag ok">Available now</span><h3>Open source, v0.2.1</h3><ul><li>Five layers, 25 languages, the spec workflow</li><li>Seven agents wired by one global install</li><li>Session panel, brief and ambient context (Claude Code)</li><li>Review context, standup, recap</li><li>Self-hosted team server with roles, tokens and audit</li></ul></li>
+      <li class="rv" style="--d:1"><span class="tag dev">In development</span><h3>Team knowledge in git</h3><ul><li>Memories, decisions and session summaries shared through your repository, so a teammate's agent starts with what yours learned</li><li>Live verification for Cursor and Gemini CLI</li></ul></li>
+      <li class="rv" style="--d:2"><span class="tag ok" style="color:var(--muted)">Early access</span><h3>Hosted control plane</h3><ul><li>One dashboard across repositories</li><li>A review queue for memories</li><li>Search and impact across repositories</li><li>Usage and savings analytics</li></ul></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============ WHY NOW ============ -->
+<section class="sec" id="why-now" aria-labelledby="wn-h">
+  <div class="wrap">
+    <div class="head">
+      <span class="plate rv"><b>WP 11</b> For partners and investors</span>
+      <div class="rv" style="--d:1">
+        <h2 id="wn-h">Why now, and why this shape.</h2>
+        <p class="lede">The case in three parts, for anyone deciding whether to build on Cairn, partner with us or back it.</p>
+      </div>
+    </div>
+    <ol class="why3">
+      <li class="rv"><span class="kicker">Why now</span><h3>Every team runs several agents, and memory is split by vendor.</h3><p>Developers mix Claude Code, Codex, Cursor, Copilot and others, often in the same week. Where an agent remembers anything, it remembers inside its own product. The team's knowledge ends up scattered by tool and by person.</p></li>
+      <li class="rv" style="--d:1"><span class="kicker">Why Cairn</span><h3>Agent-neutral, local-first, open, and the customer owns the data.</h3><p>One memory for seven agents. It runs on the developer's machine, under Apache-2.0, and keeps what it knows in the repository, the team's git and the team's own server. Nothing is locked in a vendor's cloud.</p></li>
+      <li class="rv" style="--d:2"><span class="kicker">The business</span><h3>Open source first, then Team, then Enterprise.</h3><p>Developers adopt the open-source release one repository at a time. Teams pay for the hosted view across repositories. Enterprises pay for self-hosting, SSO and SCIM, audit and data controls.</p></li>
+    </ol>
+    <div class="ctas rv" style="margin-top:36px"><a class="btn pri" href="#setup">Try it on a repository <span class="ar" aria-hidden="true">&rarr;</span></a><a class="btn" href="https://github.com/Shashank2577/cairn/issues/new?title=Partnership%20enquiry">Partner with us</a><a class="btn" href="https://github.com/Shashank2577/cairn/issues/new?title=Investor%20conversation">Talk about investing</a></div>
+  </div>
+</section>
+
+<!-- ============ PLANS ============ -->
+<section class="sec" id="plans" aria-labelledby="pl-h">
+  <div class="wrap">
+    <div class="head">
+      <span class="plate rv"><b>WP 12</b> Plans</span>
+      <div class="rv" style="--d:1">
+        <h2 id="pl-h">Free to run. Paid when a team wants one view.</h2>
+        <p class="lede">Everything marked available on this page is in the open-source release. The paid plans add a shared view on top, for teams that want one.</p>
+      </div>
+    </div>
+    <div class="plans">
+      <article class="plan rv"><p class="pr">Free · available now</p><h3>Open source</h3><ul><li>Every layer, every agent, the CLI and the MCP tools</li><li>The local page</li><li>Self-hosted team server</li><li>Apache-2.0</li></ul><a class="btn pri" href="#setup">Install <span class="ar" aria-hidden="true">&rarr;</span></a></article>
+      <article class="plan rv" style="--d:1"><p class="pr">Early access</p><h3>Team</h3><ul><li>A hosted control plane</li><li>One dashboard across repositories</li><li>A memory review queue</li><li>Cross-repository search and impact</li><li>Analytics</li></ul><a class="btn" href="https://github.com/Shashank2577/cairn/issues/new?title=Early%20access%3A%20Team%20plan">Request early access <span class="ar" aria-hidden="true">&rarr;</span></a></article>
+      <article class="plan dim rv" style="--d:2"><p class="pr">Talk to us</p><h3>Enterprise</h3><ul><li>Self-hosted, or in your cloud</li><li>SSO and SCIM</li><li>Audit</li><li>Redaction and retention controls</li></ul><a class="btn" href="https://github.com/Shashank2577/cairn/issues/new?title=Enterprise%20enquiry">Start a conversation <span class="ar" aria-hidden="true">&rarr;</span></a></article>
+    </div>
+  </div>
+</section>
+
+<section class="final" aria-labelledby="fin-h">
+  <div class="wrap fg">
+    <div class="rv"><svg class="fglyph" viewBox="0 0 32 32" aria-hidden="true"><use href="#cg"/></svg><h2 id="fin-h">Add the first stone.</h2></div>
+    <div class="rv" style="--d:1">
+      <p class="lede" style="margin-bottom:18px">Three commands, then open your agent the way you always do. The panel will be waiting.</p>
+      <div class="snip" style="margin-bottom:18px"><button class="copy" type="button" data-copy="uv tool install --python 3.12 cairn-brain&#10;cairn global install&#10;cd your-repo &amp;&amp; cairn init --no-deep">Copy</button><ol>
+        <li><span>uv tool install --python 3.12 cairn-brain</span></li>
+        <li><span>cairn global install</span></li>
+        <li><span>cd your-repo &amp;&amp; cairn init --no-deep</span></li>
+      </ol></div>
+      <div class="ctas"><a class="btn pri" href="https://github.com/Shashank2577/cairn">Source on GitHub <span class="ar" aria-hidden="true">&rarr;</span></a><a class="btn" href="https://github.com/Shashank2577/cairn/blob/main/docs/onboarding.md">Read the onboarding guide</a></div>
+    </div>
+  </div>
+</section>
+</main>
 
 <footer>
-  <span>Cairn is open source under Apache-2.0. A cairn is a stack of stones that marks a route for whoever comes next.</span>
-  <nav aria-label="Docs">
-    <a href="https://github.com/Shashank2577/cairn/blob/main/docs/onboarding.md">Getting started</a>
-    <a href="https://github.com/Shashank2577/cairn/blob/main/docs/agents.md">Agents</a>
-    <a href="https://github.com/Shashank2577/cairn/blob/main/docs/teams.md">Teams</a>
-    <a href="https://github.com/Shashank2577/cairn/blob/main/docs/models-and-cost.md">Models and cost</a>
-    <a href="https://github.com/Shashank2577/cairn">GitHub</a>
-  </nav>
+  <div class="wrap fgrid">
+    <div><a class="brand" href="#top"><svg class="glyph" aria-hidden="true"><use href="#cg"/></svg>cairn</a><p>Memory for coding agents. Open source under Apache-2.0. Questions and requests go to GitHub issues.</p></div>
+    <div><h4>Start</h4><ul><li><a href="https://github.com/Shashank2577/cairn#readme">README</a></li><li><a href="https://github.com/Shashank2577/cairn/blob/main/docs/onboarding.md">Onboarding</a></li><li><a href="https://github.com/Shashank2577/cairn/blob/main/docs/agents.md">Agents</a></li><li><a href="https://github.com/Shashank2577/cairn/blob/main/docs/specs.md">Specs</a></li></ul></div>
+    <div><h4>Reference</h4><ul><li><a href="https://github.com/Shashank2577/cairn/blob/main/docs/cli.md">CLI</a></li><li><a href="https://github.com/Shashank2577/cairn/blob/main/docs/mcp.md">MCP tools</a></li><li><a href="https://github.com/Shashank2577/cairn/blob/main/docs/configuration.md">Configuration</a></li><li><a href="https://github.com/Shashank2577/cairn/blob/main/docs/models-and-cost.md">Models and cost</a></li></ul></div>
+    <div><h4>Design</h4><ul><li><a href="https://github.com/Shashank2577/cairn/blob/main/docs/architecture.md">Architecture</a></li><li><a href="https://github.com/Shashank2577/cairn/blob/main/docs/teams.md">Teams</a></li><li><a href="https://github.com/Shashank2577/cairn/blob/main/docs/multi-repo.md">Many repositories</a></li><li><a href="https://github.com/Shashank2577/cairn/tree/main/docs/adr">Decisions (ADRs)</a></li></ul></div>
+  </div>
 </footer>
+<p class="sr" aria-live="polite" id="live"></p>
 
-</div>
 <script>
 (function(){
-  var b=document.getElementById('copy-install'), c=document.getElementById('install-cmd');
-  if(!b||!c) return;
-  b.addEventListener('click',function(){
-    var t=c.textContent;
-    var done=function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1600)};
-    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done,function(){sel()});}else{sel()}
-    function sel(){var r=document.createRange();r.selectNodeContents(c);var s=getSelection();s.removeAllRanges();s.addRange(r);}
+var d=document, root=d.documentElement;
+try{
+  var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var hasIO='IntersectionObserver' in window;
+
+  /* theme toggle */
+  var tgl=d.getElementById('tgl');
+  tgl.addEventListener('click',function(){
+    var cur=root.getAttribute('data-theme');
+    if(!cur){cur=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}
+    var next=cur==='dark'?'light':'dark';
+    root.setAttribute('data-theme',next);
+    try{localStorage.setItem('cairn-theme',next)}catch(e){}
+    tgl.setAttribute('aria-label','Switch to '+(next==='dark'?'light':'dark')+' theme');
   });
+
+  /* nav border on scroll */
+  var nav=d.getElementById('nav');
+
+  /* copy buttons */
+  var live=d.getElementById('live');
+  function fallbackCopy(t){var a=d.createElement('textarea');a.value=t;a.setAttribute('readonly','');a.style.position='fixed';a.style.opacity='0';d.body.appendChild(a);a.select();var ok=false;try{ok=d.execCommand('copy')}catch(e){}d.body.removeChild(a);return ok}
+  Array.prototype.forEach.call(d.querySelectorAll('.copy'),function(b){
+    b.addEventListener('click',function(){
+      var t=b.getAttribute('data-copy');
+      function done(ok){b.textContent=ok?'Copied':'Press Ctrl+C';b.classList.toggle('ok',ok);live.textContent=ok?'Copied to clipboard':'Copy failed';setTimeout(function(){b.textContent='Copy';b.classList.remove('ok')},1800)}
+      if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t).then(function(){done(true)},function(){done(fallbackCopy(t))})}else{done(fallbackCopy(t))}
+    });
+  });
+
+  /* scroll reveals */
+  var rv=d.querySelectorAll('.rv,.bars');
+  if(reduce||!hasIO){Array.prototype.forEach.call(rv,function(e){e.classList.add('in')})}
+  else{
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px',threshold:.12});
+    Array.prototype.forEach.call(rv,function(e){io.observe(e)});
+  }
+
+  /* hero panel: type the command, then reveal the panel line by line */
+  var panel=d.getElementById('panel'), lines=panel.querySelectorAll('.ln'), notes=d.querySelectorAll('.notes li');
+  if(!reduce){
+    panel.classList.add('typing');panel.closest('.sheet').classList.add('typing');
+    var cmd=panel.querySelector('.ln.cmd .typed'), full=cmd?cmd.textContent:'', caret=d.createElement('span');
+    caret.className='caret';caret.setAttribute('aria-hidden','true');
+    if(cmd){cmd.textContent='';cmd.parentNode.appendChild(caret)}
+    var i=0;
+    function showLine(k){var ln=lines[k];ln.classList.add('on');var a=ln.getAttribute('data-a');if(a&&notes[a-1])notes[a-1].classList.add('on');if(k>0)ln.appendChild(caret)}
+    function step(){
+      if(i>=lines.length){setTimeout(function(){caret.remove()},2400);return}
+      showLine(i);var ln=lines[i];i++;
+      var blank=!ln.textContent.trim();
+      setTimeout(step,blank?150:(ln.hasAttribute('data-a')?260:70));
+    }
+    var c=0;
+    function typeCmd(){
+      if(!cmd){step();return}
+      lines[0].classList.add('on');
+      if(c<=full.length){cmd.textContent=full.slice(0,c);c++;setTimeout(typeCmd,70)}
+      else{i=1;setTimeout(step,380)}
+    }
+    setTimeout(typeCmd,1100);
+  }
+
+  /* layers: stones stack as each layer scrolls into the middle of the view */
+  var stones=d.querySelectorAll('#stack .st'), layers=d.querySelectorAll('.layer');
+  function setStones(n){Array.prototype.forEach.call(stones,function(s,k){s.classList.toggle('on',k<n);s.style.transitionDelay=''})}
+  var narrow=matchMedia('(max-width: 860px)');
+  if(reduce||!hasIO){setStones(5)}
+  else if(narrow.matches){
+    var so=new IntersectionObserver(function(es){if(es[0].isIntersecting){Array.prototype.forEach.call(stones,function(s,k){s.style.transitionDelay=(k*140)+'ms';s.classList.add('on')});so.disconnect()}},{threshold:.3});
+    so.observe(d.getElementById('stack'));
+  } else {
+    var maxSeen=0;
+    var lo=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){var n=+e.target.getAttribute('data-i')+1;setStones(n)}else if(e.boundingClientRect.top>0){var m=+e.target.getAttribute('data-i');setStones(m)}})},{rootMargin:'-42% 0px -42% 0px'});
+    Array.prototype.forEach.call(layers,function(l){lo.observe(l)});
+  }
+
+  /* day: progress line and clock follow the scroll */
+  var trail=d.getElementById('trail'), stops=trail.querySelectorAll('.stop'), clock=d.getElementById('clock'), who=d.getElementById('clockwho'), sun=d.getElementById('sun');
+  var ticking=false;
+  function onScroll(){
+    ticking=false;
+    nav.classList.toggle('scrolled',window.scrollY>8);
+    if(reduce)return;
+    var r=trail.getBoundingClientRect(), vh=window.innerHeight;
+    onLoop(vh);
+    var p=Math.min(1,Math.max(0,(vh*.55-r.top)/r.height));
+    trail.style.setProperty('--p',p.toFixed(4));
+    var active=0;
+    for(var k=0;k<stops.length;k++){var sr=stops[k].getBoundingClientRect();var on=sr.top<vh*.55;stops[k].classList.toggle('on',on);if(on)active=k}
+    var s=stops[active];
+    if(clock.textContent!==s.getAttribute('data-t')){clock.textContent=s.getAttribute('data-t');who.textContent=s.getAttribute('data-role')}
+    var bt=active/(stops.length-1), bx=(1-bt)*(1-bt)*10+2*(1-bt)*bt*110+bt*bt*210, by=(1-bt)*(1-bt)*80+2*(1-bt)*bt*(-20)+bt*bt*80;
+    sun.setAttribute('transform','translate('+(bx-10).toFixed(1)+' '+(by-80).toFixed(1)+')');
+  }
+  /* lifecycle loop: runner travels the ring with scroll, stages light in turn */
+  var loopEl=d.querySelector('.loop'), runner=d.getElementById('runner'), nodes=d.querySelectorAll('#loopsvg .node'), stg=d.querySelectorAll('.stages li');
+  function onLoop(vh){
+    var r=loopEl.getBoundingClientRect();
+    var p=Math.min(1,Math.max(0,(vh*.5-r.top)/(r.height*.85)));
+    runner.style.setProperty('--rot',(p*360).toFixed(1)+'deg');
+    var a=-1;
+    for(var k=0;k<stg.length;k++){if(stg[k].getBoundingClientRect().top<vh*.6)a=k}
+    if(p>=1)a=stg.length-1;
+    for(var j=0;j<stg.length;j++){stg[j].classList.toggle('on',j===a);nodes[j].classList.toggle('on',j===a)}
+  }
+  window.addEventListener('scroll',function(){if(!ticking){ticking=true;requestAnimationFrame(onScroll)}},{passive:true});
+  window.addEventListener('resize',onScroll,{passive:true});
+  if(reduce){Array.prototype.forEach.call(stops,function(s){s.classList.add('on')});trail.style.setProperty('--p','1')}
+  onScroll();
+}catch(err){root.classList.remove('js');if(window.console)console.error(err)}
 })();
 </script>
 </body>
