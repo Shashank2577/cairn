@@ -10,6 +10,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 from . import shellcmd
@@ -116,39 +117,101 @@ def remove_git_hooks(project: Project) -> list[str]:
     return removed
 
 
+PANEL_WIDTH = 100  # characters per panel line: it is read in a terminal, next to other tools' banners
+
+
+def _clip(text: object, width: int) -> str:
+    one = " ".join(str(text or "").replace("**", "").split())
+    return one if len(one) <= width else one[:width - 1].rstrip() + "…"
+
+
+def _items(text: object) -> list[str]:
+    """The bullet items of a session-summary field ("- a\\n    - b", or plain prose as one item)."""
+    out = [re.sub(r"^\s*(?:[-*•]|\d+[.)])\s+", "", ln.replace("**", "")).strip() for ln in str(text or "").splitlines()]
+    return [ln for ln in out if ln and not ln.endswith(":")]  # "Awaiting three decisions:" heads a list
+
+
+def _last_session(cairn) -> dict | None:
+    sessions = [s for s in cairn.brain.entities("session") if (s["meta"] or {}).get("latest_summary")]
+    return max(sessions, key=lambda s: float(s["meta"].get("end") or 0), default=None)
+
+
 def session_panel(cairn) -> str:
-    """What the person sees at session start: one line per layer (map, specs, timeline, memory, sessions,
-    drift), so the memory the agent was just handed is visible too. Pure reads, no model calls."""
+    """What the person sees at session start, in the spirit of a memory feed: the memory itself, not counts.
+    Where the last session left off, what is new since, what the team knows (each memory as a statement with
+    its kind, source and age), the files to handle with care, and open work. Pure reads, no model calls."""
+    from . import agents as agents_mod
     from .core import ago
     o = cairn.overview()
-    L = o["layers"]
-    m, s, t, sess = L["map"], L["specs"], L["timeline"], L["sessions"]
-    hubs = ", ".join(h["label"] for h in o["hubs"][:3])
-    lines = [f"▲ cairn · {o['project']} — project memory loaded into this session",
-             f"  Map       {m['files']:,} files · {m['nodes']:,} nodes" + (f" · hubs: {hubs}" if hubs else "")]
-    if s["features"]:
-        spec = f"  Specs     {s['features']} feature{'s' if s['features'] != 1 else ''} · {s['done']}/{s['tasks']} tasks done"
-        if o["active_spec"]:
-            a = o["active_spec"]
-            spec += f" · active: {a['name']} ({a['done']}/{a['total']})"
-        lines.append(spec)
-    if t["commits"]:
-        lines.append(f"  Timeline  {t['commits']} commits · {t['warnings']} risky · {t['facts']} facts")
-    mems = cairn.brain.memories(limit=200)
-    if mems:
-        kinds: dict[str, int] = {}
-        for mem in mems:
-            kinds[mem["kind"]] = kinds.get(mem["kind"], 0) + 1
-        lines.append(f"  Memory    {len(mems)} memories ("
-                     + ", ".join(f"{n} {k}s" for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])) + ")")
-        lines += [f"            [{mem['kind']}] {' '.join(str(mem['text']).split())[:90]}"
-                  for mem in [x for x in mems if x["kind"] in ("decision", "convention", "gotcha")][:3]]
-    recent = cairn.brain.events(kinds=["session"], limit=3)
-    if sess["observations"] or recent:
-        lines.append(f"  Sessions  {sess['observations']} observations in {sess['sessions']} sessions")
-        lines += [f"            {e['title'][:90]} ({ago(e['ts'])})" for e in recent]
+    b = cairn.brain
+    w = PANEL_WIDTH
+    lines = [f"▲ cairn · {o['project']} — what this project remembers"]
+
+    last = _last_session(cairn)
+    since = float(last["meta"].get("end") or 0) if last else 0.0
+    if last:
+        m, s = last["meta"], last["meta"]["latest_summary"]
+        who = agents_mod.AGENTS.get(m.get("platform") or "", m.get("platform") or "an agent")
+        lines += ["", f" Pick up where you left off · {ago(since)} in {who}"]
+        if s.get("request"):
+            lines.append("   Asked  " + _clip(s["request"], w - 10))
+        done = _items(s.get("completed"))
+        if done:
+            more = f" (+{len(done) - 1} more)" if len(done) > 1 else ""
+            lines.append("   Done   " + _clip(done[0], w - 10 - len(more)) + more)
+        nxt = _items(s.get("next_steps"))
+        if nxt:
+            lines.append("   Next   " + _clip(nxt[0], w - 10))
+
+    mems = b.memories(limit=200)
+    new_mems = [x for x in mems if since and float(x["created_at"] or 0) > since]
+    new_commits = b.events(kinds=["commit"], since=since, limit=50) if since else []
+    if new_mems or new_commits:
+        lines += ["", " New since then"]
+        lines += [f"   + {x['kind']:<10} {_clip(x['text'], w - 16)}" for x in new_mems[:3]]
+        for c in new_commits[:2]:
+            lines.append(f"   + {'commit':<10} " + _clip(c["title"], w - 16))
+        if len(new_commits) > 2:
+            lines.append(f"   + {len(new_commits) - 2} more commits")
+
+    rules = [x for x in mems if x["kind"] in ("decision", "convention", "gotcha") and x not in new_mems]
+    if rules:
+        lines += ["", f" What the team knows ({len(mems)} memories)"]
+        for x in rules[:4]:  # each memory as a statement (two lines at most), then where it came from and when
+            src = str(x.get("source") or "")
+            origin = (f"commit {src[7:14]}" if src.startswith("commit:")
+                      else Path(src).stem[:20] if "/" in src or "." in src else (src.split(":")[0] or "remembered"))
+            meta = f"({origin}, {ago(float(x['created_at'] or 0))})"
+            room = 2 * (w - 14) - len(meta) - 12  # two lines, less the source, less word-wrap slack
+            wrapped = textwrap.wrap(f"{_clip(x['text'], room)} {meta}", w - 14) or [""]
+            lines.append(f"   {x['kind']:<10} {wrapped[0]}")
+            lines += [f"   {'':<10} {more}" for more in wrapped[1:]]
+
+    hot = [dict(r) for r in b.q("SELECT path, commits, risky, last_ts FROM filestats WHERE risky >= 2 "
+                                "ORDER BY risky DESC, last_ts DESC LIMIT 3")]
+    if hot:
+        lines += ["", " Handle with care"]
+        lines += [f"   {h['path']} — {h['risky']} of {h['commits']} commits were fixes or reverts, last {ago(h['last_ts'])}"
+                  for h in hot]
+
+    open_work = []
+    if o["active_spec"]:
+        a = o["active_spec"]
+        open_work.append(f"spec {a['name']}: {a['done']}/{a['total']} tasks done ({a['path']})")
     if o["drift"]:
-        lines.append(f"  Drift     {o['drift']} open findings → cairn drift")
+        found = json.loads(b.get_kv("drift.last", "[]") or "[]")
+        top = sorted(found, key=lambda f: {"high": 0, "medium": 1}.get(f.get("severity"), 2))[:1]
+        lead, hint = f"{o['drift']} drift findings", " → cairn drift"
+        example = f", e.g. {_clip(top[0]['title'], w - 6 - len(lead) - len(hint) - 7)}" if top else ""
+        open_work.append(lead + example + hint)
+    if open_work:
+        lines += ["", " Open work"] + [f"   {x}" for x in open_work]
+
+    L = o["layers"]
+    from . import daemon
+    srv = daemon.info()
+    lines += ["", f" {L['map']['files']:,} files mapped · {len(mems)} memories · "
+                  f"{L['sessions']['observations']:,} session notes" + (f" · {srv['url']}" if srv else "")]
     return "\n".join(lines)
 
 

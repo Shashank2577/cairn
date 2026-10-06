@@ -62,14 +62,38 @@ def test_hooks_output(cairn):
     assert "cairn" in hooks.statusline(cairn, "{}")
 
 
-def test_session_start_shows_the_person_every_layer(cairn):
+def _past_session(cairn, end: float, **summary) -> None:
+    cairn.brain.put_entities([("session:s-prev", "session", "Add refunds", None,
+                               {"platform": "claude", "end": end, "latest_summary": summary}, "sessions", "")])
+
+
+def test_session_start_shows_the_memory_itself_not_counts(cairn):
     cairn.remember("Refunds always go through the payment gateway", kind="decision")
     data = json.loads(hooks.session_start(cairn))
     panel = data["systemMessage"]  # the visible part; additionalContext is what the model gets
     assert panel.startswith("▲ cairn")
-    assert "Map " in panel and "files" in panel
-    assert "Memory " in panel and "[decision] Refunds always go through the payment gateway" in panel
+    assert "What the team knows" in panel
+    assert "decision" in panel and "Refunds always go through the payment gateway" in panel
+    assert "Refunds always go through the payment gateway (user, just now)" in panel  # where from, and when
+    assert "Handle with care" in panel and "shop/payments.py" in panel  # the fixture's fix-and-revert history
+    assert "Open work" in panel and "spec Refunds: 2/3 tasks done" in panel
     assert "Refunds" in data["hookSpecificOutput"]["additionalContext"]
+    assert max(len(ln) for ln in panel.splitlines()) <= hooks.PANEL_WIDTH
+
+
+def test_session_start_picks_up_where_the_last_session_left_off(cairn):
+    import time
+    _past_session(cairn, time.time() - 3600, request="Add partial refunds to PaymentService",
+                  completed="- Added PaymentService.refund_partial\n    - Covered it with tests",
+                  next_steps="**Open questions:**\n    1. Wire refund_partial into the API")
+    cairn.remember("Partial refunds must keep the original idempotency key", kind="gotcha")
+    panel = json.loads(hooks.session_start(cairn))["systemMessage"]
+    assert "Pick up where you left off · 1h ago in Claude Code" in panel
+    assert "Asked  Add partial refunds to PaymentService" in panel
+    assert "Done   Added PaymentService.refund_partial (+1 more)" in panel
+    assert "Next   Wire refund_partial into the API" in panel  # the list's heading is skipped
+    new = panel[panel.index("New since then"):]
+    assert "gotcha" in new and "Partial refunds must keep the original idempotency key" in new
 
 
 def test_session_start_keeps_the_brief_when_the_panel_fails(cairn, monkeypatch):
