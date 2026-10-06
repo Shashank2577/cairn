@@ -132,8 +132,11 @@ def _items(text: object) -> list[str]:
 
 
 def _last_session(cairn) -> dict | None:
+    """The newest session worth resuming: one that did work (observations or edits), so a quick question or a
+    probe session doesn't hide where real work stopped; any summarised session when none did."""
     sessions = [s for s in cairn.brain.entities("session") if (s["meta"] or {}).get("latest_summary")]
-    return max(sessions, key=lambda s: float(s["meta"].get("end") or 0), default=None)
+    worked = [s for s in sessions if s["meta"].get("observations") or s["meta"].get("modified")]
+    return max(worked or sessions, key=lambda s: float(s["meta"].get("end") or 0), default=None)
 
 
 def session_panel(cairn) -> str:

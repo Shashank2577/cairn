@@ -62,9 +62,18 @@ def test_hooks_output(cairn):
     assert "cairn" in hooks.statusline(cairn, "{}")
 
 
-def _past_session(cairn, end: float, **summary) -> None:
-    cairn.brain.put_entities([("session:s-prev", "session", "Add refunds", None,
-                               {"platform": "claude", "end": end, "latest_summary": summary}, "sessions", "")])
+def _past_session(cairn, end: float, sid: str = "s-prev", observations: int = 3, **summary) -> None:
+    cairn.brain.put_entities([(f"session:{sid}", "session", "Add refunds", None,
+                               {"platform": "claude", "end": end, "observations": observations,
+                                "latest_summary": summary}, "sessions", "")])
+
+
+def test_session_start_resumes_real_work_not_a_quick_question(cairn):
+    import time
+    _past_session(cairn, time.time() - 7200, request="Add partial refunds to PaymentService")
+    _past_session(cairn, time.time() - 60, sid="s-probe", observations=0, request="Reply with just: ok")
+    panel = json.loads(hooks.session_start(cairn))["systemMessage"]
+    assert "Asked  Add partial refunds to PaymentService" in panel and "Reply with just" not in panel
 
 
 def test_session_start_shows_the_memory_itself_not_counts(cairn):
