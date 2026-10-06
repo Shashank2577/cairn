@@ -160,3 +160,12 @@ def test_capture_never_records_into_the_home_folder(home):
     for event in ("context", "session-init", "observation", "summarize"):
         recall_hooks.main(["--platform", "claude-code", "--scope", "user", event], stdin_text=_payload(repo))
     assert not (home / ".cairn" / "sessions.db").exists() and not (repo / ".cairn").exists()
+
+
+def test_a_worktree_ignores_stores_above_the_repository(cairn):
+    from cairn.engines.recall.projects import find_store_root
+    wt = _worktree(cairn)
+    outer = cairn.project.root.parent / ".cairn"
+    outer.mkdir(exist_ok=True)
+    (outer / "brain.db").touch()  # another project's store in a folder above both checkouts
+    assert find_store_root(str(wt)) == cairn.project.root

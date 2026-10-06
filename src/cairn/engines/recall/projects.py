@@ -156,6 +156,7 @@ def find_store_root(cwd: str | None) -> Path | None:
     except (OSError, RuntimeError):
         home = None
     folder = None  # nearest .cairn/ without a store yet (e.g. only the committed config.toml)
+    root = git_root(here)
     for p in (here, *here.parents):
         if p == home:  # ~/.cairn is Cairn's own store, never a repository's: stop before it
             break
@@ -163,7 +164,8 @@ def find_store_root(cwd: str | None) -> Path | None:
             return p
         if folder is None and (p / ".cairn").is_dir():
             folder = p
-    root = git_root(here)
+        if p == root:  # stores in folders above the repository belong to other projects
+            break
     if root is not None:  # a linked worktree records with its main checkout's store, not a fresh one of its own
         wt = detect_worktree(root)
         parent = Path(wt.parent_repo_path) if wt.is_worktree and wt.parent_repo_path else None
