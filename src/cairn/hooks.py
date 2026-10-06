@@ -289,11 +289,11 @@ def ambient(cairn, payload: str = "") -> dict | None:
     """Claude Code UserPromptSubmit hook: a small, budget-capped context nugget for the prompt just submitted.
 
     UserPromptSubmit output is injected into the model's context, so this is the enforced read path: agents get
-    Cairn's memory without choosing to consult it. Guardrails: the ``[context] ambient`` kill-switch (off by
-    default), a code-relevance gate, a hard size cap, and strictly read-only access (no brain writes, no model
+    Cairn's memory without choosing to consult it. Guardrails: the ``[context] ambient`` kill-switch (on by
+    default; ``false`` turns it off), a code-relevance gate, a hard size cap, and strictly read-only access (no brain writes, no model
     calls). Nothing resolves → None. Any exception → None: a hook must never block a prompt."""
     try:
-        if not cairn.project.cfg("context.ambient", False):
+        if not cairn.project.cfg("context.ambient", True):
             return None
         text = _prompt_of(payload)
         if not text or not _plausibly_code(text):
@@ -357,8 +357,9 @@ def global_session_hint(payload: str = "") -> dict | None:
             return None
     except OSError:
         return None
-    if not (root / ".git").exists() or (root / ".cairn").exists():
-        return None  # not a repository, or already initialised (any cairn state counts)
+    from .project import agent_project
+    if not (root / ".git").exists() or (root / ".cairn" / "brain.db").exists() or agent_project(root) is not None:
+        return None  # not a repository, or set up (here, or in the main checkout of this worktree)
     return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext":
             "Cairn (local project memory: impact, history, conventions for coding agents) is installed "
             "but not initialized in this repository. Offer the user, once: `cairn init --no-deep` sets it "

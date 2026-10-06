@@ -21,7 +21,7 @@ DEFAULT_CONFIG = """\
 
 [context]
 budget = 1800                    # default token budget for agent-facing context packs
-ambient = false                  # inject a short Cairn context nugget on every prompt (Claude Code); set true to enable
+ambient = true                   # a short Cairn context nugget on code prompts (Claude Code, ≤500 tokens); false to turn off
 
 [models]
 provider = "auto"                # auto | anthropic | openai | claude-code  (auto: API key, else your Claude Code login)
@@ -337,3 +337,27 @@ class Project:
                 return default
             cur = cur[part]
         return cur
+
+
+def agent_project(start: Path | None = None) -> Project | None:
+    """The set-up project an agent working in ``start`` reads from: this checkout's, or, in a linked git
+    worktree without a store of its own, the main checkout's (same repository, same memory; a worktree's
+    agent wiring and store are not committed, so a new worktree has neither). None where Cairn is not set
+    up, and never the home folder (``~/.cairn`` is Cairn's own store, not a project)."""
+    here = (start or Path.cwd()).resolve()
+    proj = Project.discover(here)
+    root = proj.root if proj else here
+    try:
+        if root.resolve() == Path.home().resolve():
+            return None
+    except OSError:
+        return None
+    if proj is not None and proj.db_path.exists():
+        return proj
+    from .engines.recall.projects import detect_worktree
+    wt = detect_worktree(root)
+    if wt.is_worktree and wt.parent_repo_path:
+        parent = Project.discover(Path(wt.parent_repo_path))
+        if parent is not None and parent.db_path.exists():
+            return parent
+    return None

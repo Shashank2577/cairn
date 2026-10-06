@@ -20,3 +20,4 @@ build/
 /.gemini/settings.json
 /.opencode/plugins/cairn.js
 /.vscode/mcp.json
+/.github/hooks/cairn.json

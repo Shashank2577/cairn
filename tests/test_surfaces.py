@@ -153,6 +153,13 @@ def test_ambient_injects_a_nugget_for_code_prompts(cairn):
     assert len(nugget) <= hooks.AMBIENT_CAP
 
 
+def test_ambient_is_on_by_default(repo):
+    from cairn.project import DEFAULT_CONFIG, Project
+    assert "ambient = true" in DEFAULT_CONFIG
+    proj = Project.discover(repo)
+    assert proj.cfg("context.ambient", True) is True
+
+
 def test_ambient_skips_chat_and_respects_the_kill_switch(cairn):
     cairn.remember("PaymentService retries can double charge", kind="gotcha")
     cairn.project.set_cfg("context.ambient", True)
@@ -224,10 +231,28 @@ def test_claude_wiring_includes_the_ambient_prompt_hook(repo):
     assert "cairn hook ambient" not in json.dumps(json.loads(settings_path.read_text(encoding="utf-8")).get("hooks", {}))
 
 
+def test_doctor_reports_capture_that_never_becomes_memory(cairn, monkeypatch):
+    from cairn.cli import _capture_health
+    from cairn.engines.recall import hooks as recall_hooks
+    monkeypatch.setenv("CAIRN_RECALL_NO_SPAWN", "1")
+    agents.install(cairn.project, ["claude"])
+    good, state, _ = _capture_health(cairn.project)
+    assert good and "nothing captured yet" in state  # wired, but no session has run here
+    payload = json.dumps({"session_id": "s1", "cwd": str(cairn.project.root), "tool_name": "Read",
+                          "tool_input": {"file_path": "shop/payments.py"}, "tool_response": "ok", "prompt": "fix it"})
+    recall_hooks.main(["--platform", "claude-code", "session-init"], stdin_text=payload)
+    recall_hooks.main(["--platform", "claude-code", "observation"], stdin_text=payload)
+    from cairn.engines.recall import settings as rsettings
+    rsettings.save(cairn.project.root, {"worker_spawn": False})  # the committed switch that silenced it here
+    good, state, fix = _capture_health(cairn.project)
+    assert not good and "worker off" in state and "worker_spawn" in fix  # the silent failure, now loud
+
+
 def test_doctor_reports_the_ambient_switch(cairn, monkeypatch):
     monkeypatch.setenv("COLUMNS", "260")
+    cairn.project.set_cfg("context.ambient", False)
     row = next(ln for ln in CliRunner().invoke(app, ["doctor"]).output.splitlines() if "Ambient context" in ln)
-    assert "off (config)" in row and "set [context] ambient = true" in row
+    assert "off (config)" in row and "remove [context] ambient = false" in row
     cairn.project.set_cfg("context.ambient", True)
     row = next(ln for ln in CliRunner().invoke(app, ["doctor"]).output.splitlines() if "Ambient context" in ln)
     assert "on, prompt hook not wired" in row and "cairn agents install" in row

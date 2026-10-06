@@ -94,17 +94,20 @@ def _coerce(value: Any, default: Any) -> Any:
 def load(root: Path | str | None) -> dict[str, Any]:
     """Effective settings for the repository at ``root`` (defaults when there is none)."""
     out = dict(DEFAULTS)
-    data: dict = {}
+    layers: list[dict] = []  # the committed config, then this checkout's untracked overrides (as Project reads them)
     if root is not None:
-        try:
-            data = tomllib.loads(config_path(Path(root)).read_text(encoding="utf-8"))
-        except (OSError, tomllib.TOMLDecodeError):
-            data = {}
-    if data.get("sessions", {}).get("capture") is False:
-        out["capture"] = False
-    for k, v in (data.get(SECTION) or {}).items():
-        if k in DEFAULTS:
-            out[k] = _coerce(v, DEFAULTS[k])
+        for path in (config_path(Path(root)), config_path(Path(root)).with_name("config.local.toml")):
+            try:
+                layers.append(tomllib.loads(path.read_text(encoding="utf-8")))
+            except (OSError, tomllib.TOMLDecodeError):
+                continue
+    for data in layers:
+        capture = data.get("sessions", {}).get("capture")
+        if isinstance(capture, bool):
+            out["capture"] = capture
+        for k, v in (data.get(SECTION) or {}).items():
+            if k in DEFAULTS:
+                out[k] = _coerce(v, DEFAULTS[k])
     for k in DEFAULTS:
         env = os.environ.get(ENV_PREFIX + k.upper())
         if env is not None:

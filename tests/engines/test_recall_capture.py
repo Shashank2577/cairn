@@ -221,6 +221,15 @@ def test_file_context_hook_injects_prior_observations_once(repo):
     assert none == {}
 
 
+def test_a_checkouts_local_config_overrides_the_committed_one(repo):
+    (repo / ".cairn" / "config.toml").write_text("[recall]\nworker_spawn = false\n", encoding="utf-8")
+    assert rsettings.load(repo)["worker_spawn"] is False
+    (repo / ".cairn" / "config.local.toml").write_text("[recall]\nworker_spawn = true\n", encoding="utf-8")
+    assert rsettings.load(repo)["worker_spawn"] is True  # untracked, per checkout: wins over the committed file
+    (repo / ".cairn" / "config.local.toml").write_text("[sessions]\ncapture = false\n", encoding="utf-8")
+    assert rsettings.load(repo)["capture"] is False
+
+
 def test_settings_round_trip_preserves_the_rest_of_the_file(repo):
     cfg = repo / ".cairn" / "config.toml"
     cfg.write_text('[server]\nport = 4800   # keep me\n\n[recall]\nmode = "code"  # the mode\n', encoding="utf-8")

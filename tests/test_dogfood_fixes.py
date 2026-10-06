@@ -226,8 +226,9 @@ def test_global_session_hint_silent_when_inited_non_git_or_home(tmp_path, monkey
     payload = json.dumps({"cwd": str(tmp_path)})
     assert hooks.global_session_hint(payload) is None            # not a git repo
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    (tmp_path / ".cairn").mkdir()                                # any cairn state counts as initialized
-    assert hooks.global_session_hint(payload) is None
+    (tmp_path / ".cairn").mkdir()
+    (tmp_path / ".cairn" / "brain.db").touch()                   # a store means set up (a committed config alone
+    assert hooks.global_session_hint(payload) is None            # does not: see test_global_install.py)
     monkeypatch.setenv("HOME", str(tmp_path))                    # home itself is never suggested
     monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     assert hooks.global_session_hint(json.dumps({"cwd": str(tmp_path)})) is None

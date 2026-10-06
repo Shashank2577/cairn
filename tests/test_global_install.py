@@ -113,3 +113,50 @@ def test_user_scope_brief_stands_aside_where_the_repo_wires_its_own(cairn):
     agents.install(cairn.project, ["claude"])
     assert runner.invoke(app, ["hook", "session-start", "--scope", "user"]).stdout == ""
     assert json.loads(runner.invoke(app, ["hook", "session-start"]).stdout)["hookSpecificOutput"]  # project's own
+
+
+# ---- worktrees and the home folder ----------------------------------------------------------------------
+def _worktree(cairn) -> Path:
+    from tests.conftest import git
+    wt = cairn.project.root.parent / "shop-wt"
+    git(cairn.project.root, "worktree", "add", "-q", "-b", "wt-branch", str(wt))
+    (wt / ".cairn").mkdir(exist_ok=True)
+    (wt / ".cairn" / "config.toml").write_text("[context]\nbudget = 1800\n", encoding="utf-8")  # the committed file
+    return wt
+
+
+def test_a_new_worktree_uses_the_main_checkouts_memory(cairn, monkeypatch):
+    from cairn import hooks, mcp_server
+    from cairn.project import agent_project
+    wt = _worktree(cairn)
+    assert agent_project(wt).root == cairn.project.root
+    assert hooks.global_session_hint(json.dumps({"cwd": str(wt)})) is None  # set up via the main checkout
+    monkeypatch.chdir(wt)
+    mcp_server._cairn.cache_clear()
+    assert "not set up" not in mcp_server._guard(mcp_server.cairn_status)()
+    mcp_server._cairn.cache_clear()
+    recall_hooks.main(["--platform", "claude-code", "--scope", "user", "session-init"], stdin_text=_payload(wt))
+    assert not (wt / ".cairn" / "sessions.db").exists()  # no stray store in the worktree
+    assert _prompts(cairn.project.root) == 1  # recorded with the repository's memory
+
+
+def test_a_fresh_clone_with_only_the_committed_config_gets_the_setup_offer(tmp_path):
+    from cairn import hooks
+    repo = tmp_path / "clone"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / ".cairn").mkdir()
+    (repo / ".cairn" / "config.toml").write_text("[context]\n", encoding="utf-8")
+    out = hooks.global_session_hint(json.dumps({"cwd": str(repo)}))
+    assert out and "cairn init --no-deep" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_capture_never_records_into_the_home_folder(home):
+    (home / ".cairn").mkdir()
+    (home / ".cairn" / "brain.db").write_bytes(b"")  # Cairn's own home store
+    repo = home / "code" / "plain"
+    repo.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    for event in ("context", "session-init", "observation", "summarize"):
+        recall_hooks.main(["--platform", "claude-code", "--scope", "user", event], stdin_text=_payload(repo))
+    assert not (home / ".cairn" / "sessions.db").exists() and not (repo / ".cairn").exists()

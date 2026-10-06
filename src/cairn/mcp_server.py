@@ -45,22 +45,20 @@ def _initialized_root():
     globally (every repository, every agent) must never create `.cairn/` or build a map on its own."""
     from pathlib import Path
 
-    from .project import Project
-    proj = Project.discover()
-    root = proj.root if proj else Path.cwd()
-    try:
-        home = root.resolve() == Path.home().resolve()  # ~/.cairn is Cairn's own home, never a project
-    except OSError:
-        home = False
-    if proj is None or home or not proj.db_path.exists():
-        raise NotInitialized(root)
+    from .project import Project, agent_project
+    proj = agent_project()  # this checkout's store, or the main checkout's from a linked worktree
+    if proj is None:
+        found = Project.discover()
+        raise NotInitialized(found.root if found else Path.cwd())
     return proj
 
 
 @lru_cache(maxsize=1)
 def _open(root: str) -> Cairn:
+    from pathlib import Path
+
     from .project import Project
-    c = Cairn(Project.discover())
+    c = Cairn(Project.discover(Path(root)))
     c.surface = "mcp"
     return c
 

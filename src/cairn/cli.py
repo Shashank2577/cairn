@@ -326,6 +326,39 @@ def _ago(ts: float) -> str:
     return ago(ts)
 
 
+def _capture_health(project) -> tuple[bool, str, str]:
+    """Session capture end to end: hooks wired (here or user-wide), events arriving, and the queue draining
+    into observations. Wired-but-stuck is reported as a fault, not as "on"."""
+    import sqlite3
+
+    from . import agents as agents_mod
+    from .engines import journal
+    from .engines.recall import schema
+    from .engines.recall import settings as recall_settings
+    wired = journal.installed(project) or any(st.get("hooks") for st in agents_mod.global_status().values())
+    if not wired:
+        return False, "off (no agent hooks)", "cairn global install  (or: cairn agents install --agents claude)"
+    store = schema.store_path(project.root)
+    if not store.exists():
+        return True, "wired · nothing captured yet (start an agent session here)", ""
+    try:
+        db = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+        try:
+            pending = db.execute("SELECT COUNT(*) FROM pending_messages").fetchone()[0]
+            obs = db.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return True, "on (.cairn/sessions.db)", ""
+    spawn = recall_settings.load(project.root).get("worker_spawn", True)
+    if pending and not spawn:
+        return False, f"{pending} events queued, worker off — nothing becomes memory", \
+            "remove [recall] worker_spawn = false (or set it true in .cairn/config.local.toml)"
+    if pending > 200:
+        return False, f"{pending} events queued, {obs} observations", "python -m cairn.engines.recall.worker --once"
+    return True, f"on · {obs:,} observations" + (f" · {pending} queued" if pending else ""), ""
+
+
 @app.command()
 def doctor():
     """Every capability, its state, and the exact command to enable it."""
@@ -334,7 +367,7 @@ def doctor():
     from rich.markup import escape
 
     from . import daemon
-    from .engines import journal, specs
+    from .engines import specs
     c = _cairn()
     t = Table(box=None, padding=(0, 2), show_header=True, header_style=f"bold {SLATE}")
     t.add_column("")
@@ -353,8 +386,8 @@ def doctor():
     legacy = specs.legacy_layout(c.project.root)
     row(not legacy, "Workflow layout", "current" if not legacy else "older layout", "cairn init (migrates it)")
     if c.project.cfg("sessions.capture", True):
-        row(journal.installed(c.project), "Session capture", "on (.cairn/sessions.db)" if journal.installed(c.project)
-            else "off", "cairn init --agents claude")
+        good, state, fix = _capture_health(c.project)
+        row(good, "Session capture", state, fix)
     else:  # the config turned capture off; doctor must not report it as on
         row(False, "Session capture", "off (config)", "set [sessions] capture = true in .cairn/config.toml")
     row(c.router.available, "Model", c.router.provider if c.router.available else "none (model features off)",
@@ -392,12 +425,12 @@ def doctor():
             + (" · hooks not approved yet" if pending else ""),
             "open codex here and approve Cairn's hooks once under /hooks" if pending
             else f"cairn agents install --agents {a}")
-    if c.project.cfg("context.ambient", False):  # the enforced read path: a nugget on every prompt
+    if c.project.cfg("context.ambient", True):  # the enforced read path: a nugget on every prompt
         wired = agents_mod.ambient_wired(c.project)
         row(wired, "Ambient context", "on (Claude Code prompt hook)" if wired else "on, prompt hook not wired",
             "" if wired else "cairn agents install --agents claude")
     else:  # the config keeps the nugget off; doctor must not report it as on
-        row(False, "Ambient context", "off (config)", "set [context] ambient = true in .cairn/config.toml")
+        row(False, "Ambient context", "off (config)", "remove [context] ambient = false from .cairn/config.toml")
     global_wired = agents_mod.global_wired()
     row(global_wired, "Global suggest hook",
         "on — offers setup in non-initialized repos" if global_wired else "off",
@@ -1075,13 +1108,17 @@ def hook(event: str, scope: str = typer.Option("project", "--scope", help="user:
         if out:
             print(json.dumps(out))
         return
-    proj = Project.discover()
-    if proj is None or not proj.db_path.exists():
-        return
-    if scope == "user" and hooks.project_wires(proj, event):
-        return  # this repository's own .claude/settings.json runs the same hook: once is enough
     if event == "git":
-        sync.spawn_background(proj)
+        proj = Project.discover()
+        if proj is not None and proj.db_path.exists():
+            sync.spawn_background(proj)
+        return
+    from .project import agent_project
+    here = Project.discover()
+    if scope == "user" and here is not None and hooks.project_wires(here, event):
+        return  # this repository's own .claude/settings.json runs the same hook: once is enough
+    proj = agent_project()  # this checkout's store, or the main checkout's from a linked worktree
+    if proj is None:
         return
     try:  # agent hooks: a busy or broken store costs this session its context, never a hook error
         if event == "session-start":

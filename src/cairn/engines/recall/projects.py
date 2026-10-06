@@ -148,15 +148,28 @@ def find_store_root(cwd: str | None) -> Path | None:
         here = Path(expand_home(str(cwd or os.getcwd()))).resolve()
     except (OSError, RuntimeError):
         return None
+    def has_store(p: Path) -> bool:
+        return (p / ".cairn" / "sessions.db").exists() or (p / ".cairn" / "brain.db").exists()
+
+    try:
+        home = Path.home().resolve()
+    except (OSError, RuntimeError):
+        home = None
+    folder = None  # nearest .cairn/ without a store yet (e.g. only the committed config.toml)
     for p in (here, *here.parents):
-        if (p / ".cairn").is_dir():
+        if p == home:  # ~/.cairn is Cairn's own store, never a repository's: stop before it
+            break
+        if has_store(p):
             return p
+        if folder is None and (p / ".cairn").is_dir():
+            folder = p
     root = git_root(here)
-    if root is not None:
+    if root is not None:  # a linked worktree records with its main checkout's store, not a fresh one of its own
         wt = detect_worktree(root)
-        if wt.is_worktree and wt.parent_repo_path and (Path(wt.parent_repo_path) / ".cairn").is_dir():
-            return Path(wt.parent_repo_path)
-    return None
+        parent = Path(wt.parent_repo_path) if wt.is_worktree and wt.parent_repo_path else None
+        if parent and has_store(parent):
+            return parent
+    return folder
 
 
 # ---- exclusion globs -------------------------------------------------------------------------------
