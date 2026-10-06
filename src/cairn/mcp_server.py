@@ -31,11 +31,60 @@ _RESOLVER: contextvars.ContextVar[Callable[[], Cairn] | None] = contextvars.Cont
                                                                                        default=None)
 
 
+class NotInitialized(Exception):
+    """The agent runs in a folder where Cairn is not set up: answer with the one-line setup, create nothing."""
+
+    def __init__(self, root):
+        self.root = root
+        super().__init__(f"Cairn is not set up in {root}. Offer the user `cairn init --no-deep` (local, ~15s); "
+                         "do not run it without their go-ahead.")
+
+
+def _initialized_root():
+    """The repository this stdio server answers for, only when Cairn is set up there. A server registered
+    globally (every repository, every agent) must never create `.cairn/` or build a map on its own."""
+    from pathlib import Path
+
+    from .project import Project
+    proj = Project.discover()
+    root = proj.root if proj else Path.cwd()
+    try:
+        home = root.resolve() == Path.home().resolve()  # ~/.cairn is Cairn's own home, never a project
+    except OSError:
+        home = False
+    if proj is None or home or not proj.db_path.exists():
+        raise NotInitialized(root)
+    return proj
+
+
 @lru_cache(maxsize=1)
-def _cairn() -> Cairn:
-    c = Cairn.here()
+def _open(root: str) -> Cairn:
+    from .project import Project
+    c = Cairn(Project.discover())
     c.surface = "mcp"
     return c
+
+
+def _cairn() -> Cairn:
+    """Re-checked on every call (cheap filesystem checks), so `cairn init` mid-session works without a restart."""
+    proj = _initialized_root()
+    return _open(str(proj.root))
+
+
+_cairn.cache_clear = _open.cache_clear  # the opened Cairn is cached per root; tests and reloads reset it
+
+
+def _guard(fn: Callable[..., str]) -> Callable[..., str]:
+    """A tool that answers with the setup line, instead of failing, where Cairn is not set up."""
+    import functools
+
+    @functools.wraps(fn)
+    def guarded(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except NotInitialized as exc:
+            return str(exc)
+    return guarded
 
 
 def _project() -> Cairn:
@@ -311,7 +360,7 @@ def build(*, mode: str | None = None, resolver: Callable[[], Cairn] | None = Non
     if mode is None:
         try:
             mode = str(_project().project.cfg("mcp.tools", "core"))
-        except SystemExit:
+        except (SystemExit, NotInitialized):
             mode = "core"
     server = Server(name="cairn", instructions=INSTRUCTIONS)
     for fn in all_tools(mode):
@@ -319,7 +368,7 @@ def build(*, mode: str | None = None, resolver: Callable[[], Cairn] | None = Non
             continue
         if resolver is not None and fn.__name__ in NETWORK_HIDDEN:
             continue
-        server.tool()(bind(fn, resolver) if resolver else fn)
+        server.tool()(bind(fn, resolver) if resolver else _guard(fn))
     return server
 
 

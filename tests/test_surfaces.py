@@ -374,6 +374,41 @@ def test_mcp_tool_calls_count_as_agent_context(cairn, monkeypatch):
     assert [(q["surface"], q["kind"]) for q in cairn.brain.queries()] == [("mcp", "impact")]
 
 
+def test_a_global_mcp_server_creates_nothing_where_cairn_is_not_set_up(repo):
+    from cairn import mcp_server
+    mcp_server._cairn.cache_clear()
+    tool = mcp_server._guard(mcp_server.cairn_context)
+    out = tool(task="fix the double charge in PaymentService")
+    assert "not set up" in out and "cairn init --no-deep" in out
+    assert not (repo / ".cairn" / "brain.db").exists()  # no store, no map built behind the person's back
+    assert "not set up" in mcp_server._guard(mcp_server.cairn_status)()
+
+
+def test_mcp_tools_start_working_after_init_without_a_restart(repo):
+    from cairn import mcp_server, sync
+    from cairn.core import Cairn
+    mcp_server._cairn.cache_clear()
+    status = mcp_server._guard(mcp_server.cairn_status)
+    assert "not set up" in status()
+    c = Cairn.here(repo)  # what `cairn init` does, in short
+    c.project.ensure_dir()
+    sync.run(c)
+    assert "not set up" not in status()
+    mcp_server._cairn.cache_clear()
+
+
+def test_the_mcp_server_never_treats_home_as_a_project(tmp_path, monkeypatch):
+    from cairn import mcp_server
+    home = tmp_path / "home"
+    (home / ".cairn").mkdir(parents=True)
+    (home / ".cairn" / "brain.db").write_bytes(b"")  # Cairn's own home store
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.chdir(home)
+    mcp_server._cairn.cache_clear()
+    assert "not set up" in mcp_server._guard(mcp_server.cairn_status)()
+
+
 def test_cli_json_is_counted_and_stays_lean(cairn):
     runner = CliRunner()
     out = runner.invoke(app, ["impact", "PaymentService", "--json"]).output
