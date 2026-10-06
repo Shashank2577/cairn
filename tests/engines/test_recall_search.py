@@ -156,7 +156,7 @@ def test_agent_tools_and_visibility(repo):
                                            runtime="server")))
     assert status["status"] == "pending"
     assert "WORKFLOW" not in text(mcp.call_tool(repo, "important_workflow")) and \
-        "recall_search" in text(mcp.call_tool(repo, "important_workflow"))
+        "cairn_session_search" in text(mcp.call_tool(repo, "important_workflow"))  # the name `cairn mcp` serves
     assert mcp.call_tool(repo, "no_such_tool")["isError"]
     outline = mcp.call_tool(repo, "smart_search", {"query": "zzz"})
     assert not outline["isError"]

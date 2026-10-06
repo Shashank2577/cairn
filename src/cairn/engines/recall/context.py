@@ -241,7 +241,7 @@ def _render_agent(project: str, mode: Mode, observations: list[dict], summaries:
     out = [f"# [{project}] recent context, {header_datetime()}", f"Mode: {mode.label()}", ""]
     legend = " ".join(f"{t.get('emoji', '')}{t['id']}" for t in mode.observation_types)
     out += [f"Legend: \U0001F3AFsession {legend}", "Format: ID TIME TYPE TITLE",
-            "Fetch details: get_observations([IDs]) | Search: the recall search tool", ""]
+            "Fetch details: cairn_session_observations(ids=[...]) | Search: cairn_session_search(query)", ""]
     if _show_economics(cfg):
         parts = [f"{econ['totalObservations']} obs ({thousands(econ['totalReadTokens'])}t read)",
                  f"{thousands(econ['totalDiscoveryTokens'])}t work"]
@@ -293,7 +293,7 @@ def _render_agent(project: str, mode: Mode, observations: list[dict], summaries:
         out += ["", "---", "", "**Previously**", "", f"A: {prior}", ""]
     if _show_economics(cfg) and econ["totalDiscoveryTokens"] > 0 and econ["savings"] > 0:
         out += ["", f"Access {round(econ['totalDiscoveryTokens'] / 1000)}k tokens of past work via "
-                    "get_observations([IDs]) or the recall search tool."]
+                    "cairn_session_observations(ids=[...]) or cairn_session_search(query)."]
     return "\n".join(out).rstrip()
 
 
@@ -311,8 +311,8 @@ def _render_human(project: str, mode: Mode, observations: list[dict], summaries:
     out += [f"{C['dim']}Context Index: This semantic index (titles, types, files, tokens) is usually sufficient to"
             f" understand past work.{C['reset']}", "",
             f"{C['dim']}When you need implementation details, rationale, or debugging context:{C['reset']}",
-            f"{C['dim']}  - Fetch by ID: get_observations([IDs]) for observations visible in this index{C['reset']}",
-            f"{C['dim']}  - Search history: use the recall search tool for past decisions, bugs, and deeper research"
+            f"{C['dim']}  - Fetch by ID: cairn_session_observations(ids=[...]) for observations visible in this index{C['reset']}",
+            f"{C['dim']}  - Search history: cairn_session_search(query) for past decisions, bugs, and deeper research"
             f"{C['reset']}",
             f"{C['dim']}  - Trust this index over re-reading code for past decisions and learnings{C['reset']}", ""]
     if _show_economics(cfg):

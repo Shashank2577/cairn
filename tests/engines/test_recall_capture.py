@@ -212,7 +212,7 @@ def test_file_context_hook_injects_prior_observations_once(repo):
     res, out = run(repo, "file-context", tool_name="Read", tool_input={"file_path": str(big)})
     ctx = out["hookSpecificOutput"]
     assert ctx["hookEventName"] == "PreToolUse" and ctx["permissionDecision"] == "allow"
-    assert "Retry guard added" in ctx["additionalContext"] and "get_observations" in ctx["additionalContext"]
+    assert "Retry guard added" in ctx["additionalContext"] and "cairn_session_observations" in ctx["additionalContext"]  # the name agents can call
     _, again = run(repo, "file-context", tool_name="Read", tool_input={"file_path": str(big)})
     assert again == {}  # already surfaced this session
     small = repo / "shop" / "tiny.py"

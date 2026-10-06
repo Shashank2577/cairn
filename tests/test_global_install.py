@@ -169,3 +169,12 @@ def test_a_worktree_ignores_stores_above_the_repository(cairn):
     outer.mkdir(exist_ok=True)
     (outer / "brain.db").touch()  # another project's store in a folder above both checkouts
     assert find_store_root(str(wt)) == cairn.project.root
+
+
+def test_the_setup_offer_also_appears_in_a_sub_folder(tmp_path):
+    from cairn import hooks
+    repo = tmp_path / "plain"
+    (repo / "src" / "pkg").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    out = hooks.global_session_hint(json.dumps({"cwd": str(repo / "src" / "pkg")}))
+    assert out and "cairn init --no-deep" in out["hookSpecificOutput"]["additionalContext"]

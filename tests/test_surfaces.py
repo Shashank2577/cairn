@@ -1022,3 +1022,27 @@ def test_a_stopped_server_exits_even_with_a_page_still_open(cairn, tmp_path):
     finally:
         if server.poll() is None:
             server.kill()
+
+
+def test_injected_session_context_only_names_tools_agents_can_call():
+    """The session timeline and tool descriptions must name the tools `cairn mcp` actually serves."""
+    import inspect
+
+    from cairn import mcp_server
+    from cairn.engines.recall import context
+    from cairn.engines.recall import mcp as recall_mcp
+    served = {fn.__name__ for fn in mcp_server.all_tools("core")}
+    assert {"cairn_session_search", "cairn_session_timeline", "cairn_session_observations"} <= served
+    for text in (recall_mcp.WORKFLOW, json.dumps(recall_mcp.advertised_tools("local")), inspect.getsource(context)):
+        for phantom in ("get_observations(", "recall_search(", "recall_timeline(", "the recall search tool"):
+            assert phantom not in text, phantom
+
+
+def test_handle_with_care_lists_source_files_not_tests(cairn):
+    with cairn.brain.tx() as db:
+        db.executemany("INSERT OR REPLACE INTO filestats(path, commits, risky, last_ts, authors) VALUES(?,?,?,?,?)",
+                       [("tests/test_payments.py", 9, 9, 1e9, "[]"), ("shop/test_utils.py", 8, 8, 1e9, "[]"),
+                        ("shop/payments.py", 5, 3, 1e9, "[]")])
+    panel = hooks.session_panel(cairn)
+    care = panel[panel.index("Handle with care"):]
+    assert "shop/payments.py" in care and "test_payments.py" not in care and "test_utils.py" not in care

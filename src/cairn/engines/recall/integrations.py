@@ -2097,7 +2097,7 @@ def search_text(cwd: Path | str, query: str, limit: int = 10) -> str:
         title = " ".join(str(o.get("title") or "Untitled").split())
         lines.append(f"| #{o['id']} | {format_datetime(o['created_at_epoch'])} | {mode.type_icon(o['type'])} | "
                      f"{title} | ~{estimate_tokens(body)} |")
-    lines += ["", "Use get_observations(ids=[...]) for full details."]
+    lines += ["", "Use cairn_session_observations(ids=[...]) for full details."]
     return "\n".join(lines)
 
 

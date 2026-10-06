@@ -191,7 +191,8 @@ def session_panel(cairn) -> str:
             lines += [f"   {'':<10} {more}" for more in wrapped[1:]]
 
     hot = [dict(r) for r in b.q("SELECT path, commits, risky, last_ts FROM filestats WHERE risky >= 2 "
-                                "ORDER BY risky DESC, last_ts DESC LIMIT 3")]
+                                "ORDER BY risky DESC, last_ts DESC LIMIT 20")]
+    hot = [h for h in hot if not re.search(r"(^|/)tests?/|(^|/)test_[^/]*$|_test\.[a-z]+$", h["path"])][:3]  # source, not tests
     if hot:
         lines += ["", " Handle with care"]
         lines += [f"   {h['path']} — {h['risky']} of {h['commits']} commits were fixes or reverts, last {ago(h['last_ts'])}"
@@ -351,15 +352,16 @@ def global_session_hint(payload: str = "") -> dict | None:
     except json.JSONDecodeError:
         data = {}
     cwd = data.get("cwd") if isinstance(data, dict) else None
+    from .project import agent_project, find_root
     try:
-        root = Path(cwd).resolve() if cwd else Path.cwd().resolve()
-        if root == Path.home().resolve():
-            return None
+        here = Path(cwd).resolve() if cwd else Path.cwd().resolve()
+        root = find_root(here)  # the repository root, also when the agent starts in a sub-folder
+        if root is None or root == Path.home().resolve():
+            return None  # not a repository (or the home folder itself)
     except OSError:
         return None
-    from .project import agent_project
-    if not (root / ".git").exists() or (root / ".cairn" / "brain.db").exists() or agent_project(root) is not None:
-        return None  # not a repository, or set up (here, or in the main checkout of this worktree)
+    if (root / ".cairn" / "brain.db").exists() or agent_project(root) is not None:
+        return None  # set up (here, or in the main checkout of this worktree)
     return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext":
             "Cairn (local project memory: impact, history, conventions for coding agents) is installed "
             "but not initialized in this repository. Offer the user, once: `cairn init --no-deep` sets it "

@@ -310,13 +310,11 @@ def _dedupe_and_score(observations: list[dict], target: str, limit: int) -> list
 
 def format_file_timeline(observations: list[dict], file_path: str, mode_id: str | None = None) -> str:
     mode = load_mode(mode_id)
-    safe = file_path.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
     lines = [f"Current: {header_datetime()}",
              "This file has prior observations \u2014 supplementary context follows. The Read result below is the"
              " full requested section.",
-             "- **Need details on a past observation?** get_observations([IDs]) \u2014 ~300 tokens each.",
-             f'- **Need a structural map first?** smart_outline("{safe}") \u2014 line numbers only, cheaper than'
-             " re-reading."]
+             "- **Need details on a past observation?** cairn_session_observations(ids=[...]) \u2014 ~300 tokens"
+             " each."]
     days: dict[str, list[dict]] = {}
     for o in observations:
         days.setdefault(format_date(o["created_at_epoch"]), []).append(o)

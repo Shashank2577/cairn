@@ -32,19 +32,19 @@ WORKFLOW = """# Memory Search Workflow
 **3-Layer Pattern (ALWAYS follow this):**
 
 1. **Search** - Get index of results with IDs
-   `recall_search(query="...", limit=20, project="...")`
+   `cairn_session_search(query="...", limit=20, project="...")`
    Returns: Table with IDs, titles, dates (~50-100 tokens/result)
 
 2. **Timeline** - Get context around interesting results
-   `recall_timeline(anchor=<ID>, depth_before=3, depth_after=3)`
+   `cairn_session_timeline(anchor=<ID>, depth_before=3, depth_after=3)`
    Returns: Chronological context showing what was happening
 
 3. **Fetch** - Get full details ONLY for relevant IDs
-   `get_observations(ids=[...])`  # ALWAYS batch for 2+ items
+   `cairn_session_observations(ids=[...])`  # ALWAYS batch for 2+ items
    Returns: Complete details (~500-1000 tokens/result)
 
 4. **Disclose raw tool I/O** - Last resort, when the observation summary does not answer the question
-   `get_tool_uses(ids=[...])`
+   `cairn_session_tool_uses(ids=[...])`
    Returns: The original tool_input / tool_response bodies (UNSUMMARIZED — can be thousands of tokens each)
 
 **Why:** 10x token savings. Never fetch full details without filtering first, and never reach for layer 4 before layer 3 answered."""
@@ -54,9 +54,9 @@ SERVER_ONLY_TOOL_NAMES = ("observation_add", "observation_record_event", "observ
 
 _CORE_TOOLS: list[dict] = [
     {"name": "important_workflow",
-     "description": "LAYERED WORKFLOW (ALWAYS FOLLOW):\n1. recall_search(query) → Get index with IDs (~50-100"
-                    " tokens/result)\n2. recall_timeline(anchor=ID) → Get context around interesting results\n3."
-                    " get_observations([IDs]) → Fetch full details ONLY for filtered IDs\n4. get_tool_uses([IDs])"
+     "description": "LAYERED WORKFLOW (ALWAYS FOLLOW):\n1. cairn_session_search(query) → Get index with IDs (~50-100"
+                    " tokens/result)\n2. cairn_session_timeline(anchor=ID) → Get context around interesting results\n3."
+                    " cairn_session_observations([IDs]) → Fetch full details ONLY for filtered IDs\n4. cairn_session_tool_uses([IDs])"
                     " → Raw tool_input/tool_response, ONLY when the summary is not enough\nNEVER fetch full details"
                     " without filtering first. 10x token savings.",
      "input_schema": {"type": "object", "properties": {}}},
