@@ -2,669 +2,370 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cairn: institutional memory for coding agents</title>
-<meta name="description" content="Cairn gives coding agents a map of the code, the intent behind it, what happened to it, what the team learned and what earlier agent sessions did. One CLI, one MCP server, one page. Apache-2.0.">
-<meta property="og:title" content="Cairn: institutional memory for coding agents">
-<meta property="og:description" content="One CLI, one MCP server, one page. No Docker, no database server, no API key.">
-<meta name="theme-color" content="#E7EAE3">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cellipse cx='16' cy='26' rx='12' ry='4.6' fill='%2318221F'/%3E%3Cellipse cx='16.6' cy='18.2' rx='8.6' ry='4' fill='%2318221F'/%3E%3Cellipse cx='15.6' cy='11.2' rx='5.6' ry='3.2' fill='%2318221F'/%3E%3Cellipse cx='16.2' cy='5.6' rx='3.2' ry='2.3' fill='%23B9C23A'/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cairn: shared memory for every coding agent</title>
+<meta name="description" content="Cairn gives every coding agent your team uses the same memory: what the code does, why it is that way, what was tried, and where the last session stopped. It runs on your machine and keeps your code there.">
+<meta property="og:title" content="Cairn: shared memory for every coding agent">
+<meta property="og:description" content="Your agents forget between sessions. Cairn remembers for them, across Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode and Antigravity.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cellipse cx='16' cy='26' rx='12' ry='4.6' fill='%231c2622'/%3E%3Cellipse cx='16.6' cy='18.2' rx='8.6' ry='4' fill='%231c2622'/%3E%3Cellipse cx='15.6' cy='11.2' rx='5.6' ry='3.2' fill='%231c2622'/%3E%3Cellipse cx='16.2' cy='5.6' rx='3.2' ry='2.3' fill='%23d08a2e'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-:root {
+/* Layout: trail metaphor. A left-aligned reading column with a granite "terminal" slab as the hero proof,
+   then sections that alternate prose and evidence. One bold element per screen: the panel, the data map, the plans. */
+:root{
+  --bg:#eef0ec; --surface:#f8f9f6; --slab:#1c2622; --slab-fg:#dfe6e1; --slab-dim:#8fa097;
+  --fg:#16201c; --muted:#56625b; --rule:#d3d8d1;
+  --accent:#2f6b47; --accent-soft:#dce9df; --marker:#d08a2e; --marker-soft:#f5e6cf;
+  --display:"Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --body:"Public Sans", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme: light;
-  --ground: #E7EAE3;
-  --paper: #F4F5F0;
-  --ink: #18221F;
-  --ink-2: #45524E;
-  --ink-3: #56625D;
-  --rule: #C3CAC1;
-  --contour: #6F7D72;
-  --moss: #2E5A43;
-  --lichen: #B9C23A;
-  --basalt: #1D2724;
-  --code: #DCE3D9;
-  --code-dim: #8FA096;
-  --code-str: #D4DA80;
-  --code-key: #A3CBB7;
-  --s1: #EEF0E7;
-  --s2: #E3E7D8;
-  --s3: #D8DDC8;
-  --s4: #CCD2B9;
-  --s5: #C0C7AA;
-  --serif: "Newsreader", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --gutter: clamp(16px, 4vw, 40px);
-  --max: 1140px;
 }
-*, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; scroll-behavior: auto; }
-body {
-  margin: 0; background: var(--ground); color: var(--ink);
-  font: 400 17px/1.6 var(--sans);
-  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
-  overflow-x: hidden;
-}
-img { max-width: 100%; height: auto; display: block; }
-a { color: var(--moss); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-a:hover { text-decoration-thickness: 2px; }
-:focus-visible { outline: 2px solid var(--moss); outline-offset: 3px; border-radius: 3px; }
-code { font: 500 0.86em var(--mono); background: rgba(24,34,31,.07); padding: .1em .35em; border-radius: 4px; overflow-wrap: anywhere; }
-p { margin: 0 0 1em; }
-h1, h2, h3 { font-family: var(--serif); font-weight: 400; margin: 0; text-wrap: balance; }
-.wrap { max-width: var(--max); margin-inline: auto; padding-inline: var(--gutter); }
-.band { padding-block: clamp(64px, 9vw, 120px); }
-.paper { background: var(--paper); }
-.kicker { font: italic 400 1.1rem/1.3 var(--serif); color: var(--moss); margin: 0 0 12px; }
-h2 { font-size: clamp(2rem, 3.8vw, 3.05rem); line-height: 1.08; letter-spacing: -0.012em; }
-h2 code { font-size: .78em; background: none; padding: 0; }
-.split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(24px, 5vw, 72px); align-items: start; }
-.lead { color: var(--ink-2); font-size: 1.06rem; max-width: 62ch; }
-.num { font-family: var(--serif); font-feature-settings: "lnum", "tnum"; font-variant-numeric: lining-nums tabular-nums; }
-.glyph { width: 22px; height: 22px; flex: none; }
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111715; --surface:#172019; --slab:#0b100e; --slab-fg:#dfe6e1; --slab-dim:#7f9086;
+  --fg:#e3e9e5; --muted:#9aa8a0; --rule:#28322d;
+  --accent:#7fc29a; --accent-soft:#1d2d23; --marker:#e3a552; --marker-soft:#33281a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111715; --surface:#172019; --slab:#0b100e; --slab-fg:#dfe6e1; --slab-dim:#7f9086;
+  --fg:#e3e9e5; --muted:#9aa8a0; --rule:#28322d;
+  --accent:#7fc29a; --accent-soft:#1d2d23; --marker:#e3a552; --marker-soft:#33281a; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 var(--body);padding-inline:20px}
+a{color:var(--accent);text-underline-offset:3px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--marker);outline-offset:3px;border-radius:4px}
+.page{max-width:1080px;margin:0 auto}
+.col{max-width:64ch}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
+h1{font-weight:800;font-size:clamp(40px,7vw,76px);line-height:.98;letter-spacing:-.025em}
+h2{font-weight:800;font-size:clamp(28px,4vw,40px);line-height:1.06;letter-spacing:-.015em}
+h3{font-weight:700;font-size:19px;line-height:1.25}
+p{margin:0}
+.eyebrow{font:500 12.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+code,.mono{font-family:var(--mono);font-size:.9em}
+
+/* nav */
+nav{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:22px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font:800 22px/1 var(--display);color:var(--fg);text-decoration:none;letter-spacing:-.01em}
+.brand svg{width:28px;height:28px}
+.navlinks{display:flex;gap:22px;flex-wrap:wrap;font-size:15px}
+.navlinks a{color:var(--muted);text-decoration:none}
+.navlinks a:hover{color:var(--fg)}
 
 /* hero */
-.hero { position: relative; overflow: hidden; background: var(--ground); border-bottom: 1px solid var(--rule); }
-.terrain { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
-  -webkit-mask-image: linear-gradient(90deg, rgba(0,0,0,.18) 0%, rgba(0,0,0,.3) 34%, #000 66%);
-          mask-image: linear-gradient(90deg, rgba(0,0,0,.18) 0%, rgba(0,0,0,.3) 34%, #000 66%); }
-.terrain .c-minor { fill: none; stroke: var(--contour); stroke-opacity: .42; stroke-width: .8; stroke-linecap: round; }
-.terrain .c-index { fill: none; stroke: var(--ink); stroke-opacity: .42; stroke-width: 1.35; stroke-linecap: round; }
-.terrain .trail { fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-dasharray: 2 7; stroke-linecap: round; }
-.terrain .mark ellipse { fill: var(--ink); stroke: var(--ground); stroke-width: 1.4; }
-.terrain .mark ellipse.top { fill: var(--lichen); }
-.terrain .mark text { font: 500 15px var(--sans); fill: var(--ink); paint-order: stroke; stroke: var(--ground); stroke-width: 4px; stroke-linejoin: round; }
-.top { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 22px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font: 500 1.45rem/1 var(--serif); letter-spacing: -.01em; }
-.nav-links { display: flex; gap: clamp(14px, 2.4vw, 28px); font-size: .95rem; }
-.nav-links a { color: var(--ink); text-decoration: none; }
-.nav-links a:hover { text-decoration: underline; }
-.hero-inner { position: relative; z-index: 1; padding-block: clamp(40px, 8vw, 104px) clamp(48px, 7vw, 88px); }
-.hero-text { max-width: 640px; }
-.hero .badge { display: inline-block; font-size: .9rem; color: var(--ink-2); margin: 0 0 22px; }
-h1 { font-size: clamp(2.7rem, 6.6vw, 5.3rem); line-height: 1.0; letter-spacing: -0.02em; max-width: 13ch; }
-h1 em { font-style: italic; color: var(--moss); }
-.hero .lead { font-size: clamp(1.05rem, 1.6vw, 1.2rem); margin: 26px 0 30px; color: var(--ink-2); }
-.cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
-.btn { display: inline-flex; align-items: center; gap: 9px; padding: 11px 18px; border-radius: 6px; font: 500 15px/1.2 var(--sans); text-decoration: none; border: 1px solid var(--ink); color: var(--ink); background: transparent; }
-.btn:hover { text-decoration: none; background: rgba(24,34,31,.06); }
-.btn.primary { background: var(--ink); color: var(--paper); }
-.btn.primary:hover { background: #2A3733; }
-.btn svg { width: 17px; height: 17px; fill: currentColor; }
-.noconfig { margin: 18px 0 0; font-size: .93rem; color: var(--ink-2); }
-.legend { margin-top: clamp(48px, 7vw, 80px); background: rgba(244,245,240,.92); border: 1px solid var(--rule); border-radius: 8px; padding: 18px 22px 20px; }
-.legend-title { font: italic 400 1rem var(--serif); color: var(--ink-2); margin: 0 0 12px; }
-.legend ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
-.legend li { padding: 4px 22px 2px; border-left: 1px solid var(--rule); font-size: .92rem; color: var(--ink-2); line-height: 1.45; }
-.legend li:first-child { padding-left: 0; border-left: 0; }
-.legend strong { display: block; font: 400 clamp(1.9rem, 3.2vw, 2.5rem)/1.1 var(--serif); color: var(--ink); margin-bottom: 4px; font-variant-numeric: lining-nums tabular-nums; }
+.hero{display:grid;grid-template-columns:minmax(0,1fr);gap:36px;padding-block:40px 72px}
+.hero-copy{display:flex;flex-direction:column;gap:22px}
+.hero .lede{font-size:clamp(18px,2.1vw,21px);color:var(--muted);max-width:56ch}
+.hero .lede strong{color:var(--fg);font-weight:600}
+.cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:8px;font:600 15px/1 var(--body);padding:13px 18px;border-radius:8px;text-decoration:none;border:1px solid transparent;cursor:pointer}
+.btn-primary{background:var(--fg);color:var(--bg)}
+.btn-ghost{border-color:var(--rule);color:var(--fg);background:transparent}
+.install{display:flex;align-items:center;gap:0;border:1px solid var(--rule);border-radius:8px;background:var(--surface);max-width:100%;min-width:0}
+.install code{padding:12px 14px;white-space:nowrap;overflow-x:auto;min-width:0;font-size:14px}
+.install button{border:0;border-left:1px solid var(--rule);background:transparent;color:var(--muted);font:500 13px var(--mono);padding:12px 14px;cursor:pointer;flex:none}
+.install button:hover{color:var(--fg)}
+.agents-line{font-size:14.5px;color:var(--muted)}
+.agents-line b{color:var(--fg);font-weight:600}
 
-/* code blocks */
-.code { background: var(--basalt); border-radius: 8px; overflow: hidden; min-width: 0; }
-.code-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 8px 7px 16px; border-bottom: 1px solid rgba(255,255,255,.08); font: 400 12.5px var(--mono); color: var(--code-dim); }
-.copy { font: 500 12.5px var(--sans); color: var(--code); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); border-radius: 5px; padding: 4px 10px; cursor: pointer; min-width: 64px; }
-.copy:hover { background: rgba(255,255,255,.12); }
-.code pre { margin: 0; padding: 16px 18px 18px; overflow-x: auto; font: 400 13.5px/1.7 var(--mono); color: var(--code); tab-size: 2; }
-.code pre code { font: inherit; background: none; padding: 0; overflow-wrap: normal; }
-.code .p { color: var(--lichen); user-select: none; }
-.code .c { color: var(--code-dim); }
-.code .s { color: var(--code-str); }
-.code .k { color: var(--code-key); }
-.code .b { color: #F1F4EC; font-weight: 500; }
-.hero .code { max-width: 560px; }
+/* the slab: real session-start panel */
+.slab{background:var(--slab);color:var(--slab-fg);border-radius:12px;padding:0;overflow:hidden;min-width:0;box-shadow:0 1px 0 rgba(0,0,0,.04),0 24px 48px -28px rgba(10,20,15,.45)}
+.slab-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);font:500 12px var(--mono);color:var(--slab-dim)}
+.dots{display:flex;gap:6px}.dots i{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.14);display:block}
+.slab pre{margin:0;padding:18px 18px 20px;font:13.5px/1.62 var(--mono);overflow-x:auto;white-space:pre}
+.slab .h{color:#fff;font-weight:500}.slab .k{color:#e3a552}.slab .g{color:#8fd1a8}.slab .d{color:var(--slab-dim)}
+.caption{font-size:13.5px;color:var(--muted);margin-top:10px}
+
+section{padding-block:72px;border-top:1px solid var(--rule)}
+.sec-head{display:flex;flex-direction:column;gap:14px;margin-bottom:34px}
+.sec-head p{color:var(--muted);font-size:18px;max-width:60ch}
 
 /* problem */
-.failures { list-style: none; counter-reset: f; margin: 8px 0 28px; padding: 0; border-top: 1px solid var(--rule); }
-.failures li { counter-increment: f; display: grid; grid-template-columns: 2.2rem minmax(0, 1fr); padding: 14px 0; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
-.failures li::before { content: counter(f); font: italic 400 1.35rem/1.2 var(--serif); color: var(--moss); }
-.failures strong { color: var(--ink); font-weight: 600; }
-.prose p { max-width: 60ch; }
-.prose .coda { color: var(--ink-2); }
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:28px}
+.ledger{border:1px solid var(--rule);border-radius:10px;background:var(--surface);overflow:hidden;min-width:0}
+.ledger table{width:100%;border-collapse:collapse;font-size:15px;font-variant-numeric:tabular-nums}
+.ledger th,.ledger td{padding:11px 14px;border-bottom:1px solid var(--rule);text-align:left}
+.ledger th{font:500 11.5px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.ledger td.n{text-align:right;font-family:var(--mono);font-size:14px}
+.ledger tr:last-child td{border-bottom:0}
 
-/* engines as strata */
-.engines-head { padding-block: clamp(64px, 9vw, 120px) clamp(40px, 5vw, 64px); }
-.strata { list-style: none; margin: 0; padding: 0; }
-.stratum { position: relative; background: var(--tone); padding-block: clamp(36px, 5vw, 56px); --ink-2: #3E4A46; }
-.stratum::before { content: ""; position: absolute; left: 0; right: 0; top: -13px; height: 14px; background: var(--tone);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 14' preserveAspectRatio='none'%3E%3Cpath d='M0 14V8C90 4 170 9 290 7S470 2 610 5 820 11 960 7 1120 2 1200 5V14Z'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
-          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 14' preserveAspectRatio='none'%3E%3Cpath d='M0 14V8C90 4 170 9 290 7S470 2 610 5 820 11 960 7 1120 2 1200 5V14Z'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat; }
-.stratum:nth-child(even)::before { transform: scaleX(-1); }
-.s-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 5fr) minmax(0, 4fr); gap: clamp(20px, 4vw, 56px); align-items: start; }
-.s-head h3 { font-size: clamp(1.9rem, 3vw, 2.4rem); line-height: 1.05; letter-spacing: -.01em; }
-.s-head .q { font: italic 400 1.15rem/1.35 var(--serif); color: var(--ink-2); margin: 6px 0 0; }
-.s-body p { margin: 0 0 14px; max-width: 52ch; }
-.ask { font-size: .9rem; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: baseline; }
-.ask code { background: rgba(24,34,31,.08); }
-.s-detail { font-size: .94rem; color: var(--ink-2); }
-.s-detail h4 { font: 600 .82rem/1.3 var(--sans); color: var(--ink); margin: 0 0 8px; }
-.s-detail ul { margin: 0; padding: 0; list-style: none; }
-.s-detail li { padding: 6px 0; border-top: 1px solid rgba(24,34,31,.14); }
-.figs { list-style: none; margin: 0; padding: 0; }
-.figs li { display: flex; align-items: baseline; gap: 10px; padding: 3px 0; color: var(--ink-2); }
-.figs b { font: 400 2rem/1.1 var(--serif); color: var(--ink); min-width: 6.2ch; font-variant-numeric: lining-nums tabular-nums; }
-.src { font-size: .84rem; color: var(--ink-2); margin: 10px 0 0; }
-.pipeline { list-style: none; margin: 0; padding: 0 0 0 4px; }
-.pipeline li { position: relative; padding: 3px 0 3px 22px; }
-.pipeline li::before { content: ""; position: absolute; left: 0; top: .72em; width: 9px; height: 9px; border-radius: 50%; background: var(--ink); }
-.pipeline li:not(:last-child)::after { content: ""; position: absolute; left: 4px; top: calc(.72em + 9px); bottom: calc(-.72em + 2px); width: 1px; background: var(--ink); opacity: .45; }
-.pipeline li span { color: var(--ink-2); }
+/* remembers */
+.remembers{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.rem{background:var(--surface);padding:22px 22px 24px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.rem .q{font:500 13px/1.3 var(--mono);color:var(--marker)}
+.rem p{color:var(--muted);font-size:15.5px}
+.rem .tool{font:12.5px var(--mono);color:var(--muted);margin-top:auto;padding-top:6px}
 
-/* compare bars */
-.compare { display: grid; gap: 12px; }
-.compare .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; font-size: .9rem; color: var(--ink-2); }
-.compare .val { font: 400 1.25rem/1.2 var(--serif); color: var(--ink); font-variant-numeric: lining-nums tabular-nums; text-align: right; }
-.compare .val small { font: 400 .8rem var(--sans); color: var(--ink-2); }
-.bar { grid-column: 1 / -1; height: 10px; background: rgba(24,34,31,.1); border-radius: 2px; overflow: hidden; }
-.bar i { display: block; height: 100%; background: var(--ink-2); min-width: 3px; }
-.bar i.hi { background: var(--moss); }
-.verdict { margin: 14px 0 0; font-size: .98rem; }
-.verdict b { font: 500 1.15rem var(--serif); color: var(--moss); }
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px;counter-reset:s}
+.step{display:flex;flex-direction:column;gap:12px;min-width:0}
+.step .num{font:800 15px/1 var(--display);width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.step p{color:var(--muted);font-size:15.5px}
+.term{background:var(--slab);color:var(--slab-fg);border-radius:8px;padding:12px 14px;font:13.5px/1.6 var(--mono);overflow-x:auto;white-space:pre;min-width:0}
+.term .d{color:var(--slab-dim)}
+
+/* where data lives */
+.tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}
+.tier{border:1px solid var(--rule);border-radius:10px;padding:20px;background:var(--surface);display:flex;flex-direction:column;gap:10px;min-width:0}
+.tier .where{font:500 12px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.tier ul{margin:0;padding-left:1.1em;color:var(--muted);font-size:15.5px}
+.tier li{margin:4px 0}
+.badge{display:inline-block;font:500 11.5px/1 var(--mono);padding:5px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);align-self:flex-start}
+.badge.soon{background:var(--marker-soft);color:var(--marker)}
 
 /* agents */
-.steps { list-style: none; margin: clamp(40px, 6vw, 72px) 0 0; padding: 0; position: relative; }
-.step { position: relative; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(20px, 4vw, 48px); padding: 0 0 clamp(44px, 6vw, 72px) 52px; }
-.step::before { content: ""; position: absolute; left: 13px; top: 34px; bottom: 6px; border-left: 1.5px dashed rgba(24,34,31,.35); }
-.step:last-child::before { display: none; }
-.step .glyph { position: absolute; left: 2px; top: 0; width: 26px; height: 26px; }
-.step.wide { grid-template-columns: minmax(0, 1fr); }
-.step h3 { font-size: clamp(1.45rem, 2.4vw, 1.8rem); line-height: 1.15; margin-bottom: 12px; }
-.step h3 .n { font-style: italic; color: var(--moss); margin-right: .25em; }
-.step-text p { color: var(--ink-2); max-width: 58ch; }
-.step-text p:last-child { margin-bottom: 0; }
-.hooks { margin: 18px 0 0; display: grid; gap: 0; border-top: 1px solid var(--rule); font-size: .92rem; }
-.hooks > div { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--rule); }
-.hooks dt { font-weight: 600; }
-.hooks dd { margin: 0; color: var(--ink-2); }
-.brief { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
-.brief figure { margin: 0; }
-.brief img { border: 1px solid var(--rule); border-radius: 8px; background: #F7F6F2; width: 352px; }
-figcaption { font-size: .86rem; color: var(--ink-3); margin-top: 10px; max-width: 60ch; }
-.measure { border-top: 1px solid var(--ink); padding-top: 32px; margin-top: 8px; }
-.measure-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(28px, 5vw, 64px); margin: 26px 0 36px; }
-.measure-title { font: italic 400 1.35rem/1.3 var(--serif); }
-.measure h4 { font: 600 .98rem/1.35 var(--sans); margin: 0 0 14px; }
-.shot { margin: 0; }
-.shot img { border: 1px solid var(--rule); border-radius: 8px; background: #F4F3EF; width: 100%; }
-.works { margin: clamp(40px, 5vw, 56px) 0 0; padding-top: 24px; border-top: 1px solid var(--rule); color: var(--ink-2); max-width: none; }
-.works strong { color: var(--ink); font-weight: 600; }
+.agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.agent{border:1px solid var(--rule);border-radius:10px;padding:14px 16px;background:var(--surface);display:flex;flex-direction:column;gap:6px;min-width:0}
+.agent b{font-family:var(--display);font-size:17px}
+.agent span{font-size:13.5px;color:var(--muted)}
 
-/* page */
-.page-shot { margin-top: clamp(32px, 5vw, 56px); }
+/* plans */
+.plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;align-items:start}
+.plan{border:1px solid var(--rule);border-radius:12px;padding:24px;background:var(--surface);display:flex;flex-direction:column;gap:14px;min-width:0}
+.plan.main{border-color:var(--fg);box-shadow:0 0 0 1px var(--fg)}
+.plan .price{font:800 30px/1 var(--display)}
+.plan .price small{font:500 14px var(--body);color:var(--muted)}
+.plan ul{margin:0;padding-left:1.1em;color:var(--muted);font-size:15.5px}
+.plan li{margin:5px 0}
 
-/* install */
-.install-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: clamp(28px, 5vw, 64px); align-items: start; margin-top: 36px; }
-.firstrun { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
-.firstrun li { padding: 11px 0; border-bottom: 1px solid var(--rule); color: var(--ink-2); font-size: .96rem; }
-.firstrun li strong { color: var(--ink); font-weight: 600; }
-.req { margin-top: 22px; font-size: .95rem; color: var(--ink-2); }
-.req p { max-width: 60ch; }
+footer{border-top:1px solid var(--rule);padding-block:36px 56px;display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;color:var(--muted);font-size:14.5px}
+footer nav{padding:0;gap:18px}
+footer a{color:var(--muted)}
 
-/* footer */
-footer { padding-block: 48px 56px; border-top: 1px solid var(--rule); font-size: .93rem; color: var(--ink-2); }
-.foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 24px 48px; }
-.foot nav { display: flex; flex-wrap: wrap; gap: 8px 22px; }
-.foot nav a { color: var(--ink); }
-.foot p { margin: 8px 0 0; }
-
-@media (prefers-reduced-motion: no-preference) {
-  .btn, .copy, .nav-links a { transition: background-color .15s ease, color .15s ease; }
-}
-
-@media (max-width: 1100px) {
-  .terrain .mark text { display: none; }
-}
-@media (max-width: 900px) {
-  .split, .install-grid, .measure-grid { grid-template-columns: minmax(0, 1fr); }
-  .s-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .s-head { grid-column: 1 / -1; }
-  .step { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 760px) {
-  .terrain { -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,.2) 55%, rgba(0,0,0,.12) 100%);
-                     mask-image: linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,.2) 55%, rgba(0,0,0,.12) 100%); }
-  .terrain .trail, .terrain .mark { display: none; }
-  .nav-links a:not(.gh) { display: none; }
-  .legend ul { grid-template-columns: minmax(0, 1fr); }
-  .legend li, .legend li:first-child { padding: 12px 0; border-left: 0; border-top: 1px solid var(--rule); }
-  .legend li:first-child { border-top: 0; padding-top: 0; }
-  .s-grid { grid-template-columns: minmax(0, 1fr); }
-  .step { padding-left: 40px; }
-  .step::before { left: 10px; }
-  .step .glyph { left: 0; width: 22px; height: 22px; }
-  .hooks > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-  .brief img { width: 100%; max-width: 352px; }
+@media (min-width:980px){
+  .hero{grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);align-items:center}
 }
 </style>
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
-  <symbol id="cairn-glyph" viewBox="0 0 32 32">
-    <ellipse cx="16" cy="26" rx="12" ry="4.6" fill="#18221F"/>
-    <ellipse cx="16.6" cy="18.2" rx="8.6" ry="4" fill="#18221F"/>
-    <ellipse cx="15.6" cy="11.2" rx="5.6" ry="3.2" fill="#18221F"/>
-    <ellipse cx="16.2" cy="5.6" rx="3.2" ry="2.3" fill="#B9C23A"/>
-  </symbol>
-</svg>
+<div class="page">
+
+<nav aria-label="Main">
+  <a class="brand" href="#top" aria-label="Cairn home">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="26" rx="12" ry="4.6" fill="currentColor"/><ellipse cx="16.6" cy="18.2" rx="8.6" ry="4" fill="currentColor"/><ellipse cx="15.6" cy="11.2" rx="5.6" ry="3.2" fill="currentColor"/><ellipse cx="16.2" cy="5.6" rx="3.2" ry="2.3" fill="var(--marker)"/></svg>
+    cairn
+  </a>
+  <div class="navlinks">
+    <a href="#how">How it works</a>
+    <a href="#data">Your data</a>
+    <a href="#plans">Plans</a>
+    <a href="https://github.com/Shashank2577/cairn">GitHub</a>
+  </div>
+</nav>
 
 <header class="hero" id="top">
-  <svg class="terrain" id="terrain" viewBox="0 0 1200 1000" preserveAspectRatio="xMaxYMin slice" aria-hidden="true" focusable="false"></svg>
-  <nav class="top wrap" aria-label="Primary">
-    <a class="brand" href="#top"><svg class="glyph" aria-hidden="true"><use href="#cairn-glyph"/></svg>cairn</a>
-    <div class="nav-links">
-      <a href="#engines">Engines</a>
-      <a href="#agents">Agents</a>
-      <a href="#install">Install</a>
-      <a class="gh" href="https://github.com/Shashank2577/cairn">GitHub</a>
-    </div>
-  </nav>
-  <div class="wrap hero-inner">
-    <div class="hero-text">
-      <p class="badge">Open source, Apache-2.0</p>
-      <h1>Institutional memory for <em>coding agents</em>.</h1>
-      <p class="lead">Run one command in a repository and your agents get a map of the code, the intent behind it, what happened to it, what the team learned and what earlier agent sessions did. One CLI, one MCP server, one page, running on your machine.</p>
-      <div class="code" role="group" aria-label="Install and run">
-        <div class="code-head"><span>shell</span><button class="copy" type="button" aria-live="polite" data-copy="uv tool install cairn-brain&#10;cd your-repo&#10;cairn">Copy</button></div>
-        <pre><code><span class="p">$ </span>uv tool install cairn-brain   <span class="c"># or: pipx install cairn-brain</span>
-<span class="p">$ </span>cd your-repo
-<span class="p">$ </span>cairn</code></pre>
+  <div class="hero-copy">
+    <span class="eyebrow">Memory for coding agents · open source</span>
+    <h1>Your agents forget. Your team shouldn’t have to.</h1>
+    <p class="lede">Cairn gives every coding agent your team uses the same memory: <strong>what the code does, why it is that way, what was already tried, and where the last session stopped.</strong> It runs on your machine, and your code stays there.</p>
+    <div class="cta">
+      <div class="install">
+        <code id="install-cmd">uv tool install --python 3.12 cairn-brain</code>
+        <button type="button" id="copy-install" aria-label="Copy install command">Copy</button>
       </div>
-      <div class="cta">
-        <a class="btn primary" href="https://github.com/Shashank2577/cairn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a>
-        <a class="btn" href="https://github.com/Shashank2577/cairn/blob/main/docs/onboarding.md">Read the onboarding guide</a>
-      </div>
-      <p class="noconfig">Needs Python 3.11+ and git. No Docker, no database server, no API key.</p>
+      <a class="btn btn-ghost" href="#how">See how it works</a>
     </div>
-    <div class="legend">
-      <p class="legend-title">Measured on Cairn’s own repository</p>
-      <ul>
-        <li><strong>369×</strong>fewer tokens for one impact answer than opening the 33 files behind it</li>
-        <li><strong>17,761,951</strong>tokens of past session work kept out of future sessions</li>
-        <li><strong>80%</strong>smaller tool list advertised to the agent every turn</li>
-      </ul>
-    </div>
+    <p class="agents-line">Works with <b>Claude Code</b>, <b>Codex</b>, <b>Cursor</b>, <b>Copilot CLI</b>, <b>Gemini CLI</b>, <b>OpenCode</b> and <b>Antigravity</b>. Apache-2.0.</p>
   </div>
+
+  <figure style="margin:0;min-width:0">
+    <div class="slab" role="img" aria-label="The panel an agent session opens with: where the last session stopped, what is new, what the team knows, risky files and open work">
+      <div class="slab-bar"><span class="dots"><i></i><i></i><i></i></span><span>claude · session start</span></div>
+<pre><span class="h">▲ cairn · cairn — what this project remembers</span>
+
+ <span class="k">Pick up where you left off</span> <span class="d">· 2h ago in Claude Code</span>
+   Asked  Make the MCP server create nothing where Cairn isn’t set up
+   Done   Tools answer with a one-line setup offer <span class="d">(+3 more)</span>
+   Next   Verify the fix with Codex and OpenCode
+
+ <span class="k">New since then</span>
+   <span class="g">+ gotcha</span>     Session capture never climbs above the repository root
+   <span class="g">+ commit</span>     fix: injected context names real tools
+
+ <span class="k">What the team knows</span> <span class="d">(32 memories)</span>
+   decision   One read model for every surface: engines write their own
+              stores; every surface reads .cairn/brain.db <span class="d">(ADR 0001, 11d ago)</span>
+   gotcha     Agent hooks never fail on a busy store <span class="d">(commit 81efc41)</span>
+
+ <span class="k">Handle with care</span>
+   src/cairn/hooks.py — 6 of 13 commits were fixes or reverts
+
+ <span class="d">875 files mapped · 32 memories · 1,216 session notes</span></pre>
+    </div>
+    <figcaption class="caption">A session opening in Cairn’s own repository, trimmed for space. You see the panel; the agent gets the same memory in its context.</figcaption>
+  </figure>
 </header>
 
-<main>
-  <section class="band paper" id="problem" aria-labelledby="problem-h">
-    <div class="wrap split">
-      <div>
-        <p class="kicker">The problem</p>
-        <h2 id="problem-h">Every session starts back at the trailhead.</h2>
-      </div>
-      <div class="prose">
-        <p class="lead">Coding agents are capable, but they forget everything between sessions. Each new one pays again, in time and tokens, to rediscover what the last one already knew.</p>
-        <ol class="failures">
-          <li><span><strong>It re-reads the same files</strong> to rebuild a picture of the code that an earlier session already had.</span></li>
-          <li><span><strong>It misses the caller three hops away</strong>, because nothing told it that caller exists.</span></li>
-          <li><span><strong>It re-applies the change that was reverted last spring</strong>, because the revert only lives in git history.</span></li>
-          <li><span><strong>It never hears about the convention</strong> the team agreed on in review.</span></li>
-        </ol>
-        <p>Cairn keeps that context for them, and every commit, spec and session adds to it.</p>
-        <p class="coda">The name is literal. A cairn is a stack of stones that marks a route across ground with no path, left by the people who passed before for whoever comes next.</p>
-      </div>
+<section id="problem" aria-labelledby="problem-h">
+  <div class="split">
+    <div class="sec-head" style="margin:0">
+      <span class="eyebrow">The problem</span>
+      <h2 id="problem-h">Every session starts from zero.</h2>
+      <p>A new agent session doesn’t know what the last one learned, what your teammate’s agent found yesterday, or which fix was already reverted twice. It rereads the same files, repeats the same mistakes, and spends your tokens doing it.</p>
+      <p>Cairn keeps that knowledge between sessions and between people, and hands it to whichever agent you open next.</p>
     </div>
-  </section>
-
-  <section id="engines" aria-labelledby="engines-h">
-    <div class="wrap engines-head split">
-      <div>
-        <p class="kicker">What it keeps</p>
-        <h2 id="engines-h">Five engines, one question each.</h2>
-      </div>
-      <p class="lead">Everything syncs into <code>.cairn/</code> inside the repository. Git hooks re-sync in the background after each commit, merge, checkout and rewrite, so a commit never waits on Cairn and the layers keep building without anyone tending them.</p>
+    <div class="ledger">
+      <table>
+        <thead><tr><th>At session start</th><th style="text-align:right">Cost</th></tr></thead>
+        <tbody>
+          <tr><td>Model calls to build the panel and brief</td><td class="n">0</td></tr>
+          <tr><td>Context the agent receives, unasked</td><td class="n">≈ 2,600 tokens</td></tr>
+          <tr><td>Extra context on a code question</td><td class="n">≤ 500 tokens</td></tr>
+          <tr><td>Where it runs</td><td class="n">your machine</td></tr>
+        </tbody>
+      </table>
     </div>
-    <ol class="strata">
-      <li class="stratum" style="--tone: var(--s1)">
-        <div class="wrap s-grid">
-          <div class="s-head"><h3>Map</h3><p class="q">What is the code?</p></div>
-          <div class="s-body">
-            <p>Tree-sitter syntax trees for 25 languages, plus docs, schemas and the rationale comments people leave next to code, linked into one graph and grouped into communities.</p>
-            <p class="ask">Ask it with <code>cairn_impact</code> <code>cairn trace path|explain|query</code> <code>cairn hubs</code></p>
-          </div>
-          <div class="s-detail">
-            <ul class="figs">
-              <li><b>16,050</b>nodes</li>
-              <li><b>42,722</b>links</li>
-              <li><b>483</b>communities</li>
-            </ul>
-            <p class="src">Cairn’s own repository, mapped by Cairn.</p>
-          </div>
-        </div>
-      </li>
-      <li class="stratum" style="--tone: var(--s2)">
-        <div class="wrap s-grid">
-          <div class="s-head"><h3>Specs</h3><p class="q">What did we intend?</p></div>
-          <div class="s-body">
-            <p>A spec-driven workflow in which every task is traced to the files it touched, so intent and code can be checked against each other.</p>
-            <p class="ask">Ask it with <code>cairn_specs</code> <code>cairn drift</code></p>
-          </div>
-          <div class="s-detail">
-            <ol class="pipeline">
-              <li>constitution</li>
-              <li>specify</li>
-              <li>plan</li>
-              <li>tasks <span>traced to files</span></li>
-            </ol>
-            <p class="src"><code>cairn drift</code> lists done tasks whose files are missing, requirements no task covers, and code that changed after its task was closed.</p>
-          </div>
-        </div>
-      </li>
-      <li class="stratum" style="--tone: var(--s3)">
-        <div class="wrap s-grid">
-          <div class="s-head"><h3>Timeline</h3><p class="q">What happened, and when was it true?</p></div>
-          <div class="s-body">
-            <p>Git history, agent sessions and drift, stored as facts with validity windows, so the record keeps what was true then alongside what is true now.</p>
-            <p class="ask">Ask it with <code>cairn why &lt;file|symbol&gt;</code> <code>cairn_why</code></p>
-          </div>
-          <div class="s-detail">
-            <h4><code>cairn why</code> returns</h4>
-            <ul>
-              <li>The rationale comments in the code</li>
-              <li>The commits behind the lines</li>
-              <li>The requirement and task that produced it</li>
-              <li>Decisions recorded about it</li>
-            </ul>
-          </div>
-        </div>
-      </li>
-      <li class="stratum" style="--tone: var(--s4)">
-        <div class="wrap s-grid">
-          <div class="s-head"><h3>Memory</h3><p class="q">What did we learn?</p></div>
-          <div class="s-body">
-            <p>Conventions, decisions and gotchas, from people and from agents. An agent that learns something durable stores it as one sentence with a kind, and the next agent gets it with the code it applies to.</p>
-            <p class="ask">Ask it with <code>cairn_remember</code> <code>cairn_why</code></p>
-          </div>
-          <div class="s-detail">
-            <h4>Seeded on the first run from</h4>
-            <ul>
-              <li>Accepted ADRs</li>
-              <li>Answered clarifications in specs</li>
-              <li>Rules in contributing and style docs</li>
-              <li>Reverted or explained fixes in git history</li>
-            </ul>
-          </div>
-        </div>
-      </li>
-      <li class="stratum" style="--tone: var(--s5)">
-        <div class="wrap s-grid">
-          <div class="s-head"><h3>Sessions</h3><p class="q">What did agents do?</p></div>
-          <div class="s-body">
-            <p>Prompts, files read and changed, and commands, captured as agents work and turned into observations and session summaries. On for Claude Code by default; other agents take one command.</p>
-            <p class="ask"><code>cairn sessions integrate install &lt;agent&gt;</code></p>
-          </div>
-          <div class="s-detail">
-            <div class="compare">
-              <div class="row"><span>Re-reading the raw activity</span><span class="val">18,021,158 <small>tokens</small></span><span class="bar"><i style="width:100%"></i></span></div>
-              <div class="row"><span>Observations and summaries</span><span class="val">259,207 <small>tokens</small></span><span class="bar"><i class="hi" style="width:1.44%"></i></span></div>
-            </div>
-            <p class="src">454 rows of captured activity in this repository. Recalling instead of rediscovering keeps 17,761,951 tokens out of future sessions.</p>
-          </div>
-        </div>
-      </li>
-    </ol>
-  </section>
+  </div>
+</section>
 
-  <section class="band paper" id="agents" aria-labelledby="agents-h">
-    <div class="wrap">
-      <div class="split">
-        <div>
-          <p class="kicker">How an agent finds it</p>
-          <h2 id="agents-h">The agent doesn’t have to remember to ask.</h2>
-        </div>
-        <p class="lead">The first <code>cairn</code> run (or <code>cairn init</code>) makes three small, readable changes for each agent it detects. Nothing is hidden, and <code>cairn uninstall</code> removes all of it.</p>
-      </div>
+<section id="remembers" aria-labelledby="rem-h">
+  <div class="sec-head">
+    <span class="eyebrow">What it remembers</span>
+    <h2 id="rem-h">Answers your agent would otherwise go looking for.</h2>
+    <p>Cairn builds this from your code, your git history, your specs and docs, and the sessions your agents run. Agents read it through the tools they already speak (MCP), and the most useful parts arrive on their own at session start.</p>
+  </div>
+  <div class="remembers">
+    <div class="rem"><span class="q">Where did we leave off?</span><h3>Session memory</h3><p>What each session was asked, what it did, what it learned and what it left unfinished, searchable across every agent.</p><span class="tool">cairn_session_search</span></div>
+    <div class="rem"><span class="q">Why is it like this?</span><h3>Decisions and history</h3><p>The ADR, commit, spec task or reverted fix behind a file or function, with the source cited.</p><span class="tool">cairn_why</span></div>
+    <div class="rem"><span class="q">What breaks if I change it?</span><h3>Impact</h3><p>Callers, dependents, files that usually change together, and past incidents in that area.</p><span class="tool">cairn_impact</span></div>
+    <div class="rem"><span class="q">What does the team already know?</span><h3>Team memory</h3><p>Conventions, decisions and gotchas, from people and from agents, each one sentence with its source.</p><span class="tool">cairn_remember · cairn_recall</span></div>
+    <div class="rem"><span class="q">Does the code still match the plan?</span><h3>Specs and drift</h3><p>A spec-driven workflow that traces every task to the files it touched, and flags where code and spec disagree.</p><span class="tool">cairn_specs · cairn drift</span></div>
+    <div class="rem"><span class="q">Where does everything connect?</span><h3>Code map</h3><p>A graph of the codebase across 25 languages, with its hubs and areas, built without a model.</p><span class="tool">cairn_context · cairn_trace</span></div>
+  </div>
+</section>
 
-      <ol class="steps">
-        <li class="step">
-          <svg class="glyph" aria-hidden="true"><use href="#cairn-glyph"/></svg>
-          <div class="step-text">
-            <h3><span class="n">1</span>Registers one MCP server</h3>
-            <p>An entry named <code>cairn</code> goes into each agent’s own config: <code>.mcp.json</code> for Claude Code, <code>.cursor/mcp.json</code> for Cursor, <code>.gemini/settings.json</code> for Gemini CLI, and <code>codex mcp add</code> for Codex.</p>
-            <p>By default the server advertises a core set of tools: about 1,600 tokens per turn, against about 8,600 for the full set.</p>
-          </div>
-          <div class="code">
-            <div class="code-head"><span>.mcp.json</span><button class="copy" type="button" aria-live="polite">Copy</button></div>
-            <pre><code>{
-  <span class="k">"mcpServers"</span>: {
-    <span class="k">"cairn"</span>: {
-      <span class="k">"command"</span>: <span class="s">"cairn"</span>,
-      <span class="k">"args"</span>: [<span class="s">"mcp"</span>]
-    }
-  }
-}</code></pre>
-          </div>
-        </li>
-
-        <li class="step wide">
-          <svg class="glyph" aria-hidden="true"><use href="#cairn-glyph"/></svg>
-          <div class="step-text">
-            <h3><span class="n">2</span>Writes a short block into CLAUDE.md or AGENTS.md</h3>
-            <p>Three habits in plain language: call <code>cairn_impact</code> before editing, <code>cairn_why</code> before guessing, and <code>cairn_remember</code> when you learn something durable. This is the block from Cairn’s own repository, verbatim.</p>
-          </div>
-          <div class="code">
-            <div class="code-head"><span>CLAUDE.md</span><button class="copy" type="button" aria-live="polite">Copy</button></div>
-            <pre><code><span class="k">## Cairn — project memory</span>
-
-This repository is connected to Cairn (MCP server <span class="s">`cairn`</span>), the project's memory of code structure,
-specs, history, decisions and past agent work.
-
-- <span class="b">**Before editing**</span>, call <span class="s">`cairn_context`</span> with your task (or <span class="s">`cairn_impact`</span> for a specific file or
-  symbol). It returns dependents, files that usually change together, past fixes and reverts, the
-  owning spec task, team conventions and recent agent sessions, within a small token budget.
-- <span class="b">**When asked why code is the way it is**</span>, call <span class="s">`cairn_why`</span> before guessing.
-- <span class="b">**When you learn something durable**</span> (a convention, decision, gotcha), call <span class="s">`cairn_remember`</span>
-  with a one-sentence statement and a kind. Don't store what the code already says.
-- Treat <span class="s">`[EXTRACTED]`</span> evidence as fact and <span class="s">`[INFERRED]`</span> as a lead to verify.
-- Spec work lives in <span class="s">`specs/`</span>; Cairn hooks run automatically at plan, tasks and implement stages.</code></pre>
-          </div>
-        </li>
-
-        <li class="step">
-          <svg class="glyph" aria-hidden="true"><use href="#cairn-glyph"/></svg>
-          <div class="step-text">
-            <h3><span class="n">3</span>Installs a session-start hook</h3>
-            <p>Instructions can be ignored; a hook can’t. When a session starts, <code>cairn hook session-start</code> injects a brief before the agent sees your first prompt. Each agent gets the closest equivalent it supports:</p>
-            <dl class="hooks">
-              <div><dt>Claude Code</dt><dd>Two <code>SessionStart</code> hooks: the brief, and a timeline of recent observations and session summaries</dd></div>
-              <div><dt>Gemini CLI</dt><dd>A <code>SessionStart</code> hook in <code>.gemini/settings.json</code>, returned as additional context</dd></div>
-              <div><dt>Codex</dt><dd>A <code>SessionStart</code> hook in <code>.codex/hooks.json</code>; approve it once in <code>/hooks</code></dd></div>
-              <div><dt>Cursor</dt><dd>A <code>sessionStart</code> hook in <code>.cursor/hooks.json</code>, also under <code>cursor-agent -p</code></dd></div>
-            </dl>
-          </div>
-          <div class="brief">
-            <figure>
-              <img src="assets/landing/session-brief.webp" width="352" height="364" loading="lazy" alt="Cairn's Sessions page panel titled 'What the next session starts with', showing the injected '[cairn] recent context' block: a legend of observation types, the fetch and search instructions, and stats of 50 observations and 98% savings.">
-              <figcaption>What the next session in this repository starts with: about 1,882 tokens, injected without the agent asking.</figcaption>
-            </figure>
-          </div>
-        </li>
-      </ol>
-
-      <div class="measure">
-        <h3 class="measure-title">What that costs the context window</h3>
-        <div class="measure-grid">
-          <div>
-            <h4>One impact answer for one file</h4>
-            <div class="compare">
-              <div class="row"><span>Sent to the agent</span><span class="val">391 <small>tokens</small></span><span class="bar"><i class="hi" style="width:0.27%"></i></span></div>
-              <div class="row"><span>Source it summarizes, across 33 files</span><span class="val">144,228 <small>tokens</small></span><span class="bar"><i style="width:100%"></i></span></div>
-            </div>
-            <p class="verdict"><b>369×</b> fewer tokens than opening those files.</p>
-          </div>
-          <div>
-            <h4>Tool list advertised every turn</h4>
-            <div class="compare">
-              <div class="row"><span>Default core tool set</span><span class="val">~1,600 <small>tokens</small></span><span class="bar"><i class="hi" style="width:18.6%"></i></span></div>
-              <div class="row"><span>Full tool set</span><span class="val">~8,600 <small>tokens</small></span><span class="bar"><i style="width:100%"></i></span></div>
-            </div>
-            <p class="verdict"><b>80%</b> less for the agent to read before it does anything.</p>
-          </div>
-        </div>
-        <figure class="shot">
-          <img src="assets/landing/overview-context.webp" width="1170" height="516" loading="lazy" alt="Cairn's Overview page, 'Context served' panel: 391 tokens sent to agents against 144,228 tokens in 33 files, 369 times fewer tokens, with a per-source breakdown of briefings, impact and why requests; beside it, the active spec at 75 of 75 tasks with no drift found.">
-          <figcaption>The Overview page logs every context pack with its size and the size of the files behind it. Session briefings have no file baseline, so they count as cost, not savings.</figcaption>
-        </figure>
-      </div>
-
-      <p class="works">Works with <strong>Claude Code</strong>, <strong>Codex</strong>, <strong>Cursor</strong>, <strong>Gemini CLI</strong>, <strong>OpenCode</strong>, <strong>Copilot CLI</strong>, <strong>VS Code with Copilot</strong> and <strong>Antigravity</strong>. Details per agent are in <a href="https://github.com/Shashank2577/cairn/blob/main/docs/agents.md">docs/agents.md</a>.</p>
+<section id="how" aria-labelledby="how-h">
+  <div class="sec-head">
+    <span class="eyebrow">How it works</span>
+    <h2 id="how-h">Install once. Set up a repository in seconds. Keep working.</h2>
+  </div>
+  <div class="steps">
+    <div class="step">
+      <span class="num" aria-hidden="true">1</span>
+      <h3>Install, and wire your agents once</h3>
+      <div class="term">uv tool install --python 3.12 cairn-brain
+cairn global install</div>
+      <p>Every agent on your machine gets Cairn’s tools and memory, at user level. Repositories without Cairn get a one-line offer to set it up, and nothing is written to them until you say yes.</p>
     </div>
-  </section>
-
-  <section class="band" id="page" aria-labelledby="page-h">
-    <div class="wrap">
-      <div class="split">
-        <div>
-          <p class="kicker">For people, too</p>
-          <h2 id="page-h">One page: <code>cairn ui</code></h2>
-        </div>
-        <p class="lead">The same memory, browsable: the map, specs, timeline, memory and sessions, with one search box across all of them. In local mode there is no sign-in and nothing leaves the machine.</p>
-      </div>
-      <figure class="shot page-shot">
-        <img src="assets/landing/map.webp" width="1208" height="830" loading="lazy" alt="Cairn's Map page for its own repository: 16,050 nodes and 42,722 links in 483 communities, drawn as nested circles grouped by area (workflow, temporal, graph, recall, platform, tests), with a legend listing areas by size.">
-        <figcaption>Cairn’s own repository. Each circle is a community: code and docs that link to each other more than to anything else. Lines are dependencies between communities.</figcaption>
-      </figure>
+    <div class="step">
+      <span class="num" aria-hidden="true">2</span>
+      <h3>Set up a repository</h3>
+      <div class="term">cd your-repo
+cairn init --no-deep</div>
+      <p>About fifteen seconds and no model needed: the code map, git history, specs and memories seeded from your docs and commits. Worktrees of the repository share its memory automatically.</p>
     </div>
-  </section>
-
-  <section class="band paper" id="install" aria-labelledby="install-h">
-    <div class="wrap">
-      <p class="kicker">Install</p>
-      <h2 id="install-h">Install once, then run <code>cairn</code> in any repository.</h2>
-      <div class="install-grid">
-        <div>
-          <div class="code">
-            <div class="code-head"><span>shell</span><button class="copy" type="button" aria-live="polite" data-copy="uv tool install cairn-brain&#10;cd your-repo&#10;cairn">Copy</button></div>
-            <pre><code><span class="p">$ </span>uv tool install cairn-brain   <span class="c"># or: pipx install cairn-brain</span>
-<span class="p">$ </span>cd your-repo
-<span class="p">$ </span>cairn</code></pre>
-          </div>
-          <div class="req">
-            <p>You need Python 3.11 or newer and git. The first sync downloads a small local embedding model (about 70 MB) once. Without network access, Cairn uses a built-in hashing embedder instead, so search still works, only less semantically.</p>
-            <p>Nothing on day one needs a model. When one is available, such as a signed-in Claude Code CLI, Cairn finds it on its own and uses it for session observations, summaries and written answers.</p>
-          </div>
-        </div>
-        <div>
-          <p>The first run sets the repository up without asking questions:</p>
-          <ul class="firstrun">
-            <li><strong>Adds the spec workflow:</strong> <code>.cairn/workflow/</code> and the <code>/cairn.*</code> agent commands.</li>
-            <li><strong>Wires every agent it detects</strong> to the <code>cairn</code> MCP server and adds a Cairn block to <code>AGENTS.md</code>. Claude Code also gets session capture hooks, a session-start briefing, a status line, <code>/cairn:*</code> commands, four sub-agents and the session skills.</li>
-            <li><strong>Installs git hooks</strong> (post-commit, post-merge, post-checkout, post-rewrite) that re-sync in the background.</li>
-            <li><strong>Runs the first sync,</strong> starts the local server and prints the page’s address.</li>
-          </ul>
-          <p class="req">After that, <code>cairn</code> shows status. Setup is idempotent, and <code>cairn uninstall</code> removes what it added.</p>
-        </div>
-      </div>
+    <div class="step">
+      <span class="num" aria-hidden="true">3</span>
+      <h3>Work as usual</h3>
+      <div class="term"><span class="d"># any agent, any session</span>
+cairn status      <span class="d"># what it knows</span>
+cairn ui          <span class="d"># browse it</span></div>
+      <p>Each session opens with the panel above. Agents capture what they do, and the next session, in any tool, starts from there.</p>
     </div>
-  </section>
-</main>
+  </div>
+</section>
+
+<section id="agents" aria-labelledby="agents-h">
+  <div class="sec-head">
+    <span class="eyebrow">Agent-neutral</span>
+    <h2 id="agents-h">One memory, whichever agent you open.</h2>
+    <p>Built-in memories belong to one tool. Teams mix tools and switch often; Cairn’s memory follows the repository, not the vendor.</p>
+  </div>
+  <div class="agents">
+    <div class="agent"><b>Claude Code</b><span>Tools, panel, capture, per-prompt context</span></div>
+    <div class="agent"><b>Codex</b><span>Tools, memory and capture via plugin</span></div>
+    <div class="agent"><b>Cursor</b><span>Tools, memory and capture hooks</span></div>
+    <div class="agent"><b>Copilot CLI</b><span>Tools; capture per repository</span></div>
+    <div class="agent"><b>Gemini CLI</b><span>Tools, memory and capture hooks</span></div>
+    <div class="agent"><b>OpenCode</b><span>Tools, memory and capture via plugin</span></div>
+    <div class="agent"><b>Antigravity</b><span>Tools, memory and capture hooks</span></div>
+  </div>
+</section>
+
+<section id="data" aria-labelledby="data-h">
+  <div class="sec-head">
+    <span class="eyebrow">Your data</span>
+    <h2 id="data-h">Your code never leaves your machine.</h2>
+    <p>What an agent reads and runs is the most sensitive thing it captures, and the least useful to share. Cairn keeps it local. What your team does share is small, readable and stored where you already keep your code.</p>
+  </div>
+  <div class="tiers">
+    <div class="tier">
+      <span class="where">On your laptop</span>
+      <h3>Everything raw</h3>
+      <ul><li>Files read and command output</li><li>Prompts and the code map</li><li>Never uploaded</li></ul>
+      <span class="badge">Today</span>
+    </div>
+    <div class="tier">
+      <span class="where">In your git</span>
+      <h3>What the team learned</h3>
+      <ul><li>Decisions, conventions and gotchas</li><li>Session summaries and timeline facts</li><li>Reviewed like code, owned by you</li></ul>
+      <span class="badge soon">In development</span>
+    </div>
+    <div class="tier">
+      <span class="where">On a server you run</span>
+      <h3>One place for the team</h3>
+      <ul><li>Shared memory over HTTPS for remote teams</li><li>Roles, tokens and an audit log</li><li>Self-hosted with Docker</li></ul>
+      <span class="badge">Today</span>
+    </div>
+  </div>
+  <p class="caption" style="margin-top:18px">Every model call Cairn makes is recorded in a local ledger with its size. With no model available, everything except written summaries still works.</p>
+</section>
+
+<section id="plans" aria-labelledby="plans-h">
+  <div class="sec-head">
+    <span class="eyebrow">Plans</span>
+    <h2 id="plans-h">Free for you. Built for teams.</h2>
+  </div>
+  <div class="plans">
+    <div class="plan main">
+      <span class="badge">Available now</span>
+      <h3>Open source</h3>
+      <div class="price">Free <small>Apache-2.0</small></div>
+      <ul><li>Every feature on this page, on your machine</li><li>Every supported agent</li><li>Self-hosted team server</li></ul>
+      <a class="btn btn-primary" href="#how">Get started</a>
+    </div>
+    <div class="plan">
+      <span class="badge soon">Early access</span>
+      <h3>Team</h3>
+      <div class="price">Hosted <small>per active developer</small></div>
+      <ul><li>One dashboard across your repositories</li><li>Review queue for shared memories</li><li>Cross-repo search and impact</li><li>Savings and usage analytics</li></ul>
+      <a class="btn btn-ghost" href="https://github.com/Shashank2577/cairn/issues/new?title=Early%20access%3A%20Team%20plan">Ask for early access</a>
+    </div>
+    <div class="plan">
+      <span class="badge soon">Talk to us</span>
+      <h3>Enterprise</h3>
+      <div class="price">Your cloud <small>or ours</small></div>
+      <ul><li>Self-hosted or in your cloud</li><li>SSO, SCIM and audit export</li><li>Redaction and retention policy</li><li>Support and SLA</li></ul>
+      <a class="btn btn-ghost" href="https://github.com/Shashank2577/cairn/issues/new?title=Enterprise%20enquiry">Start a conversation</a>
+    </div>
+  </div>
+</section>
 
 <footer>
-  <div class="wrap foot">
-    <div>
-      <a class="brand" href="#top"><svg class="glyph" aria-hidden="true"><use href="#cairn-glyph"/></svg>cairn</a>
-      <p>Apache-2.0. Built spec-first, with Cairn.</p>
-    </div>
-    <nav aria-label="Documentation">
-      <a href="https://github.com/Shashank2577/cairn">GitHub</a>
-      <a href="https://github.com/Shashank2577/cairn/blob/main/docs/onboarding.md">Onboarding</a>
-      <a href="https://github.com/Shashank2577/cairn/blob/main/docs/cli.md">CLI</a>
-      <a href="https://github.com/Shashank2577/cairn/blob/main/docs/mcp.md">MCP tools</a>
-      <a href="https://github.com/Shashank2577/cairn/blob/main/docs/agents.md">Agents</a>
-      <a href="https://github.com/Shashank2577/cairn/blob/main/docs/configuration.md">Configuration</a>
-      <a href="https://github.com/Shashank2577/cairn/blob/main/docs/architecture.md">Architecture</a>
-      <a href="https://github.com/Shashank2577/cairn/blob/main/docs/models-and-cost.md">Models and cost</a>
-      <a href="https://github.com/Shashank2577/cairn/blob/main/LICENSE">License</a>
-    </nav>
-  </div>
+  <span>Cairn is open source under Apache-2.0. A cairn is a stack of stones that marks a route for whoever comes next.</span>
+  <nav aria-label="Docs">
+    <a href="https://github.com/Shashank2577/cairn/blob/main/docs/onboarding.md">Getting started</a>
+    <a href="https://github.com/Shashank2577/cairn/blob/main/docs/agents.md">Agents</a>
+    <a href="https://github.com/Shashank2577/cairn/blob/main/docs/teams.md">Teams</a>
+    <a href="https://github.com/Shashank2577/cairn/blob/main/docs/models-and-cost.md">Models and cost</a>
+    <a href="https://github.com/Shashank2577/cairn">GitHub</a>
+  </nav>
 </footer>
 
+</div>
 <script>
-(function () {
-  var svg = document.getElementById("terrain");
-  if (svg) {
-    var NS = "http://www.w3.org/2000/svg", W = 1200, H = 1000, S = 8;
-    var hills = [[930, 350, 230, 1], [1150, 800, 210, .75], [690, 900, 190, .55], [820, 60, 140, .5], [420, 580, 320, .35], [1190, 110, 150, .4]];
-    var field = function (x, y) {
-      var v = .05 * Math.sin(x * .011 + y * .005) + .04 * Math.cos(y * .014 - x * .007);
-      for (var k = 0; k < hills.length; k++) {
-        var h = hills[k], dx = x - h[0], dy = y - h[1];
-        v += h[3] * Math.exp(-(dx * dx + dy * dy) / (2 * h[2] * h[2]));
-      }
-      return v;
-    };
-    var nx = W / S + 1, ny = H / S + 1, g = new Float32Array(nx * ny);
-    for (var j = 0; j < ny; j++) for (var i = 0; i < nx; i++) g[j * nx + i] = field(i * S, j * S);
-    // marching squares; edges 0 top, 1 right, 2 bottom, 3 left; corners tl=8 tr=4 br=2 bl=1
-    var T = {1: [[3, 2]], 2: [[2, 1]], 3: [[3, 1]], 4: [[0, 1]], 5: [[0, 1], [3, 2]], 6: [[0, 2]], 7: [[3, 0]], 8: [[3, 0]], 9: [[0, 2]], 10: [[0, 3], [2, 1]], 11: [[0, 1]], 12: [[3, 1]], 13: [[2, 1]], 14: [[3, 2]]};
-    var r = function (n) { return Math.round(n * 10) / 10; };
-    var edge = function (e, i, j, a, b, c, d, t) {
-      if (e === 0) return r((i + (t - a) / (b - a)) * S) + " " + j * S;
-      if (e === 1) return (i + 1) * S + " " + r((j + (t - b) / (c - b)) * S);
-      if (e === 2) return r((i + (t - d) / (c - d)) * S) + " " + (j + 1) * S;
-      return i * S + " " + r((j + (t - a) / (d - a)) * S);
-    };
-    var minor = "", index = "", level = 0;
-    for (var t = .12; t < 1.3; t += .066, level++) {
-      var out = "";
-      for (j = 0; j < ny - 1; j++) for (i = 0; i < nx - 1; i++) {
-        var a = g[j * nx + i], b = g[j * nx + i + 1], c = g[(j + 1) * nx + i + 1], d = g[(j + 1) * nx + i];
-        var segs = T[(a > t ? 8 : 0) | (b > t ? 4 : 0) | (c > t ? 2 : 0) | (d > t ? 1 : 0)];
-        if (!segs) continue;
-        for (var s = 0; s < segs.length; s++) out += "M" + edge(segs[s][0], i, j, a, b, c, d, t) + "L" + edge(segs[s][1], i, j, a, b, c, d, t);
-      }
-      if (level % 5 === 4) index += out; else minor += out;
-    }
-    var el = function (name, attrs) {
-      var n = document.createElementNS(NS, name);
-      for (var key in attrs) n.setAttribute(key, attrs[key]);
-      return n;
-    };
-    svg.appendChild(el("path", {"class": "c-minor", d: minor, "vector-effect": "non-scaling-stroke"}));
-    svg.appendChild(el("path", {"class": "c-index", d: index, "vector-effect": "non-scaling-stroke"}));
-
-    var pts = [[780, 1020], [880, 700], [955, 565], [1025, 440], [1090, 320], [1145, 200], [1240, 90]];
-    var d = "M" + pts[0].join(" ");
-    for (var k = 0; k < pts.length - 1; k++) {
-      var p0 = pts[k - 1] || pts[k], p1 = pts[k], p2 = pts[k + 1], p3 = pts[k + 2] || p2;
-      d += "C" + [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6, p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6, p2[0], p2[1]].map(r).join(" ");
-    }
-    svg.appendChild(el("path", {"class": "trail", d: d}));
-    var names = ["Map", "Specs", "Timeline", "Memory", "Sessions"];
-    for (k = 0; k < names.length; k++) {
-      var p = pts[k + 1], m = el("g", {"class": "mark", transform: "translate(" + p[0] + " " + p[1] + ")"});
-      m.appendChild(el("ellipse", {cx: 0, cy: 0, rx: 10, ry: 4}));
-      m.appendChild(el("ellipse", {cx: .8, cy: -6.4, rx: 7, ry: 3.3}));
-      m.appendChild(el("ellipse", {cx: -.4, cy: -11.6, rx: 4.4, ry: 2.6}));
-      m.appendChild(el("ellipse", {"class": "top", cx: .3, cy: -15.8, rx: 2.6, ry: 1.9}));
-      var label = el("text", {x: -16, y: 1, "text-anchor": "end"});
-      label.textContent = names[k];
-      m.appendChild(label);
-      svg.appendChild(m);
-    }
-  }
-
-  var buttons = document.querySelectorAll(".copy");
-  for (var n = 0; n < buttons.length; n++) buttons[n].addEventListener("click", function () {
-    var btn = this;
-    var text = btn.getAttribute("data-copy") || btn.closest(".code").querySelector("pre").textContent;
-    var done = function () {
-      btn.textContent = "Copied";
-      clearTimeout(btn._t);
-      btn._t = setTimeout(function () { btn.textContent = "Copy"; }, 1600);
-    };
-    var fallback = function () {
-      var ta = document.createElement("textarea");
-      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
-      document.body.appendChild(ta); ta.select();
-      try { document.execCommand("copy"); } catch (e) {}
-      ta.remove(); done();
-    };
-    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback);
-    else fallback();
+(function(){
+  var b=document.getElementById('copy-install'), c=document.getElementById('install-cmd');
+  if(!b||!c) return;
+  b.addEventListener('click',function(){
+    var t=c.textContent;
+    var done=function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1600)};
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done,function(){sel()});}else{sel()}
+    function sel(){var r=document.createRange();r.selectNodeContents(c);var s=getSelection();s.removeAllRanges();s.addRange(r);}
   });
 })();
 </script>
