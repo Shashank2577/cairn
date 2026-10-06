@@ -1066,7 +1066,7 @@ def _statusline_cwd(data: str) -> str | None:
 
 
 @app.command(hidden=True)
-def hook(event: str):
+def hook(event: str, scope: str = typer.Option("project", "--scope", help="user: wired once for every repository")):
     from . import hooks, sync
     from .core import Cairn
     from .project import Project
@@ -1078,6 +1078,8 @@ def hook(event: str):
     proj = Project.discover()
     if proj is None or not proj.db_path.exists():
         return
+    if scope == "user" and hooks.project_wires(proj, event):
+        return  # this repository's own .claude/settings.json runs the same hook: once is enough
     if event == "git":
         sync.spawn_background(proj)
         return
@@ -1101,19 +1103,34 @@ def recap():
 
 
 @app.command("global")
-def global_setup(action: str = typer.Argument("install", help="install | remove | status")):
-    """Register the user-level SessionStart hook: in any git repo without cairn, the agent offers the
-    one-command setup. Opt-in; writes only ~/.claude/settings.json."""
+def global_setup(action: str = typer.Argument("install", help="install | remove | status"),
+                 agents: Optional[str] = typer.Option(None, help="Comma list (default: every agent on this machine): "
+                                                      "claude,codex,cursor,gemini,opencode,copilot,antigravity")):
+    """One install for every agent on this machine: Cairn's tools, memory at session start and session
+    capture, in each agent's user-level config. Repositories set up with `cairn init` keep their own wiring
+    (the user-level hooks stand aside there); repositories without Cairn get a one-line setup offer."""
+    from rich.markup import escape
+
     from . import agents as a
-    if action == "install":
-        print(f"[{MOSS}]✓[/] user-level SessionStart hook installed (~/.claude/settings.json)"
-              if a.global_install() else f"[{ROSE}]✗[/] could not parse/write ~/.claude/settings.json — leaving it untouched")
-    elif action == "remove":
-        print(f"[{SLATE}]–[/] removed" if a.global_remove() else f"[{SLATE}]–[/] nothing to remove")
+    chosen = agents.split(",") if agents else None
+    if action in ("install", "remove"):
+        changed = a.global_install_agents(chosen, remove=action == "remove")
+        if not changed:
+            console.print(f"[{SLATE}]–[/] already {'removed' if action == 'remove' else 'installed'} — nothing changed")
+        for agent, items in changed.items():
+            ok = not any(i.startswith("skipped") for i in items)
+            console.print(f"{'[' + MOSS + ']✓[/]' if ok else '[' + AMBER + ']![/]'} {a.AGENTS.get(agent, agent)}: "
+                          + escape(", ".join(items)))
+        if action == "install":
+            console.print(f"[{SLATE}]Restart open agent sessions to load it. In a repository: `cairn init --no-deep`.[/]")
     elif action == "status":
-        print("wired" if a.global_wired() else "not wired")
+        for agent, st in a.global_status().items():
+            parts = [f"{k}: {'on' if v else 'off'}" for k, v in st.items() if v is not None]
+            good = all(v for v in st.values() if v is not None)
+            console.print(f"{'[' + MOSS + ']●[/]' if good else '[' + ROSE + ']○[/]'} {a.AGENTS.get(agent, agent)}: "
+                          + " · ".join(parts))
     else:
-        print(f"[{ROSE}]unknown action:[/] {action}", file=sys.stderr)
+        err.print(f"[{ROSE}]unknown action:[/] {escape(action)}")
         raise typer.Exit(2)
 
 

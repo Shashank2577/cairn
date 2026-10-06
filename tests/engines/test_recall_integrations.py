@@ -370,7 +370,8 @@ def test_opencode_round_trip(home, repo):
     plugin = cfg_dir / "plugins" / "cairn.js"
     js = plugin.read_text(encoding="utf-8")
     assert f"const PYTHON = {json.dumps(PY)};" in js and 'const PLATFORM = "opencode";' in js
-    assert '["-m", "cairn.capture", "--platform", PLATFORM, event]' in js
+    assert '["-m", "cairn.capture", "--platform", PLATFORM, ...SCOPE, event]' in js
+    assert "const SCOPE = [];" in js  # a plain install records everywhere; only `cairn global` spells --scope user
     for hook in ("tool.execute.after", "chat.message", "experimental.session.compacting", "session.idle",
                  "session.deleted", "cairn_search"):
         assert hook in js

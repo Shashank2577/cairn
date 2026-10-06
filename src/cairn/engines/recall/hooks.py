@@ -525,6 +525,32 @@ def record(kind: str, payload: dict, platform: str = "claude-code") -> int:
     return int(res.get("_recorded") or 0)
 
 
+# Where each agent's per-repository Cairn hooks live (written by `cairn init`), and the text that marks them.
+PROJECT_HOOK_FILES = {
+    "claude-code": (".claude/settings.json", "-m cairn.capture --platform claude-code"),
+    "gemini": (".gemini/settings.json", "-m cairn.capture --platform gemini"),
+    "cursor": (".cursor/hooks.json", "-m cairn.capture --platform cursor"),
+    "codex": (".codex/hooks.json", "-m cairn.capture --platform codex"),
+    "copilot": (".github/hooks/cairn.json", "-m cairn.capture --platform copilot"),
+    "opencode": (".opencode/plugins/cairn.js", "cairn.capture"),
+}
+
+
+def project_hooks_handle(platform: str, cwd: str) -> bool:
+    """Whether the repository holding ``cwd`` already runs Cairn's capture hooks for ``platform`` in its own
+    config, so a user-level (``--scope user``) hook for the same agent must stand aside."""
+    spec = PROJECT_HOOK_FILES.get(platform)  # the --platform value hook commands are written with
+    if not spec:
+        return False
+    from .projects import git_root
+    try:
+        root = git_root(cwd) or Path(cwd)
+        text = (root / spec[0]).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return False
+    return spec[1] in text
+
+
 def main(argv: list[str] | None = None, stdin_text: str | None = None) -> int:
     """``python -m cairn.capture [--platform P] <event>`` (also ``hook <platform> <event>``)."""
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -535,6 +561,12 @@ def main(argv: list[str] | None = None, stdin_text: str | None = None) -> int:
         i = argv.index("--platform")
         if i + 1 < len(argv):
             platform = argv[i + 1]
+            argv = argv[:i] + argv[i + 2:]
+    scope = "project"
+    if "--scope" in argv:  # "user": registered once for every repository by `cairn global install`
+        i = argv.index("--scope")
+        if i + 1 < len(argv):
+            scope = argv[i + 1]
             argv = argv[:i] + argv[i + 2:]
     event = argv[0] if argv else ""
     try:
@@ -547,6 +579,8 @@ def main(argv: list[str] | None = None, stdin_text: str | None = None) -> int:
         payload = None
     if os.environ.get("CAIRN_INTERNAL"):
         payload = None  # Cairn's own model calls are never recorded
+    if scope == "user" and payload is not None and project_hooks_handle(platform, payload.get("cwd") or os.getcwd()):
+        return 0  # this repository wires its own capture hooks: recording the event twice would double it
     try:
         if payload is None:
             res = no_op_result(LEGACY_EVENTS.get(event, event))

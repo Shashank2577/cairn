@@ -218,6 +218,16 @@ def session_panel(cairn) -> str:
     return "\n".join(lines)
 
 
+def project_wires(project: Project, event: str) -> bool:
+    """Whether the repository's own `.claude/settings.json` runs ``cairn hook <event>`` (user-level copies of
+    Cairn's hooks then stand aside, so a repository set up per project never gets them twice)."""
+    try:
+        text = (project.root / ".claude" / "settings.json").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return bool(re.search(rf"cairn hook {re.escape(event)}(?! --scope)", text))
+
+
 def session_start(cairn) -> str:
     """Claude Code SessionStart hook: inject a compact project brief as additional context, and show the
     person a per-layer panel of what that memory holds."""

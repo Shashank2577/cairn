@@ -15,6 +15,8 @@ installers at the end of this module (``install_project`` / ``uninstall_project`
 from __future__ import annotations
 
 import argparse
+import contextlib
+import contextvars
 import copy
 import json
 import os
@@ -143,6 +145,21 @@ def _space_free(path: str) -> tuple[str, str | None]:
 _STYLE_SHELL = {"quoted": "gitbash", "powershell": "powershell", "portable": "unknown"}
 
 
+# Hooks installed for every repository (`cairn global install`) carry ``--scope user``: they stand aside in a
+# repository whose own config wires the same agent, so set-up repositories never record an event twice.
+_SCOPE: contextvars.ContextVar[str] = contextvars.ContextVar("cairn_hook_scope", default="project")
+
+
+@contextlib.contextmanager
+def user_scope():
+    """Spell every hook command written inside this block for user-level (all repositories) config."""
+    token = _SCOPE.set("user")
+    try:
+        yield
+    finally:
+        _SCOPE.reset(token)
+
+
 def hook_command(platform: str, event: str, *, python: str | None = None, style: str = "quoted") -> str:
     """The command an agent runs for one hook event: ``<python> -m cairn.capture --platform P E``, spelled for
     the shell the host reads it with.
@@ -157,7 +174,8 @@ def hook_command(platform: str, event: str, *, python: str | None = None, style:
     if event not in CAPTURE_EVENTS:
         raise ValueError(f"unknown capture event: {event}")
     py = python or sys.executable
-    tail = f"-m {HOOK_MODULE} --platform {platform} {event}"
+    scope = " --scope user" if _SCOPE.get() == "user" else ""
+    tail = f"-m {HOOK_MODULE} --platform {platform}{scope} {event}"
     if style == "bare":
         return f"{_space_free(py)[0].replace(chr(92), '/')} {tail}"
     if style not in _STYLE_SHELL:
@@ -334,11 +352,14 @@ CLAUDE_CODE_HOOKS = (
 )
 
 
-def claude_code_hooks(python: str | None = None) -> dict:
-    """The ``hooks`` entries for ``.claude/settings.json`` (merge with ``merge_hook_groups``)."""
+def claude_code_hooks(python: str | None = None, scope: str = "project") -> dict:
+    """The ``hooks`` entries for ``.claude/settings.json`` (merge with ``merge_hook_groups``). ``scope="user"``
+    spells them for ``~/.claude/settings.json``: they stand aside in a repository that wires its own."""
     hooks: dict[str, list] = {}
     for event, matcher, cairn_event, timeout, is_async in CLAUDE_CODE_HOOKS:
-        entry: dict[str, Any] = {"type": "command", "command": hook_command("claude-code", cairn_event, python=python)}
+        with user_scope() if scope == "user" else contextlib.nullcontext():
+            command = hook_command("claude-code", cairn_event, python=python)
+        entry: dict[str, Any] = {"type": "command", "command": command}
         if timeout:
             entry["timeout"] = timeout
         if is_async:
@@ -1099,6 +1120,7 @@ import { spawn, execFile } from "node:child_process";
 const PYTHON = __CAIRN_PYTHON__;
 const CAPTURE = __CAIRN_CAPTURE__;
 const PLATFORM = "opencode";
+const SCOPE = __CAIRN_SCOPE__;  // ["--scope", "user"] when installed for every repository
 const MAX_TOOL_RESPONSE_LENGTH = 1000;
 const MAX_TRACKED_SESSIONS = 1000;
 
@@ -1118,7 +1140,7 @@ try {
 function capture(event, payload, cwd) {
   if (!CAPTURE) return;
   try {
-    const child = spawn(PYTHON, ["-m", "cairn.capture", "--platform", PLATFORM, event], {
+    const child = spawn(PYTHON, ["-m", "cairn.capture", "--platform", PLATFORM, ...SCOPE, event], {
       cwd: cwd || process.cwd(),
       stdio: ["pipe", "ignore", "ignore"],
       windowsHide: true,
@@ -1163,7 +1185,7 @@ function loadMemory(sessionID, cwd) {
     try {
       const child = execFile(
         PYTHON,
-        ["-m", "cairn.capture", "--platform", PLATFORM, "context"],
+        ["-m", "cairn.capture", "--platform", PLATFORM, ...SCOPE, "context"],
         { cwd: cwd || process.cwd(), timeout: 30000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
         (error, stdout) => {
           if (error) {
@@ -1319,7 +1341,8 @@ def opencode_plugin_path(home: Path | str | None = None) -> Path:
 
 def opencode_plugin_source(python: str | None = None, *, capture: bool = True) -> str:
     return (_OPENCODE_PLUGIN.replace("__CAIRN_PYTHON__", json.dumps(python or sys.executable))
-            .replace("__CAIRN_CAPTURE__", "true" if capture else "false"))
+            .replace("__CAIRN_CAPTURE__", "true" if capture else "false")
+            .replace("__CAIRN_SCOPE__", '["--scope", "user"]' if _SCOPE.get() == "user" else "[]"))
 
 
 def _plugin_entries(config: dict) -> list:

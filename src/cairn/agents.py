@@ -182,8 +182,10 @@ def _is_ours(entry: object) -> bool:
     entries are recognised by the session engine). Matched on the exact command shape, never on a path that
     merely contains "cairn"."""
     cmd = str(entry.get("command") or "") if isinstance(entry, dict) else ""
-    return bool(re.search(r"(^|[\s\"'/])cairn( hook (?:session-start|ambient|global-session)| statusline)$"
-                          r"|-m cairn (hook (?:session-start|ambient|global-session)|statusline)$", cmd.strip()))
+    return bool(re.search(r"(^|[\s\"'/])cairn( hook (?:session-start|ambient|global-session)| statusline)"
+                          r"( --scope user)?$"
+                          r"|-m cairn (hook (?:session-start|ambient|global-session)|statusline)( --scope user)?$",
+                          cmd.strip()))
 
 
 def _without_ours(groups: list) -> list:
@@ -576,8 +578,11 @@ def global_wired() -> bool:
 
 
 def _write_user_session_groups(include_ours: bool) -> bool:
-    """Rewrite ~/.claude/settings.json SessionStart with/without Cairn's global-suggest entry, preserving
-    everything else. A user file we cannot parse is never ours to rewrite."""
+    """Rewrite ~/.claude/settings.json with or without Cairn's user-level hooks, preserving everything else:
+    the setup offer (repositories without Cairn), and, for repositories with Cairn, session capture, the
+    session-start brief and the ambient prompt hook, all spelled ``--scope user`` so they stand aside where a
+    repository wires its own. A user file we cannot parse is never ours to rewrite."""
+    from .engines.recall import integrations as recall_hooks
     p = _user_settings_path()
     data: dict = {}
     if p.exists():
@@ -587,23 +592,193 @@ def _write_user_session_groups(include_ours: bool) -> bool:
             return False
     if not isinstance(data, dict):
         return False
-    hooks = data.setdefault("hooks", {})
-    groups = hooks.get("SessionStart", [])
-    if isinstance(groups, dict):  # hand-edited files use the single-object form; preserve it rather than drop it
-        groups = [groups]
-    kept = _without_ours(groups if isinstance(groups, list) else [])
+    hooks = data.get("hooks") if isinstance(data.get("hooks"), dict) else {}
+    cleaned: dict = {}
+    for event, groups in hooks.items():
+        if isinstance(groups, dict):  # hand-edited files use the single-object form; preserve it rather than drop it
+            groups = [groups]
+        kept, _ = recall_hooks._without_cairn_groups(_without_ours(groups if isinstance(groups, list) else []))
+        if kept or not include_ours:
+            cleaned[event] = kept
     if include_ours:
-        kept.append({"hooks": [{"type": "command", "command": _hook_cmd("global-session"), "timeout": 10}]})
-    hooks["SessionStart"] = kept
+        ours = recall_hooks.claude_code_hooks(python=sys.executable, scope="user")
+        ours.setdefault("SessionStart", []).extend([
+            {"hooks": [{"type": "command", "command": _hook_cmd("global-session"), "timeout": 10}]},
+            {"hooks": [{"type": "command", "command": _hook_cmd("session-start") + " --scope user", "timeout": 30}]}])
+        ours.setdefault("UserPromptSubmit", []).append(
+            {"hooks": [{"type": "command", "command": _hook_cmd("ambient") + " --scope user", "timeout": 10}]})
+        cleaned = recall_hooks.merge_hook_groups(cleaned, ours)
+    data["hooks"] = {k: v for k, v in cleaned.items() if v}
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return True
 
 
 def global_install() -> bool:
-    """Register the user-level SessionStart hook: in any git repo without cairn, the agent offers the setup."""
+    """Claude Code, user level: the setup offer where Cairn is missing, and memory + capture where it is set up."""
     return _write_user_session_groups(include_ours=True)
 
 
 def global_remove() -> bool:
     return _write_user_session_groups(include_ours=False)
+
+
+# ---- one install, every agent ----------------------------------------------------------------------------
+GLOBAL_AGENTS = ("claude", "codex", "cursor", "gemini", "opencode", "copilot", "antigravity")
+
+
+def detect_global() -> list[str]:
+    """Agents installed on this machine (their CLI on PATH or their user config folder), for a global install."""
+    home, apps = Path.home(), Path("/Applications")
+    signals = {
+        "claude": [shutil.which("claude"), (home / ".claude").is_dir()],
+        "codex": [shutil.which("codex"), (home / ".codex").is_dir()],
+        "cursor": [shutil.which("cursor"), shutil.which("cursor-agent"), (home / ".cursor").is_dir()],
+        "gemini": [shutil.which("gemini"), (home / ".gemini" / "settings.json").exists()],
+        "opencode": [shutil.which("opencode"), (home / ".config" / "opencode").is_dir()],
+        "copilot": [shutil.which("copilot"), (home / ".copilot").is_dir()],
+        "antigravity": [shutil.which("agy"), shutil.which("antigravity"), (apps / "Antigravity.app").exists()],
+    }
+    return [a for a in GLOBAL_AGENTS if any(signals[a])]
+
+
+def _claude_user_mcp(add: bool) -> str | None:
+    """Claude Code's user-scope MCP entry, through its own CLI (it owns ~/.claude.json). None when unchanged."""
+    if not shutil.which("claude"):
+        return None
+    try:
+        cfg = json.loads((Path.home() / ".claude.json").read_text(encoding="utf-8"))
+        present = "cairn" in (cfg.get("mcpServers") or {})
+    except (OSError, ValueError):
+        present = False
+    cmd, args = command()
+    run = (["claude", "mcp", "add", "-s", "user", "cairn", "--", cmd, *args] if add and not present
+           else ["claude", "mcp", "remove", "cairn", "-s", "user"] if not add and present else None)
+    if run is None:
+        return None
+    try:
+        subprocess.run(run, capture_output=True, timeout=60, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return f"skipped: `{' '.join(run)}` failed"
+    return "~/.claude.json (MCP server, user scope)" if add else "~/.claude.json (MCP server removed)"
+
+
+def _json_entry(path: Path, keys: tuple[str, ...], value: dict | None) -> bool:
+    """Set (``value``) or remove (None) ``cairn`` under ``keys`` in a user JSON config, keeping the rest.
+    Unparseable files are left alone."""
+    from .engines.recall import integrations as recall_hooks
+    try:
+        data = recall_hooks.read_json(path, {}, empty_ok=True)
+    except recall_hooks.CorruptConfigError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    node = data
+    for k in keys:
+        node = node.setdefault(k, {}) if value is not None else (node.get(k) if isinstance(node.get(k), dict) else {})
+    if value is None:
+        if "cairn" not in node:
+            return False
+        del node["cairn"]
+    elif node.get("cairn") == value:
+        return False
+    else:
+        node["cairn"] = value
+    recall_hooks.write_json(path, data)
+    return True
+
+
+def _mcp_configs() -> dict[str, tuple[Path, tuple[str, ...], dict]]:
+    """The user-level MCP entry each agent reads, where its own installer doesn't already write one."""
+    from .engines.recall import integrations as recall_hooks
+    home = Path.home()
+    cmd, args = command()
+    return {
+        "opencode": (recall_hooks.opencode_config_dir() / "opencode.json", ("mcp",),
+                     {"type": "local", "command": [cmd, *args], "enabled": True}),
+        "gemini": (recall_hooks.gemini_settings_path(), ("mcpServers",), {"command": cmd, "args": list(args)}),
+        "cursor": (home / ".cursor" / "mcp.json", ("mcpServers",), {"command": cmd, "args": list(args)}),
+        "copilot": (home / ".copilot" / "mcp-config.json", ("mcpServers",),
+                    {"type": "local", "command": cmd, "args": list(args), "tools": ["*"]}),
+    }
+
+
+def global_install_agents(agents: list[str] | None = None, remove: bool = False) -> dict[str, list[str]]:
+    """One install for every agent on this machine: the MCP tools, memory at session start and session
+    capture, at user level. Everything stands aside where a repository wires its own (``--scope user``) and
+    answers with the setup offer where Cairn is not set up. Returns what changed, per agent."""
+    from .engines.recall import integrations as recall_hooks
+    agents = agents or detect_global()
+    cmd, args = command()
+    out: dict[str, list[str]] = {}
+
+    def note(agent: str, what) -> None:
+        if isinstance(what, dict):
+            items = [*what.get("written", []), *what.get("removed", [])]
+            if what.get("error"):
+                items.append(f"skipped: {what['error']}")
+        else:
+            items = [what] if what else []
+        if items:
+            out.setdefault(agent, []).extend(str(i) for i in items)
+
+    if "claude" in agents:
+        p = _user_settings_path()
+        before = p.read_text(encoding="utf-8") if p.exists() else ""
+        ok = global_remove() if remove else global_install()
+        if not ok:
+            note("claude", f"skipped: could not parse {p}")
+        elif (p.read_text(encoding="utf-8") if p.exists() else "") != before:
+            note("claude", "~/.claude/settings.json (hooks)")
+        note("claude", _claude_user_mcp(add=not remove))
+    installers = {"codex": "codex", "cursor": "cursor", "gemini": "gemini-cli", "opencode": "opencode",
+                  "antigravity": "antigravity"}
+    with recall_hooks.user_scope():
+        for agent in agents:
+            name = installers.get(agent)
+            if name is None:
+                continue
+            if remove:
+                note(agent, recall_hooks.uninstall(name, target="user"))
+            else:
+                note(agent, recall_hooks.install(name, target="user", python=sys.executable,
+                                                 mcp_command=cmd, mcp_args=args))
+    for agent, (path, keys, value) in _mcp_configs().items():
+        if agent in agents and _json_entry(path, keys, None if remove else value):
+            note(agent, f"{path} (MCP server{' removed' if remove else ''})")
+    return out
+
+
+def global_status() -> dict[str, dict]:
+    """Per detected agent: is the MCP server registered and are memory/capture hooks in place, at user level."""
+    from .engines.recall import integrations as recall_hooks
+    out: dict[str, dict] = {}
+    for agent in detect_global():
+        if agent == "claude":
+            try:
+                mcp = "cairn" in (json.loads((Path.home() / ".claude.json").read_text(encoding="utf-8"))
+                                  .get("mcpServers") or {})
+            except (OSError, ValueError):
+                mcp = False
+            text = _user_settings_path().read_text(encoding="utf-8") if _user_settings_path().exists() else ""
+            out[agent] = {"mcp": mcp, "hooks": "--scope user" in text, "setup_offer": global_wired()}
+            continue
+        hooks = None
+        if agent != "copilot":  # Copilot CLI hooks are per repository only
+            st = recall_hooks.status({"gemini": "gemini-cli"}.get(agent, agent))
+            if agent == "cursor":
+                hooks = any(loc.get("name") == "user" and loc.get("events") for loc in st.get("locations", []))
+            else:
+                hooks = bool(st.get("installed") or st.get("total_events"))
+        cfg = _mcp_configs().get(agent)
+        mcp = None
+        if cfg:
+            try:
+                node = recall_hooks.read_json(cfg[0], {}, empty_ok=True)
+                for k in cfg[1]:
+                    node = node.get(k) or {}
+                mcp = "cairn" in node
+            except recall_hooks.CorruptConfigError:
+                mcp = False
+        out[agent] = {"mcp": mcp, "hooks": hooks}
+    return out
