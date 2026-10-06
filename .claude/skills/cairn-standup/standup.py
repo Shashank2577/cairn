@@ -65,6 +65,13 @@ def parse_args(argv: list[str]) -> tuple[str | None, dict]:
     return cmd, opts
 
 
+if sys.platform == "win32":  # piped output defaults to the locale code page, which cannot hold ✓ or —
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
 CMD, OPTS = parse_args(sys.argv[1:])
 
 
@@ -79,7 +86,7 @@ def default_file() -> Path:
 
 def git(args: list[str], cwd: str | None = None) -> str | None:
     try:
-        res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+        res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False, encoding="utf-8", errors="replace")
     except OSError:
         return None
     return res.stdout if res.returncode == 0 else None
@@ -296,7 +303,7 @@ def gh_prs() -> list | None:
     try:
         res = subprocess.run(["gh", "pr", "list", "--state", "open", "--limit", "200", "--json",
                               "number,title,headRefName,updatedAt,author,isDraft"], capture_output=True, text=True,
-                             check=False)
+                             check=False, encoding="utf-8", errors="replace")
     except OSError:
         return None
     if res.returncode != 0:
@@ -351,7 +358,7 @@ def cmd_worktrees() -> None:
     rows = []
     for w in git_worktrees():
         ms = worktree_activity_ms(w["path"])
-        rows.append({"branch": w["branch"], "path": w["path"], "current": w["path"] == here,
+        rows.append({"branch": w["branch"], "path": w["path"], "current": os.path.normcase(os.path.realpath(w["path"])) == os.path.normcase(os.path.realpath(here)),
                      "lastActivity": datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                      if ms else None,
                      "lastActivityMs": ms, "age": human_age(ms)})
