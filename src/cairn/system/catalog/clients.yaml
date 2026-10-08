@@ -1,0 +1,468 @@
+# Outbound HTTP clients, messaging clients, data-store drivers and outside-service SDKs.
+#
+# Every entry needs a USE SITE: a call, constructor or annotation matched in the parse tree. An import
+# or a declared dependency alone never creates an element or a relationship (prototype lesson 1).
+#
+# library:  import origins that type a receiver ("redis", "github.com/segmentio/kafka-go"); for C# the
+#           `using` namespace. A call matches a `match` pattern on its qualified callee, or, for method
+#           names listed in `loose`, on an untyped receiver in a file that imports the library.
+# key/url/target/path: selectors tried in order (argN, args, args_fromN, kwarg.NAME, field.argN.NAME,
+#           items.argN, recv.<selector> on the receiver's constructor, chain, class.<selector>).
+# tech:     a key of `techs` in infrastructure.yaml (display name, element type, default "how").
+version: 1
+
+http:
+  - client: fetch
+    language: javascript
+    match: ["fetch", "window.fetch", "globalThis.fetch", "node-fetch", "node-fetch.default", "undici.fetch"]
+    url: [arg0]
+    methods_from: [field.arg1.method]
+    default_methods: [GET]
+  - client: axios
+    language: javascript
+    library: [axios]
+    match: ["axios.{method}", "axios.default.{method}", "axios.create().{method}", "axios.default.create().{method}"]
+    methods: {get: GET, post: POST, put: PUT, patch: PATCH, delete: DELETE, head: HEAD}
+    url: [arg0]
+    base: [recv.field.arg0.baseURL]
+  - client: axios-request
+    language: javascript
+    library: [axios]
+    match: ["axios", "axios.default", "axios.request", "axios.create().request"]
+    url: [field.arg0.url, arg0]
+    methods_from: [field.arg0.method]
+    default_methods: [GET]
+  - client: requests
+    language: python
+    library: [requests]
+    match: ["requests.{method}", "requests.Session().{method}", "requests.session().{method}", "requests.sessions.Session().{method}"]
+    methods: {get: GET, post: POST, put: PUT, patch: PATCH, delete: DELETE, head: HEAD}
+    url: [arg0, kwarg.url]
+  - client: requests-request
+    language: python
+    library: [requests]
+    match: ["requests.request", "requests.Session().request"]
+    methods_from: [arg0, kwarg.method]
+    url: [arg1, kwarg.url]
+  - client: httpx
+    language: python
+    library: [httpx]
+    match: ["httpx.{method}", "httpx.Client().{method}", "httpx.AsyncClient().{method}"]
+    methods: {get: GET, post: POST, put: PUT, patch: PATCH, delete: DELETE, head: HEAD}
+    url: [arg0, kwarg.url]
+    base: [recv.kwarg.base_url]
+  - client: resttemplate
+    language: java
+    match: ["*RestTemplate().{method}"]
+    methods: {getForObject: GET, getForEntity: GET, postForObject: POST, postForEntity: POST, postForLocation: POST, put: PUT, patchForObject: PATCH, delete: DELETE}
+    url: [arg0]
+  - client: resttemplate-exchange
+    language: java
+    match: ["*RestTemplate().exchange"]
+    methods_from: [arg1]
+    url: [arg0]
+  - client: webclient
+    language: java
+    match: ["*WebClient*.uri", "*RestClient*.uri"]
+    methods_from: [chain]
+    methods: {get: GET, post: POST, put: PUT, patch: PATCH, delete: DELETE}
+    url: [arg0]
+  - client: feign
+    language: java
+    kind: annotation
+    class: FeignClient
+    match: [GetMapping, PostMapping, PutMapping, PatchMapping, DeleteMapping, RequestMapping]
+    methods: {GetMapping: GET, PostMapping: POST, PutMapping: PUT, PatchMapping: PATCH, DeleteMapping: DELETE}
+    methods_from: [kwarg.method]
+    default_methods: [ANY]
+    url: [kwarg.value, kwarg.path, arg0]
+    base: [class.kwarg.url]
+    host: [class.kwarg.name, class.kwarg.value, class.arg0]
+  - client: go-http
+    language: go
+    match: ["net/http.{method}", "net/http.*().{method}"]
+    methods: {Get: GET, Head: HEAD, Post: POST, PostForm: POST}
+    url: [arg0]
+  - client: go-http-request
+    language: go
+    match: ["net/http.NewRequest"]
+    methods_from: [arg0]
+    url: [arg1]
+  - client: go-http-request-ctx
+    language: go
+    match: ["net/http.NewRequestWithContext"]
+    methods_from: [arg1]
+    url: [arg2]
+  - client: dotnet-httpclient
+    language: csharp
+    library: [System.Net.Http]
+    match: ["*HttpClient().{method}"]
+    loose: [GetAsync, PostAsync, PutAsync, DeleteAsync, PatchAsync, GetStringAsync, GetFromJsonAsync, PostAsJsonAsync, PutAsJsonAsync]
+    methods: {GetAsync: GET, GetStringAsync: GET, GetFromJsonAsync: GET, PostAsync: POST, PostAsJsonAsync: POST, PutAsync: PUT, PutAsJsonAsync: PUT, PatchAsync: PATCH, DeleteAsync: DELETE}
+    url: [arg0]
+  - client: shell
+    language: shell
+    commands:
+      curl: {method_flags: ["-X", "--request"], data_flags: ["-d", "--data", "--data-raw", "--data-binary", "-F", "--form", "--json"]}
+      wget: {data_flags: ["--post-data", "--post-file"]}
+      ab: {data_flags: ["-p"], put_flags: ["-u"]}
+      http: {method_args: true}
+      https: {method_args: true}
+
+messaging:
+  - client: redis-py
+    language: python
+    library: [redis]
+    tech: redis
+    connect: ["redis.Redis", "redis.StrictRedis", "redis.Redis.from_url", "redis.from_url", "redis.StrictRedis.from_url", "redis.asyncio.Redis", "redis.asyncio.from_url", "redis.asyncio.Redis.from_url", "redis.client.Redis"]
+    target: [kwarg.host, arg0, kwarg.url]
+    ops:
+      - {match: ["redis.*.publish"], op: publish, key: [arg0, kwarg.channel], how: Redis PUBLISH}
+      - {match: ["redis.*.subscribe", "redis.*.psubscribe"], op: subscribe, key: [args], how: Redis SUBSCRIBE}
+      - {match: ["redis.*.rpush", "redis.*.lpush"], loose: [rpush, lpush], op: push, key: [arg0, kwarg.name], how: Redis list push}
+      - {match: ["redis.*.blpop", "redis.*.brpop", "redis.*.lpop", "redis.*.rpop", "redis.*.brpoplpush", "redis.*.blmove"], loose: [blpop, brpop, brpoplpush, blmove], op: pop, key: [items.arg0, kwarg.keys, kwarg.name], how: Redis list pop}
+      - {match: ["redis.*.xadd"], loose: [xadd], op: publish, key: [arg0, kwarg.name], how: Redis stream XADD}
+      - {match: ["redis.*.xreadgroup", "redis.*.xread"], op: subscribe, key: [field.arg0.*, kwarg.streams], how: Redis stream read}
+  - client: node-redis
+    language: javascript
+    library: [redis, ioredis]
+    tech: redis
+    connect: ["redis.createClient", "ioredis", "ioredis.default", "ioredis.Redis", "redis.default.createClient"]
+    target: [field.arg0.url, field.arg0.host, arg0]
+    ops:
+      - {match: ["redis.createClient().publish", "ioredis().publish", "ioredis.Redis().publish", "redis.createClient().duplicate().publish"], loose_if_key: true, op: publish, key: [arg0], how: Redis PUBLISH}
+      - {match: ["redis.createClient().subscribe", "ioredis().subscribe", "ioredis.Redis().subscribe", "redis.createClient().duplicate().subscribe"], loose_if_key: true, op: subscribe, key: [items.arg0], how: Redis SUBSCRIBE}
+      - {match: ["redis.*.rPush", "redis.*.lPush", "ioredis*.rpush", "ioredis*.lpush"], loose: [rPush, lPush, rpush, lpush], op: push, key: [arg0], how: Redis list push}
+      - {match: ["redis.*.blPop", "redis.*.brPop", "ioredis*.blpop", "ioredis*.brpop"], loose: [blPop, brPop, blpop, brpop], op: pop, key: [items.arg0], how: Redis list pop}
+  - client: go-redis
+    language: go
+    library: [github.com/redis/go-redis, github.com/go-redis/redis]
+    tech: redis
+    connect: ["github.com/*redis*.NewClient", "github.com/*redis*.NewClusterClient", "github.com/*redis*.NewUniversalClient"]
+    target: [field.arg0.Addr, recv.kwarg.Addr]
+    ops:
+      - {match: ["github.com/*redis*.Publish"], op: publish, key: [arg1], how: Redis PUBLISH}
+      - {match: ["github.com/*redis*.Subscribe", "github.com/*redis*.PSubscribe"], op: subscribe, key: [args_from1], how: Redis SUBSCRIBE}
+      - {match: ["github.com/*redis*.RPush", "github.com/*redis*.LPush"], op: push, key: [arg1], how: Redis list push}
+      - {match: ["github.com/*redis*.BLPop", "github.com/*redis*.BRPop"], op: pop, key: [args_from2], how: Redis list pop}
+      - {match: ["github.com/*redis*.LPop", "github.com/*redis*.RPop"], op: pop, key: [arg1], how: Redis list pop}
+  - client: stackexchange-redis
+    language: csharp
+    library: [StackExchange.Redis]
+    tech: redis
+    connect: ["ConnectionMultiplexer.Connect", "ConnectionMultiplexer.ConnectAsync", "*.ConnectionMultiplexer.Connect"]
+    target: [arg0]
+    ops:
+      - {loose: [ListLeftPush, ListRightPush, ListLeftPushAsync, ListRightPushAsync], op: push, key: [arg0], how: Redis list push}
+      - {loose: [ListLeftPop, ListRightPop, ListLeftPopAsync, ListRightPopAsync], op: pop, key: [arg0], how: Redis list pop}
+      - {loose: [Publish, PublishAsync], op: publish, key: [arg0], how: Redis PUBLISH}
+      - {loose: [Subscribe, SubscribeAsync], op: subscribe, key: [arg0], how: Redis SUBSCRIBE}
+  - client: kafka-python
+    language: python
+    library: [kafka, confluent_kafka, aiokafka]
+    tech: kafka
+    connect: ["kafka.KafkaProducer", "kafka.KafkaConsumer", "confluent_kafka.Producer", "confluent_kafka.Consumer", "aiokafka.AIOKafkaProducer", "aiokafka.AIOKafkaConsumer"]
+    target: [kwarg.bootstrap_servers, field.arg0.bootstrap.servers]
+    ops:
+      - {match: ["kafka.KafkaProducer().send", "aiokafka.AIOKafkaProducer().send", "aiokafka.AIOKafkaProducer().send_and_wait"], op: publish, key: [arg0, kwarg.topic], how: Kafka produce}
+      - {match: ["confluent_kafka.Producer().produce"], loose: [produce], op: publish, key: [arg0, kwarg.topic], how: Kafka produce}
+      - {match: ["kafka.KafkaConsumer", "aiokafka.AIOKafkaConsumer"], op: subscribe, key: [args], how: Kafka consume}
+      - {match: ["kafka.KafkaConsumer().subscribe", "confluent_kafka.Consumer().subscribe", "aiokafka.AIOKafkaConsumer().subscribe"], op: subscribe, key: [items.arg0, kwarg.topics], how: Kafka consume}
+  - client: kafkajs
+    language: javascript
+    library: [kafkajs]
+    tech: kafka
+    connect: ["kafkajs.Kafka"]
+    target: [field.arg0.brokers]
+    ops:
+      - {match: ["kafkajs.Kafka().producer().send", "kafkajs.Kafka().producer().sendBatch"], loose_if_key: true, loose: [send], op: publish, key: [field.arg0.topic], how: Kafka produce}
+      - {match: ["kafkajs.Kafka().consumer().subscribe"], loose_if_key: true, loose: [subscribe], op: subscribe, key: [field.arg0.topic, field.arg0.topics], how: Kafka consume}
+  - client: spring-kafka
+    language: java
+    library: [org.springframework.kafka]
+    tech: kafka
+    ops:
+      - {match: ["*KafkaTemplate().send"], op: publish, key: [arg0], how: Kafka produce}
+      - {kind: annotation, match: [KafkaListener], op: subscribe, key: [kwarg.topics, kwarg.value, arg0], how: Kafka consume}
+  - client: kafka-go
+    language: go
+    library: [github.com/segmentio/kafka-go, github.com/IBM/sarama, github.com/Shopify/sarama]
+    tech: kafka
+    connect: ["github.com/segmentio/kafka-go.Writer", "github.com/segmentio/kafka-go.NewWriter", "github.com/segmentio/kafka-go.NewReader"]
+    target: [kwarg.Addr, kwarg.Brokers]
+    ops:
+      - {match: ["github.com/segmentio/kafka-go.Writer", "github.com/segmentio/kafka-go.WriterConfig", "github.com/segmentio/kafka-go.Message"], op: publish, key: [kwarg.Topic], how: Kafka produce, needs_key: true}
+      - {match: ["github.com/segmentio/kafka-go.ReaderConfig"], op: subscribe, key: [kwarg.Topic, kwarg.GroupTopics], how: Kafka consume, needs_key: true}
+      - {match: ["github.com/*sarama.ProducerMessage"], op: publish, key: [kwarg.Topic], how: Kafka produce, needs_key: true}
+      - {match: ["github.com/*sarama.*().ConsumePartition"], op: subscribe, key: [arg0], how: Kafka consume}
+      - {match: ["github.com/*sarama.*().Consume"], op: subscribe, key: [items.arg1], how: Kafka consume}
+  - client: pika
+    language: python
+    library: [pika, aio_pika]
+    tech: rabbitmq
+    connect: ["pika.BlockingConnection", "pika.SelectConnection", "aio_pika.connect", "aio_pika.connect_robust"]
+    target: [arg0]
+    ops:
+      - {match: ["pika.*.basic_publish"], loose: [basic_publish], op: publish, key: [kwarg.exchange, kwarg.routing_key, arg0, arg1], how: AMQP publish}
+      - {match: ["pika.*.basic_consume"], loose: [basic_consume], op: subscribe, key: [kwarg.queue, arg0], how: AMQP consume}
+  - client: amqplib
+    language: javascript
+    library: [amqplib, amqplib/callback_api, amqp-connection-manager]
+    tech: rabbitmq
+    connect: ["amqplib.connect", "amqplib/callback_api.connect", "amqp-connection-manager.connect"]
+    target: [arg0]
+    ops:
+      - {match: ["amqplib.*.sendToQueue"], loose: [sendToQueue], op: publish, key: [arg0], how: AMQP publish}
+      - {match: ["amqplib.*.publish"], op: publish, key: [arg0, arg1], how: AMQP publish}
+      - {match: ["amqplib.*.consume"], op: subscribe, key: [arg0], how: AMQP consume}
+  - client: spring-amqp
+    language: java
+    library: [org.springframework.amqp]
+    tech: rabbitmq
+    ops:
+      - {match: ["*RabbitTemplate().convertAndSend", "*AmqpTemplate().convertAndSend"], op: publish, key: [arg0], how: AMQP publish}
+      - {kind: annotation, match: [RabbitListener], op: subscribe, key: [kwarg.queues, kwarg.value, arg0], how: AMQP consume}
+  - client: go-amqp
+    language: go
+    library: [github.com/rabbitmq/amqp091-go, github.com/streadway/amqp]
+    tech: rabbitmq
+    connect: ["github.com/rabbitmq/amqp091-go.Dial", "github.com/streadway/amqp.Dial"]
+    target: [arg0]
+    ops:
+      - {match: ["github.com/*amqp*.Publish"], op: publish, key: [arg0, arg1], how: AMQP publish}
+      - {match: ["github.com/*amqp*.PublishWithContext"], op: publish, key: [arg1, arg2], how: AMQP publish}
+      - {match: ["github.com/*amqp*.Consume"], op: subscribe, key: [arg0], how: AMQP consume}
+  - client: boto3-sqs
+    language: python
+    library: [boto3, aioboto3]
+    tech: sqs
+    ops:
+      - {match: ["boto3.client().send_message", "boto3.client().send_message_batch"], loose: [send_message, send_message_batch], op: publish, key: [kwarg.QueueUrl], how: SQS SendMessage}
+      - {match: ["boto3.client().receive_message"], loose: [receive_message], op: subscribe, key: [kwarg.QueueUrl], how: SQS ReceiveMessage}
+  - client: aws-sdk-sqs
+    language: javascript
+    library: ["@aws-sdk/client-sqs"]
+    tech: sqs
+    ops:
+      - {match: ["@aws-sdk/client-sqs.SendMessageCommand", "@aws-sdk/client-sqs.SendMessageBatchCommand"], op: publish, key: [field.arg0.QueueUrl], how: SQS SendMessage}
+      - {match: ["@aws-sdk/client-sqs.ReceiveMessageCommand"], op: subscribe, key: [field.arg0.QueueUrl], how: SQS ReceiveMessage}
+  - client: nats
+    language: python
+    library: [nats]
+    tech: nats
+    connect: ["nats.connect"]
+    target: [arg0, kwarg.servers]
+    ops:
+      - {match: ["nats.connect().publish"], op: publish, key: [arg0], how: NATS publish}
+      - {match: ["nats.connect().subscribe"], op: subscribe, key: [arg0], how: NATS subscribe}
+  - client: nats-js
+    language: javascript
+    library: [nats]
+    tech: nats
+    connect: ["nats.connect"]
+    target: [field.arg0.servers]
+    ops:
+      - {match: ["nats.connect().publish"], op: publish, key: [arg0], how: NATS publish}
+      - {match: ["nats.connect().subscribe"], op: subscribe, key: [arg0], how: NATS subscribe}
+  - client: nats-go
+    language: go
+    library: [github.com/nats-io/nats.go]
+    tech: nats
+    connect: ["github.com/nats-io/nats.go.Connect"]
+    target: [arg0]
+    ops:
+      - {match: ["github.com/nats-io/nats.go.Connect().Publish"], op: publish, key: [arg0], how: NATS publish}
+      - {match: ["github.com/nats-io/nats.go.Connect().Subscribe", "github.com/nats-io/nats.go.Connect().QueueSubscribe"], op: subscribe, key: [arg0], how: NATS subscribe}
+
+stores:
+  - client: psycopg
+    language: python
+    library: [psycopg, psycopg2, psycopg_pool]
+    tech: postgresql
+    how: SQL · psycopg
+    connect: ["psycopg.connect", "psycopg2.connect", "psycopg.Connection.connect", "psycopg.AsyncConnection.connect", "psycopg_pool.ConnectionPool", "psycopg_pool.AsyncConnectionPool", "psycopg2.pool.*"]
+    target: [arg0, kwarg.conninfo, kwarg.dsn, kwarg.host]
+  - client: sqlite3
+    language: python
+    library: [sqlite3, aiosqlite]
+    tech: sqlite
+    how: SQL · sqlite3
+    connect: ["sqlite3.connect", "aiosqlite.connect"]
+  - client: asyncpg
+    language: python
+    library: [asyncpg]
+    tech: postgresql
+    how: SQL · asyncpg
+    connect: ["asyncpg.connect", "asyncpg.create_pool"]
+    target: [arg0, kwarg.dsn, kwarg.host]
+  - client: sqlalchemy
+    language: python
+    library: [sqlalchemy]
+    tech: sql
+    how: SQL · SQLAlchemy
+    connect: ["sqlalchemy.create_engine", "sqlalchemy.ext.asyncio.create_async_engine"]
+    target: [arg0, kwarg.url]
+  - client: mysql-python
+    language: python
+    library: [pymysql, mysql, MySQLdb, aiomysql]
+    tech: mysql
+    how: SQL · MySQL driver
+    connect: ["pymysql.connect", "mysql.connector.connect", "MySQLdb.connect", "aiomysql.connect", "aiomysql.create_pool"]
+    target: [kwarg.host, arg0]
+  - client: pymongo
+    language: python
+    library: [pymongo, motor]
+    tech: mongodb
+    how: MongoDB driver
+    connect: ["pymongo.MongoClient", "motor.motor_asyncio.AsyncIOMotorClient"]
+    target: [arg0, kwarg.host]
+  - client: django-orm
+    language: python
+    library: [django]
+    tech: sql
+    how: SQL · Django ORM
+    config: [DATABASES]
+  - client: pg
+    language: javascript
+    library: [pg, pg-pool]
+    tech: postgresql
+    how: SQL · pg
+    connect: ["pg.Pool", "pg.Client", "pg.default.Pool", "pg.default.Client", "pg-pool"]
+    target: [field.arg0.connectionString, field.arg0.host]
+  - client: mysql2
+    language: javascript
+    library: [mysql2, mysql2/promise, mysql]
+    tech: mysql
+    how: SQL · mysql2
+    connect: ["mysql2.createConnection", "mysql2.createPool", "mysql2/promise.createConnection", "mysql2/promise.createPool", "mysql.createConnection", "mysql.createPool"]
+    target: [field.arg0.host, arg0]
+  - client: mongodb-js
+    language: javascript
+    library: [mongodb, mongoose]
+    tech: mongodb
+    how: MongoDB driver
+    connect: ["mongodb.MongoClient", "mongodb.MongoClient.connect", "mongoose.connect", "mongoose.createConnection"]
+    target: [arg0]
+  - client: prisma
+    language: javascript
+    library: ["@prisma/client"]
+    tech: sql
+    how: Prisma
+    connect: ["@prisma/client.PrismaClient"]
+    config: [prisma]
+  - client: jdbc-template
+    language: java
+    library: [org.springframework.jdbc]
+    tech: sql
+    how: SQL · JDBC
+    connect: ["*JdbcTemplate().*", "*NamedParameterJdbcTemplate().*"]
+    config: [spring.datasource.url]
+  - client: spring-data-jpa
+    language: java
+    tech: sql
+    how: SQL · Spring Data JPA
+    extends: [JpaRepository, CrudRepository, PagingAndSortingRepository, ListCrudRepository, R2dbcRepository, ReactiveCrudRepository]
+    config: [spring.datasource.url, spring.r2dbc.url]
+  - client: spring-data-mongo
+    language: java
+    tech: mongodb
+    how: MongoDB · Spring Data
+    extends: [MongoRepository, ReactiveMongoRepository]
+    config: [spring.data.mongodb.uri, spring.data.mongodb.host]
+  - client: jdbc
+    language: java
+    tech: sql
+    how: SQL · JDBC
+    connect: ["DriverManager.getConnection", "java.sql.DriverManager.getConnection"]
+    target: [arg0]
+  - client: go-sql
+    language: go
+    library: [database/sql, github.com/jmoiron/sqlx]
+    tech: sql
+    how: SQL · database/sql
+    connect: ["database/sql.Open", "github.com/jmoiron/sqlx.Open", "github.com/jmoiron/sqlx.Connect", "github.com/jmoiron/sqlx.MustConnect"]
+    driver: arg0
+    target: [arg1]
+  - client: pgx
+    language: go
+    library: [github.com/jackc/pgx]
+    tech: postgresql
+    how: SQL · pgx
+    connect: ["github.com/jackc/pgx*.Connect", "github.com/jackc/pgx*/pgxpool.New", "github.com/jackc/pgx*/pgxpool.Connect", "github.com/jackc/pgx*/pgxpool.NewWithConfig"]
+    target: [arg1]
+  - client: go-mongo
+    language: go
+    library: [go.mongodb.org/mongo-driver]
+    tech: mongodb
+    how: MongoDB driver
+    connect: ["go.mongodb.org/mongo-driver*.Connect", "go.mongodb.org/mongo-driver*.NewClient"]
+  - client: npgsql
+    language: csharp
+    library: [Npgsql]
+    tech: postgresql
+    how: SQL · Npgsql
+    connect: ["NpgsqlConnection", "*.NpgsqlConnection", "NpgsqlDataSource.Create", "*.NpgsqlDataSource.Create"]
+    target: [arg0]
+  - client: sqlclient
+    language: csharp
+    library: [Microsoft.Data.SqlClient, System.Data.SqlClient]
+    tech: sqlserver
+    how: SQL · SqlClient
+    connect: ["SqlConnection", "*.SqlConnection"]
+    target: [arg0]
+
+services:
+  - service: sendgrid
+    language: python
+    library: [sendgrid]
+    use: ["sendgrid.SendGridAPIClient", "sendgrid.SendGridAPIClient().*", "sendgrid.SendGridClient"]
+  - service: sendgrid
+    language: javascript
+    library: ["@sendgrid/mail"]
+    use: ["@sendgrid/mail.send", "@sendgrid/mail.sendMultiple", "@sendgrid/mail.default.send", "@sendgrid/mail.setApiKey"]
+  - service: stripe
+    language: python
+    library: [stripe]
+    use: ["stripe.*.create", "stripe.*.retrieve", "stripe.*.modify", "stripe.*.list", "stripe.StripeClient", "stripe.StripeClient().*"]
+  - service: stripe
+    language: javascript
+    library: [stripe]
+    use: ["stripe", "stripe.default", "stripe.Stripe", "stripe()*"]
+  - service: twilio
+    language: python
+    library: [twilio]
+    use: ["twilio.rest.Client", "twilio.rest.Client().*"]
+  - service: s3
+    language: python
+    library: [boto3]
+    use: ["boto3.client", "boto3.resource"]
+    where: {arg0: [s3]}
+  - service: s3
+    language: javascript
+    library: ["@aws-sdk/client-s3"]
+    use: ["@aws-sdk/client-s3.S3Client"]
+  - service: ses
+    language: python
+    library: [boto3]
+    use: ["boto3.client"]
+    where: {arg0: [ses, sesv2]}
+  - service: openai
+    language: python
+    library: [openai]
+    use: ["openai.OpenAI", "openai.AsyncOpenAI", "openai.OpenAI().*", "openai.ChatCompletion.create"]
+  - service: openai
+    language: javascript
+    library: [openai]
+    use: ["openai", "openai.default", "openai.OpenAI"]
+  - service: anthropic
+    language: python
+    library: [anthropic]
+    use: ["anthropic.Anthropic", "anthropic.AsyncAnthropic", "anthropic.Anthropic().*"]
+  - service: anthropic
+    language: javascript
+    library: ["@anthropic-ai/sdk"]
+    use: ["@anthropic-ai/sdk", "@anthropic-ai/sdk.default", "@anthropic-ai/sdk.Anthropic"]
+  - service: slack
+    language: python
+    library: [slack_sdk]
+    use: ["slack_sdk.WebClient", "slack_sdk.WebClient().*"]

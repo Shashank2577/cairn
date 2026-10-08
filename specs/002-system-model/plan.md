@@ -31,8 +31,19 @@ parse and call graph.
 - **Target Platform**: macOS, Linux, Windows (CI matrix as today).
 - **Project Type**: CLI, local server and UI, MCP server (existing).
 - **Performance Goals**: setup time grows by at most 15% (SC-008) over a baseline measured before the
-  build (T045a) on the fixtures and the Cairn repository; numbers are recorded here once measured. Incremental sync
+  build (T045a) on the fixtures and the Cairn repository. Incremental sync
   re-checks only claims whose evidence lives in changed files.
+- **Baseline (T045a, measured 2026-10-08 before the system step existed)**: the `cairn init --no-deep`
+  sync (`sync.run(deep=False)`, no model configured, offline embeddings) on an Apple-silicon laptop:
+  - shop fixture, four repositories: 1.26 s, 0.15 s, 0.09 s, 0.10 s (web, api, worker, contracts;
+    1.60 s in all);
+  - Cairn's own repository (1,206 files at 8c7f05b): 57.6 s, of which map 30.8 s, memory 26.5 s,
+    history 0.7 s.
+- **With the system step (Phase B)**, same machine and method: shop 1.02 s, 0.23 s, 0.20 s, 0.22 s
+  (1.67 s in all, +4%; the step costs 0.07 to 0.13 s per small repository, mostly loading the catalog);
+  Cairn's repository 57.6 s in all, the system step 2.1 s (7% of the map step, 4% of setup; 146 of
+  1,206 files parsed). `tests/system/test_extract_perf.py` keeps `build_repo` on this repository under
+  15% of the map baseline (4.6 s) and checks near-linear scaling.
 - **Constraints**:
   - Zero model calls for everything except opt-in narrative.
   - Values in configuration and deploy files are never stored; names are, plus the host part of a service

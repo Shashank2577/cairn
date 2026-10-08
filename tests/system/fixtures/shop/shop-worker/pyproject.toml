@@ -1,0 +1,7 @@
+[project]
+name = "shop-worker"
+version = "0.2.0"
+description = "Sends order confirmation emails"
+dependencies = ["redis", "sendgrid", "shop-contracts"]
+[project.scripts]
+shop-worker = "shop_worker.main:run"

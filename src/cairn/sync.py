@@ -117,6 +117,14 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
                     pool.submit(step, "sessions", lambda: journal.ingest(project, brain))]
             for f in futs:
                 f.result()
+
+        def do_system():
+            # the system model (containers, routes, calls, channels, stores) from deterministic signals;
+            # zero model calls; any failure is recorded for this step only and never blocks the others
+            from .system.build import sync_step
+            return sync_step(cairn)
+        step("system", do_system)
+
         def do_memory():
             from .engines.memory import seed_from_repo
             import faulthandler
@@ -195,6 +203,8 @@ def _summary(name: str, res: dict) -> str:
         "memory": lambda r: f"{r.get('added', 0)} learned from the repo, {r.get('updated', 0)} updated, "
                             f"{r.get('retired', 0)} retired",
         "links": lambda r: f"{r.get('links', 0)} memory links",
+        "system": lambda r: f"{r.get('containers', 0)} containers, {r.get('elements', 0)} elements, "
+                            f"{r.get('relationships', 0)} relationships",
         "drift": lambda r: f"{r.get('findings', 0)} findings ({r.get('high', 0)} high)",
         "timeline": lambda r: f"{r.get('episodes', 0)} episodes, {r.get('facts', 0)} facts, {r.get('tokens', 0):,} tokens",
     }.get(name, lambda r: "")(res)

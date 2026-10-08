@@ -1,0 +1,139 @@
+# Inbound HTTP routes, as rules over the five pattern kinds (frameworks.md). Data, not code: adding a
+# framework is a rule here (or in a project's .cairn/catalog/*.yaml), a fixture and its ground truth.
+#
+# match:    glob patterns over the call's qualified callee (imports and bindings resolved; an instance is
+#           written "Type()"), e.g. "fastapi.APIRouter().post". "{method}" expands over `methods`.
+# path:     selectors tried in order: argN, kwarg.NAME, field.argN.NAME.
+# methods:  method name -> HTTP method; methods_from: a selector giving the method(s); default_methods.
+# detect:   the rule applies in a deploy unit that declares one of these dependencies, or in a file that
+#           imports one of them. A route needs its use site (the decorator, annotation or call), always.
+version: 1
+frameworks:
+  - framework: fastapi
+    display: FastAPI
+    language: python
+    detect: [fastapi]
+    routes:
+      - kind: decorator
+        match: ["fastapi.FastAPI().{method}", "fastapi.APIRouter().{method}", "fastapi.routing.APIRouter().{method}"]
+        methods: {get: GET, post: POST, put: PUT, patch: PATCH, delete: DELETE, head: HEAD, options: OPTIONS}
+        path: [arg0, kwarg.path]
+      - kind: decorator
+        match: ["fastapi.FastAPI().api_route", "fastapi.APIRouter().api_route"]
+        methods_from: [kwarg.methods]
+        default_methods: [GET]
+        path: [arg0, kwarg.path]
+    prefixes:
+      - {kind: constructor, match: ["fastapi.APIRouter", "fastapi.routing.APIRouter"], path: [kwarg.prefix]}
+      - {kind: mount, match: ["fastapi.FastAPI().include_router", "fastapi.APIRouter().include_router"], target: arg0, path: [kwarg.prefix]}
+
+  - framework: flask
+    display: Flask
+    language: python
+    detect: [flask]
+    routes:
+      - kind: decorator
+        match: ["flask.Flask().route", "flask.Blueprint().route"]
+        methods_from: [kwarg.methods]
+        default_methods: [GET]
+        path: [arg0, kwarg.rule]
+      - kind: decorator
+        match: ["flask.Flask().{method}", "flask.Blueprint().{method}"]
+        methods: {get: GET, post: POST, put: PUT, patch: PATCH, delete: DELETE}
+        path: [arg0, kwarg.rule]
+    prefixes:
+      - {kind: constructor, match: ["flask.Blueprint"], path: [kwarg.url_prefix]}
+      - {kind: mount, match: ["flask.Flask().register_blueprint", "flask.Blueprint().register_blueprint"], target: arg0, path: [kwarg.url_prefix]}
+
+  - framework: django
+    display: Django
+    language: python
+    detect: [django]
+    routes:
+      - kind: file-route
+        files: ["urls.py"]
+        match: ["django.urls.path", "django.urls.re_path", "django.conf.urls.url"]
+        include: ["django.urls.include", "django.conf.urls.include"]
+        path: [arg0, kwarg.route]
+        default_methods: [ANY]
+
+  - framework: express
+    display: Express
+    language: javascript
+    detect: [express]
+    routes:
+      - kind: call
+        match: ["express().{method}", "express.Router().{method}", "express.express().{method}"]
+        methods: {get: GET, post: POST, put: PUT, patch: PATCH, delete: DELETE, all: ANY, head: HEAD, options: OPTIONS}
+        path: [arg0]
+    prefixes:
+      - {kind: mount, match: ["express().use", "express.Router().use"], path: [arg0], target: arg1}
+
+  - framework: fastify
+    display: Fastify
+    language: javascript
+    detect: [fastify]
+    routes:
+      - kind: call
+        match: ["fastify().{method}", "fastify.fastify().{method}", "fastify.default().{method}"]
+        methods: {get: GET, post: POST, put: PUT, patch: PATCH, delete: DELETE, all: ANY, head: HEAD, options: OPTIONS}
+        path: [arg0]
+      - kind: call
+        match: ["fastify().route", "fastify.fastify().route"]
+        methods_from: [field.arg0.method]
+        path: [field.arg0.url]
+
+  - framework: nextjs
+    display: Next.js
+    language: javascript
+    detect: [next]
+    routes:
+      - kind: file-route
+        files: ["app/**/route.*", "src/app/**/route.*"]
+        exports: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+      - kind: file-route
+        files: ["pages/api/**", "src/pages/api/**"]
+        default_methods: [ANY]
+
+  - framework: spring-web
+    display: Spring Boot
+    language: java
+    detect: [spring-boot-starter-web, spring-boot-starter-webflux, spring-webmvc, spring-webflux, org.springframework.web]
+    routes:
+      - kind: annotation
+        match: [GetMapping, PostMapping, PutMapping, PatchMapping, DeleteMapping]
+        methods: {GetMapping: GET, PostMapping: POST, PutMapping: PUT, PatchMapping: PATCH, DeleteMapping: DELETE}
+        path: [kwarg.value, kwarg.path, arg0]
+        class_prefix: RequestMapping
+        skip_class: [FeignClient]
+      - kind: annotation
+        match: [RequestMapping]
+        target: method
+        methods_from: [kwarg.method]
+        default_methods: [ANY]
+        path: [kwarg.value, kwarg.path, arg0]
+        class_prefix: RequestMapping
+        skip_class: [FeignClient]
+
+  - framework: net-http
+    display: net/http
+    language: go
+    detect: [net/http]
+    routes:
+      - kind: call
+        match: ["net/http.HandleFunc", "net/http.Handle", "net/http.*().HandleFunc", "net/http.*().Handle"]
+        path: [arg0]
+        method_in_path: true
+        default_methods: [ANY]
+
+  - framework: gin
+    display: Gin
+    language: go
+    detect: [github.com/gin-gonic/gin]
+    routes:
+      - kind: call
+        match: ["github.com/gin-gonic/gin.*().{method}"]
+        methods: {GET: GET, POST: POST, PUT: PUT, PATCH: PATCH, DELETE: DELETE, Any: ANY, HEAD: HEAD, OPTIONS: OPTIONS}
+        path: [arg0]
+    prefixes:
+      - {kind: group, match: ["github.com/gin-gonic/gin.*().Group"], path: [arg0]}

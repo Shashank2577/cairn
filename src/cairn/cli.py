@@ -28,6 +28,9 @@ trace_app = typer.Typer(help="Explore the code map.")
 agents_app = typer.Typer(help="Agent integrations.")
 app.add_typer(trace_app, name="trace")
 app.add_typer(agents_app, name="agents")
+from .system.diagram.cli import diagram_app  # noqa: E402
+
+app.add_typer(diagram_app, name="diagram")
 
 
 def _mount_platform() -> None:
@@ -257,7 +260,8 @@ def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = Fa
             mark("Git hooks", "ok", "sync after commit, merge, checkout" + ("" if added else " (already set)"))
         # sync (fan-out)
         labels = {"map": "Map", "history": "Timeline", "specs": "Specs", "sessions": "Sessions",
-                  "links": "Linking", "drift": "Drift check", "timeline": "Timeline facts"}
+                  "links": "Linking", "drift": "Drift check", "timeline": "Timeline facts",
+                  "system": "System model"}
 
         def prog(step, st, detail):
             label = labels.get(step, step)
@@ -912,14 +916,23 @@ def standup(days: int = typer.Option(1, help="How far back: 1 = the last 24h, 2 
 
 # ---- systems & review context ------------------------------------------------------------------------
 @app.command("system")
-def system_cmd():
-    """Sibling repos of this product, from system.yaml (zero-config cross-repo awareness)."""
+def system_cmd(view: Optional[str] = typer.Option(None, "--view",
+                                                  help="Draw a level of the system model: context or containers."),
+               scope: Optional[str] = typer.Option(None, "--scope", help="Containers view: one container or "
+                                                   "repository and its neighbours."),
+               as_json: bool = typer.Option(False, "--json", help="The view's diagram description as JSON."),
+               out: Optional[Path] = typer.Option(None, "--out", help="Write the diagram description to a file "
+                                                  "(.yaml, or .json).")):
+    """Sibling repos of this product, from system.yaml; with --view, the computed system model (0 model calls)."""
     from .engines import systems
     from .project import Project
     proj = Project.discover()
     if proj is None:
         err.print("[bold red]Not inside a project folder.[/]")
         raise typer.Exit(3)
+    if view is not None or as_json or out is not None:
+        _system_view(proj.root, view or "containers", scope, as_json, out)
+        return
     ctx = systems.system_context(proj.root)
     console.print(brand("system"))
     if ctx is None:
@@ -936,6 +949,47 @@ def system_cmd():
         console.print(Text(" no valid sibling brains yet — each repo needs `cairn init`", style=f"dim {SLATE}"))
     console.print(Text(" (file-local view; the heavier cross-repo graph is separate: `cairn graph global`)",
                        style=f"dim {SLATE}"))
+
+
+def _system_view(root: Path, level: str, scope: str | None, as_json: bool, out: Path | None) -> None:
+    """``cairn system --view``: the stored model when this repository has one, else built now; read-only."""
+    from .system.views import view as system_view
+    if level not in ("context", "containers", "container"):
+        err.print(f"[bold red]Unknown view {level!r}[/] — use context or containers.")
+        raise typer.Exit(2)
+    try:
+        desc = system_view(root, level, scope)
+    except ValueError as exc:
+        err.print(f"[bold red]{exc}[/]")
+        raise typer.Exit(2)
+    if out is not None:
+        import yaml
+        text = json.dumps(desc, indent=2) if out.suffix == ".json" else yaml.safe_dump(
+            desc, sort_keys=False, allow_unicode=True, width=200)
+        out.write_text(text, encoding="utf-8")
+        if not as_json:
+            console.print(f"[{MOSS}]✓[/] {desc['title']} → {out}")
+    if as_json:
+        _emit_json(desc)
+        return
+    if out is not None:
+        return
+    from rich.markup import escape
+    console.print(brand("system"))
+    console.print(f"  [{INK}]{escape(desc['title'])}[/]  [{SLATE}]{escape(desc['scope'])}[/]")
+    for e in desc["elements"]:
+        mark = {"declared": "◆ ", "inferred": "≈ ", "ambiguous": "? ", "stale": "⚠ "}.get(e["provenance"], "")
+        kind = e.get("kind") or e["type"]
+        tech = f" · {e['tech']}" if e.get("tech") else ""
+        console.print(f"  [{MOSS}]●[/] [{INK}]{mark}{escape(e['name'])}[/] "
+                      f"[{SLATE}]{escape(kind + tech)} — {escape(e['evidence'][0])}[/]")
+    names = {e["id"]: e["name"] for e in desc["elements"]}
+    for r in desc["relationships"]:
+        mark = {"declared": "◆ ", "inferred": "≈ ", "ambiguous": "? ", "stale": "⚠ "}.get(r["provenance"], "")
+        label = " · ".join(x for x in (r.get("what"), f"[{r['how']}]" if r.get("how") else None) if x)
+        ends = f"{names.get(r['from'], r['from'])} → {names.get(r['to'], r['to'])}"
+        console.print(f"    [{INK}]{mark}{escape(ends)}[/]  [{SLATE}]{escape(label)} ({r['style']}) — "
+                      f"{escape(r['evidence'][0])}[/]")
 
 
 @app.command("review-context")
