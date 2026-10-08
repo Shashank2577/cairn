@@ -77,7 +77,9 @@ One amendment needed (principle II vocabulary); no other violations.
    - Outbound calls, publish and subscribe, and driver use are call sites in the existing call graph.
    - Wrappers are resolved by following that graph, up to 2 hops.
    - Deploy files (Dockerfile, compose, Kubernetes, Procfile) and manifests get small dedicated parsers.
-4. **Catalog as data.**
+4. **Catalog as data** (detail: [frameworks.md](frameworks.md)).
+   - Frameworks are rules over five pattern kinds the engine implements once: decorator, annotation, call,
+     file-route, config.
    - `src/cairn/system/catalog/*.json` maps libraries, images and env-name patterns to stores, channels and
      outside services, plus each one's "what" verb.
    - Projects extend it with `.cairn/catalog.json`.
@@ -117,6 +119,12 @@ One amendment needed (principle II vocabulary); no other violations.
     - Steps are ordered by call order within a function body when the AST gives it. Otherwise the flow is
       marked inferred.
     - At most 12 steps, after which it splits.
+
+11. **Mermaid as a second hand-made format and an export.** YAML stays canonical. The Mermaid exporter
+    and flowchart importer share the model; facts Mermaid has no syntax for travel in `%% cairn` comments.
+    Prototyped in `prototype/code/mermaid.py`; comparison in [mermaid/README.md](mermaid/README.md).
+12. **Dependency layers, redesigned.** First-party folders only, cycles as one block, budgets per layer,
+    entry points from the system model, inside Code as an overlay.
 
 ## Phases
 

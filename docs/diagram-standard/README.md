@@ -150,7 +150,13 @@ the legend.
 |---------|-------|----------|
 | Map UI | the system model + `tokens.json` | interactive SVG views; every element opens its evidence |
 | `cairn docs export` | the same model + `tokens.json` | Markdown with SVG files and the evidence tables |
-| Hand-made diagrams | `tokens.json` and a diagram description file (YAML) | the same SVG via `cairn diagram render`; `cairn diagram check` reports every broken rule |
+| Hand-made diagrams | a YAML description (canonical) or a Mermaid flowchart with `%% cairn` comments | the same SVG via `cairn diagram render`; `cairn diagram check` reports every broken rule |
+| Mermaid export | any view | a Mermaid flowchart that renders natively on GitHub, with every fact in `%% cairn` comments and the evidence table beside it |
+
+**What Mermaid cannot guarantee.** Mermaid's own layout and theme decide the picture: no legend inside it,
+labels can crowd, no line-style difference between asynchronous and build-time links on GitHub, no hover
+evidence, one theme per file. Use it where native rendering on GitHub matters; use Cairn's renderer where the
+standard must hold exactly. One diagram written both ways: `specs/002-system-model/mermaid/README.md`.
 
 A diagram description is the same structure the model emits: `diagram`, `title`, `scope`, `description`,
 `elements`, `boundaries`, `relationships` (or `flow.participants` and `flow.messages`). See `examples/`.

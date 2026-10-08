@@ -1,0 +1,40 @@
+---
+title: Containers of Shop
+---
+flowchart LR
+  %% cairn diagram kind=container scope="Shop (software system)" description="The storefront calls the orders API; the API stores orders in PostgreSQL and publishes order.created on Redis, which the worker consumes to email the customer through SendGrid."
+  customer(["Customer"])
+  subgraph shop["Shop · software system"]
+    web["shop-web<br/>[Node.js · Express]"]
+    api["shop-api<br/>[Python · FastAPI]"]
+    db[("PostgreSQL<br/>[postgres 16]")]
+    redis[["Redis<br/>[redis 7 pub/sub]"]]
+    worker["shop-worker<br/>[Python]"]
+    contracts[/"shop-contracts<br/>[Python package]"/]
+  end
+  sendgrid["SendGrid"]
+  customer -->|"Places orders<br/>[HTTPS · POST /checkout]"| web
+  web -->|"Creates and reads orders<br/>[HTTP · /api/orders]"| api
+  api -->|"Reads and writes orders<br/>[SQL · psycopg]"| db
+  api -.->|"Publishes order.created<br/>[Redis PUBLISH]"| redis
+  worker -.->|"Subscribes to order.created<br/>[Redis SUBSCRIBE]"| redis
+  worker -->|"Sends confirmation email<br/>[HTTPS · SendGrid SDK]"| sendgrid
+  api -.->|"Uses shared types<br/>[package shop-contracts]"| contracts
+  worker -.->|"Uses shared types<br/>[package shop-contracts]"| contracts
+
+  %% cairn customer type=person desc="Places orders" provenance=declared evidence="system.yaml: actors"
+  %% cairn web kind=web-app desc="Storefront pages and checkout" evidence="shop-web/package.json; shop-web/Dockerfile: EXPOSE 3000"
+  %% cairn api kind=service desc="Creates and serves orders" focus=true evidence="shop-api/pyproject.toml: [project.scripts]"
+  %% cairn db desc="Stores orders" evidence="shop-api/docker-compose.yml: db image postgres:16"
+  %% cairn redis desc="Carries order events" evidence="shop-api/docker-compose.yml: redis image redis:7"
+  %% cairn worker kind=worker desc="Emails order confirmations" evidence="shop-worker/pyproject.toml: [project.scripts]"
+  %% cairn contracts desc="Shared order types" evidence="shop-contracts/pyproject.toml"
+  %% cairn sendgrid type=external-system desc="Delivers email" evidence="shop-worker/pyproject.toml: sendgrid"
+  %% cairn customer->web style=sync provenance=declared evidence="shop-web/server.js:5"
+  %% cairn web->api evidence="shop-web/src/api.js:3; shop-api/shop_api/orders.py:9"
+  %% cairn api->db evidence="shop-api/shop_api/db.py:7"
+  %% cairn api->redis style=async evidence="shop-api/shop_api/events.py:8"
+  %% cairn worker->redis style=async evidence="shop-worker/shop_worker/main.py:10"
+  %% cairn worker->sendgrid evidence="shop-worker/shop_worker/mailer.py:6"
+  %% cairn api->contracts style=build evidence="shop-api/shop_api/orders.py:2"
+  %% cairn worker->contracts style=build evidence="shop-worker/shop_worker/main.py:3"

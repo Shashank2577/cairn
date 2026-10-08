@@ -1,0 +1,56 @@
+---
+title: Containers of Shop
+---
+%%{init: {"theme": "base", "themeVariables": {"edgeLabelBackground": "#F4F5F0", "lineColor": "#464B45", "primaryTextColor": "#1F2328", "clusterBkg": "transparent", "clusterBorder": "#767B72"}, "flowchart": {"curve": "linear"}}}%%
+flowchart LR
+%% cairn:diagram {"kind": "container", "scope": "Shop (4 repositories, from system.yaml)", "description": "Computed by Cairn from code, manifests and deploy files with no model calls: 8 elements and 8 relationships, each with evidence."}
+  subgraph sys["Shop · software system"]
+    %% cairn:boundary sys {"type": "software system", "trust": false}
+    %% cairn:element shop_web {"type": "container", "kind": "service", "tech": "Node.js · Express · port 3000", "desc": "Serves GET /orders/{}, POST /checkout", "evidence": ["shop-web/Dockerfile:5", "shop-web/Dockerfile:6", "shop-web/package.json: scripts.start", "shop-web/server.js:5", "shop-web/server.js:6"]}
+    shop_web["<small>SERVICE</small><br/><b>shop-web</b><br/>[Node.js · Express · port 3000]<br/>Serves GET /orders/{}, POST /checkout"]
+    %% cairn:element shop_api {"type": "container", "kind": "service", "tech": "Python · FastAPI · port 8000", "desc": "Serves GET /api/orders/{}, POST /api/orders", "evidence": ["shop-api/Dockerfile:5", "shop-api/Dockerfile:6", "shop-api/pyproject.toml:6", "shop-api/shop_api/orders.py:8", "shop-api/shop_api/orders.py:15"]}
+    shop_api["<small>SERVICE</small><br/><b>shop-api</b><br/>[Python · FastAPI · port 8000]<br/>Serves GET /api/orders/{}, POST /api/orders"]
+    %% cairn:element shop_worker {"type": "container", "kind": "worker", "tech": "Python", "desc": "Consumes order.created", "evidence": ["shop-worker/Dockerfile:5", "shop-worker/pyproject.toml:6"]}
+    shop_worker["<small>WORKER</small><br/><b>shop-worker</b><br/>[Python]<br/>Consumes order.created"]
+    %% cairn:element shop_contracts {"type": "library", "tech": "Python package", "desc": "Shared code used at build time", "evidence": ["shop-contracts: provides shop-contracts; no entry point or Dockerfile"]}
+    shop_contracts[/"<small>LIBRARY</small><br/><b>shop-contracts</b><br/>[Python package]<br/>Shared code used at build time"/]
+    %% cairn:element PostgreSQL {"type": "data-store", "tech": "PostgreSQL 16", "desc": "Stores data", "evidence": ["shop-api/docker-compose.yml: services.db image postgres:16", "shop-api/shop_api/db.py:2"]}
+    PostgreSQL[("<small>DATA STORE</small><br/><b>PostgreSQL</b><br/>[PostgreSQL 16]<br/>Stores data")]
+    %% cairn:element Redis {"type": "channel", "tech": "Redis 7", "desc": "Carries messages", "evidence": ["shop-api/docker-compose.yml: services.redis image redis:7", "shop-api/shop_api/events.py:3", "shop-worker/shop_worker/main.py:2"]}
+    Redis[["<small>CHANNEL</small><br/><b>Redis</b><br/>[Redis 7]<br/>Carries messages"]]
+  end
+  %% cairn:element SendGrid {"type": "external-system", "desc": "Delivers transactional email", "evidence": ["shop-worker/shop_worker/mailer.py:2"]}
+  SendGrid["<small>EXTERNAL SYSTEM</small><br/><b>SendGrid</b><br/>Delivers transactional email"]
+  %% cairn:element customer {"type": "person", "desc": "Places orders", "provenance": "declared", "evidence": ["system.yaml: actors"]}
+  customer(["<small>PERSON ◆</small><br/><b>Customer</b><br/>Places orders"])
+  %% cairn:rel shop_api->PostgreSQL {"what": "Writes and reads orders", "how": "SQL · psycopg", "style": "sync", "evidence": ["shop-api/shop_api/db.py:2", "shop-api/shop_api/db.py:8"]}
+  shop_api -->|"Writes and reads orders<br/>[SQL · psycopg]"| PostgreSQL
+  %% cairn:rel shop_api->Redis {"what": "Publishes order.created", "how": "Redis PUBLISH", "style": "async", "evidence": ["shop-api/shop_api/orders.py:12"]}
+  shop_api -.->|"Publishes order.created<br/>[Redis PUBLISH]"| Redis
+  %% cairn:rel shop_api->shop_contracts {"what": "Uses shared types", "how": "package shop-contracts", "style": "build", "evidence": ["shop-api/shop_api/orders.py:2"]}
+  shop_api -.->|"Uses shared types<br/>[package shop-contracts]"| shop_contracts
+  %% cairn:rel shop_worker->SendGrid {"what": "Sends email", "how": "HTTPS · SendGrid SDK", "style": "sync", "evidence": ["shop-worker/shop_worker/mailer.py:2"]}
+  shop_worker -->|"Sends email<br/>[HTTPS · SendGrid SDK]"| SendGrid
+  %% cairn:rel shop_worker->Redis {"what": "Subscribes to order.created", "how": "Redis SUBSCRIBE", "style": "async", "evidence": ["shop-worker/shop_worker/main.py:9"]}
+  shop_worker -.->|"Subscribes to order.created<br/>[Redis SUBSCRIBE]"| Redis
+  %% cairn:rel shop_worker->shop_contracts {"what": "Uses shared types", "how": "package shop-contracts", "style": "build", "evidence": ["shop-worker/shop_worker/main.py:3"]}
+  shop_worker -.->|"Uses shared types<br/>[package shop-contracts]"| shop_contracts
+  %% cairn:rel shop_web->shop_api {"what": "Calls the orders API", "how": "HTTP · GET, POST /api/orders", "style": "sync", "evidence": ["shop-web/src/api.js:3", "shop-web/src/api.js:7", "shop-api/shop_api/orders.py:8", "shop-api/shop_api/orders.py:15"]}
+  shop_web -->|"Calls the orders API<br/>[HTTP · GET, POST /api/orders]"| shop_api
+  %% cairn:rel customer->shop_web {"what": "Places orders", "how": "HTTPS", "style": "sync", "provenance": "declared", "evidence": ["system.yaml: actors"]}
+  customer -->|"Places orders<br/>[HTTPS]"| shop_web
+  classDef base fill:#FFFFFF,stroke:#1F2328,color:#1F2328,stroke-width:1.2px
+  classDef store fill:#EEEFE9,stroke:#1F2328,color:#1F2328
+  classDef ext fill:#F4F5F0,stroke:#767B72,color:#1F2328,stroke-dasharray:4 3
+  classDef focus fill:#F6E6DA,stroke:#B4531C,color:#1F2328,stroke-width:1.8px
+  class shop_web base
+  class shop_api base
+  class shop_worker base
+  class shop_contracts base
+  class PostgreSQL store
+  class Redis store
+  class SendGrid ext
+  class customer base
+  style sys fill:transparent,stroke:#767B72,stroke-dasharray:6 4
+  linkStyle 2,5 stroke-dasharray:1.5 3.5
+  linkStyle default stroke:#464B45

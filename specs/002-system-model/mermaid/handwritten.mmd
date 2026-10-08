@@ -1,0 +1,6 @@
+flowchart LR
+  user([Customer]) -->|places orders| web[shop-web]
+  web -->|POST /api/orders| api[shop-api]
+  api --> db[(Postgres)]
+  api -.->|order.created| bus[[Redis]]
+  worker[shop-worker] -.->|subscribes| bus

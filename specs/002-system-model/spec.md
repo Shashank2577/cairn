@@ -27,28 +27,27 @@ drawn with one diagram standard everywhere Cairn or its users draw architecture.
 
 ## Clarifications
 
-### Session 2026-10-08
+### Session 2026-10-08 (answered by the user)
 
-Defaults chosen during specification. Items marked **(pending user confirmation)** are the user's
-decision; the plan proceeds on the default until answered.
-
-- Q: Where does the standard live, and do the Taazaa templates get edited? → A: The standard, tokens and
-  replacements live in Cairn (`docs/diagram-standard/`). The Taazaa skill repository is not edited; the
-  replacements are offered to its owners. **(pending user confirmation)**
-- Q: May `system.yaml` grow beyond `system` and `repos`? → A: Yes, with optional `actors`, per-repo
-  `role`/`kind`/`description` and declared `relationships`; all optional, old files stay valid, declared
-  facts are labelled declared. **(pending user confirmation)**
-- Q: Do the engine's graph exports (graph, call flow, tree) survive? → A: Yes, from the command line only;
-  only the embedded UI tab is removed.
-- Q: Is the Code view's folder-layer picture kept? → A: Yes, as an overlay inside Code named "dependency
-  layers"; it is no longer called architecture.
-- Q: What format do hand-made diagrams use? → A: A YAML description in the same structure the model emits,
-  rendered and checked by Cairn; Mermaid is not a supported output because it cannot honour the layout and
-  label rules. **(pending user confirmation)**
-- Q: Which frameworks and clients does the first build cover? → A: Python (FastAPI, Flask, Django),
-  JavaScript/TypeScript (Express, Fastify, Next.js route handlers), Java (Spring), Go (net/http, Gin); HTTP
-  clients, the common Redis, Kafka, RabbitMQ and SQS clients, SQL drivers; compose, Dockerfile and
-  Kubernetes manifests. Others arrive through the catalog. **(pending user confirmation)**
+- Q: Where does the standard live, and is the Taazaa skill repository edited? → A: Cairn creates and owns
+  its own standard (`docs/diagram-standard/`). The Taazaa repository is not touched; it was a reference only.
+- Q: May `system.yaml` grow beyond `system` and `repos`? → A: Yes: optional `actors`, per-repo
+  `role`/`kind`/`description` and declared `relationships`. Old files stay valid; declared facts are
+  labelled declared.
+- Q: Do the engine's graph exports (graph, call flow, tree) survive? → A: Yes, from the command line only,
+  on condition of no extra AI cost or time. Confirmed: they are generated from the stored map with no model
+  calls (no model code is imported by `callflow_html.py`, `tree_html.py` or the HTML exporter) and run only
+  when asked; removing the UI tab removes their only automatic use.
+- Q: Is the folder-layer picture kept? → A: Yes, inside Code as "dependency layers", but **redesigned**, not
+  moved: the current one is poor. See FR-026.
+- Q: What format do hand-made diagrams use? → A: Both. YAML is the canonical hand-made format; Mermaid is a
+  first-class export from the model; a limited Mermaid flowchart import converts into the model, with the
+  checker flagging what is missing and a `%% cairn` comment convention to supply it. See FR-031 to FR-033
+  and `mermaid/README.md` for one diagram written both ways.
+- Q: Which frameworks? → A: Cairn's parsers, through a data-driven catalog: a framework is a rule plus a
+  fixture, not code. The first build covers Python (FastAPI, Flask, Django), JavaScript/TypeScript
+  (Express, Fastify, Next.js), Java (Spring) and Go (net/http, Gin). What extraction depends on, and what the
+  catalog can grow into, is in `frameworks.md` (FR-034).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -349,8 +348,12 @@ descriptive text differs, and model text is labelled.
   another label or box.
 - **FR-025**: The Engine views tab MUST be removed from the UI. The graph exports remain available from
   the command line.
-- **FR-026**: The folder-dependency picture now labelled "Architecture" MUST move into Code as an optional
-  overlay named for what it shows (dependency layers).
+- **FR-026**: The folder-dependency picture now labelled "Architecture" MUST be redesigned as an optional
+  "dependency layers" overlay inside Code, following the diagram standard: first-party code only (vendored
+  and third-party folders hidden by default, with a count), one labelled block for each large import cycle
+  (expandable) instead of every member on its own row, at most the node budget per layer with the rest
+  collapsed into "+N", entry points detected from the system model rather than inferred from position, and
+  every folder opening its evidence.
 - **FR-027**: Every box and arrow in the UI MUST open its evidence and provenance.
 
 **Agent context and export**
@@ -369,6 +372,25 @@ descriptive text differs, and model text is labelled.
   sibling link resolved through a URL MUST store the sibling's identifier, not the URL or host string.
 - **FR-029c**: Every computed element and relationship MUST record the commit it was built at, so two
   commits' views can be compared later.
+
+**Mermaid**
+
+- **FR-031**: Any view MUST be exportable as a Mermaid flowchart (sequence diagram for flows) with shapes per
+  element type, what and how on every edge, colours from the token file, and every element's and
+  relationship's facts kept in `%% cairn` comments, so the export re-imports without loss.
+- **FR-032**: Cairn MUST import a Mermaid flowchart subset (nodes, the standard shapes, labelled edges,
+  chained and `&` edges, subgraphs) into the model, read `%% cairn` comments in a short `key=value` form and
+  a full JSON form, warn on syntax it ignores (classDef, style, click, linkStyle), and run the standard
+  check on the result.
+- **FR-033**: The standard MUST state what a Mermaid rendering cannot guarantee (layout rules, legend,
+  dark-mode parity, hover evidence) and the docs export MUST place the evidence table beside every Mermaid
+  diagram.
+
+**Framework catalog**
+
+- **FR-034**: Route, client, messaging and store extraction MUST be driven by catalog rules (language,
+  detection dependency, and patterns of the kinds decorator, annotation, call, file-route, config); adding
+  a framework MUST need only a rule, a fixture and its ground truth.
 
 **Optional narrative**
 

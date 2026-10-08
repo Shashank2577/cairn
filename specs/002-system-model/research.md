@@ -15,7 +15,7 @@ Full source digest (C4, Structurizr DSL, C4-PlantUML, archify, diagram-design, a
 | Budgets | 12 elements per computed view (9 hand-made), 16 relationships, 3 boundaries; flows 6 by 12 by 1 | diagram-design budgets, relaxed for computed views with collapsing | No limit (archify) |
 | Boundaries | Only for ownership, runtime or isolation facts | archify and diagram-design: zones are facts, not layout | Layer bands |
 | Layout | Layered by data-flow direction, barycentric row order, orthogonal routing, label masks | Prototype showed naive ranking misplaces people and crosses lines | Mermaid or force layout |
-| Hand-made format | YAML description in the model's own structure, rendered and checked by Cairn | Same checker for every diagram | Mermaid (cannot honour layout and label rules) |
+| Hand-made format | YAML canonical; Mermaid flowchart as a second input (import) and a first-class output (export), facts in `%% cairn` comments | One checker for every diagram; Mermaid renders natively on GitHub | Mermaid as the canonical source (cannot carry type, technology or evidence, nor honour layout rules) |
 | Provenance | extracted, declared, inferred, ambiguous, stale, with marks | Constitution II needs EXTRACTED/INFERRED; declared and stale needed for system.yaml and re-checks | Two-value provenance |
 
 ## What Cairn extracts today (inventory, read from code)

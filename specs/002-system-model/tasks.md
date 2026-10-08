@@ -50,7 +50,7 @@ description: "Tasks for the system model and diagram standard"
 - [ ] T015 [P] [US1] Messaging call sites (Redis pub/sub, Kafka, RabbitMQ, SQS, NATS), resolving wrapper functions up to 2 call-graph hops, in `src/cairn/system/signals/messaging.py`
 - [ ] T016 [P] [US1] Store uses (driver connect and query sites, SQL verbs and tables) in `src/cairn/system/signals/stores.py`
 - [ ] T017 [P] [US1] Configuration names read by code and set by deploy files; a URL resolves to a sibling's identifier (no host or URL string stored); names the catalog marks sensitive are kept only as their kind, in `src/cairn/system/signals/config.py`
-- [ ] T018 [P] [US1] Catalog data and loader with a per-project extension (`.cairn/catalog.json`); a match requires a use site, in `src/cairn/system/catalog/`
+- [ ] T018 [P] [US1] Framework, client and store catalog as rules over the five pattern kinds (`frameworks.md`), loader with a per-project extension (`.cairn/catalog.json`); a match requires a use site, in `src/cairn/system/catalog/`
 - [ ] T019 [US1] Assemble containers per deploy unit (several per repository when present), stores, channels, libraries and outside services with evidence, and persist them on sync in `src/cairn/system/build.py`; hook into `src/cairn/sync.py` after the map step
 - [ ] T020 [US1] Optional `system.yaml` fields (actors, per-repo role/kind/description, declared relationships) in `src/cairn/engines/systems.py`; old files stay valid
 - [ ] T021 [US1] Cross-repo linking (route match, topic match, shared store, sibling package, existing cross-repo call and type passes), with ambiguity and "unresolved HTTP target", reading siblings read-only, in `src/cairn/system/link.py`
@@ -72,7 +72,9 @@ description: "Tasks for the system model and diagram standard"
 ## Phase 6: User Story 5, a Map that answers three questions (P2)
 
 - [ ] T030 [US5] `c4view.js` drawing server geometry with tokens, hover and click evidence panel, keyboard focus in `src/cairn/ui/app/components/c4view.js`
-- [ ] T031 [US5] Map tabs: Context, Containers, Components, Flows, Code; remove Engine views; move the folder layers into Code as "dependency layers" in `src/cairn/ui/app/views/map.js`
+- [ ] T031 [US5] Map tabs: Context, Containers, Components, Flows, Code; remove Engine views in `src/cairn/ui/app/views/map.js`
+- [ ] T031a [US5] Redesign dependency layers (FR-026): hide vendored and third-party folders with a count, one expandable block per large cycle, per-layer budgets with "+N", entry points from the system model, evidence per folder; server side in `src/cairn/engines/mapper.py` `file_graph()` follow-up, view in `src/cairn/ui/app/components/archmap.js`
+- [ ] T031b [US5] Before/after screenshots of dependency layers on Cairn's own repository for review before merging
 - [ ] T032 [US5] Keep the graph exports on the command line; remove only the `/graph/views` UI routes in `src/cairn/server.py`
 - [ ] T033 [P] [US5] Components per container (communities grouped by dominant module, named from paths, budgeted) in `src/cairn/system/components.py`
 - [ ] T034 [P] [US5] Flows from entry points (ordered by call order when the AST gives it, else inferred; split at 12 steps) in `src/cairn/system/flows.py`
@@ -94,6 +96,13 @@ description: "Tasks for the system model and diagram standard"
 
 - [ ] T042 [US7] Narrate component names, responsibilities and flow descriptions (fast tier, `[system] narrate_tokens` budget, ledgered, labelled inferred, cites elements) in `src/cairn/system/narrate.py`
 - [ ] T043 [US7] Tests: identical model with and without narrative; ledger entries only with opt-in
+
+## Phase 9b: Mermaid (FR-031 to FR-033)
+
+- [ ] T048 [P] [US2] Mermaid export of any view (flowchart; sequence diagram for flows), token-driven theme line, `%% cairn` facts, evidence table beside it in exports, in `src/cairn/system/diagram/mermaid_out.py` (size S–M, 2–3 days)
+- [ ] T049 [US2] Mermaid flowchart import (nodes, shapes, labelled, chained and `&` edges, subgraphs, short and JSON `%% cairn` comments, warnings for ignored syntax) feeding `cairn diagram check|render`, in `src/cairn/system/diagram/mermaid_in.py` (size M, 4–6 days)
+- [ ] T050 [P] [US2] Golden tests: round-trip of every example and fixture view; a corpus of real Mermaid files imports with warnings, not errors; exports render with Mermaid in CI, in `tests/system/test_mermaid.py`
+- [ ] T051 [US2] Optional: Mermaid `sequenceDiagram` import for flows (M, 3–4 days) and Mermaid C4 syntax import (S–M, 2–3 days); decide after T049
 
 ## Phase 10: Polish
 
