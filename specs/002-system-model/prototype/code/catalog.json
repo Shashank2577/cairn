@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "notes": "PROTOTYPE catalog: maps client libraries and images to data stores, channels and outside services. Data, not code; projects may extend it.",
+  "libraries": {
+    "python": {
+      "psycopg": {"element": "data-store", "name": "PostgreSQL", "tech": "PostgreSQL", "via": "SQL · psycopg"},
+      "psycopg2": {"element": "data-store", "name": "PostgreSQL", "tech": "PostgreSQL", "via": "SQL · psycopg2"},
+      "asyncpg": {"element": "data-store", "name": "PostgreSQL", "tech": "PostgreSQL", "via": "SQL · asyncpg"},
+      "pymongo": {"element": "data-store", "name": "MongoDB", "tech": "MongoDB", "via": "MongoDB driver"},
+      "redis": {"element": "redis", "name": "Redis", "tech": "Redis", "via": "Redis"},
+      "sendgrid": {"element": "external-system", "name": "SendGrid", "desc": "Delivers transactional email", "what": "Sends email", "via": "HTTPS · SendGrid SDK"},
+      "stripe": {"element": "external-system", "name": "Stripe", "desc": "Takes card payments", "what": "Takes payments", "via": "HTTPS · Stripe SDK"},
+      "boto3": {"element": "external-system", "name": "AWS", "desc": "Cloud services", "what": "Calls AWS services", "via": "HTTPS · boto3"}
+    },
+    "js": {
+      "pg": {"element": "data-store", "name": "PostgreSQL", "tech": "PostgreSQL", "via": "SQL · pg"},
+      "ioredis": {"element": "redis", "name": "Redis", "tech": "Redis", "via": "Redis"},
+      "@sendgrid/mail": {"element": "external-system", "name": "SendGrid", "desc": "Delivers transactional email", "what": "Sends email", "via": "HTTPS · SendGrid SDK"},
+      "stripe": {"element": "external-system", "name": "Stripe", "desc": "Takes card payments", "what": "Takes payments", "via": "HTTPS · Stripe SDK"}
+    }
+  },
+  "images": {
+    "postgres": {"element": "data-store", "name": "PostgreSQL", "tech": "PostgreSQL"},
+    "redis": {"element": "redis", "name": "Redis", "tech": "Redis"},
+    "mongo": {"element": "data-store", "name": "MongoDB", "tech": "MongoDB"},
+    "rabbitmq": {"element": "channel", "name": "RabbitMQ", "tech": "RabbitMQ"}
+  },
+  "frameworks": {
+    "python": {"fastapi": "FastAPI", "flask": "Flask", "django": "Django"},
+    "js": {"express": "Express", "fastify": "Fastify", "next": "Next.js"}
+  }
+}

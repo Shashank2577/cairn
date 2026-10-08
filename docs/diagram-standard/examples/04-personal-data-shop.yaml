@@ -1,0 +1,18 @@
+diagram: container
+title: Containers of Shop, personal data
+scope: Shop (software system)
+description: The customer's email address travels from the storefront to the API, into PostgreSQL and Redis, through the worker and out to SendGrid.
+source_note: replaces "Data Flow Map with PII Indicators"; the data class rides on each relationship that carries it
+elements:
+  - {id: web, name: shop-web, type: container, kind: web-app, tech: Node.js, desc: Collects the order form, at: [0,0], evidence: ["shop-web/server.js:5"]}
+  - {id: api, name: shop-api, type: container, kind: service, tech: FastAPI, desc: Validates and stores orders, at: [1,0], evidence: ["shop-api/shop_api/orders.py"]}
+  - {id: db, name: PostgreSQL, type: data-store, tech: "orders.customer_email", desc: Keeps the email with each order, at: [2,0], evidence: ["shop-api/shop_api/db.py:8"]}
+  - {id: redis, name: Redis, type: channel, tech: order.created, desc: Event carries the email, at: [2,1], evidence: ["shop-contracts/shop_contracts/orders.py:12"]}
+  - {id: worker, name: shop-worker, type: container, kind: worker, tech: Python, desc: Builds the confirmation, at: [1,1], evidence: ["shop-worker/shop_worker/mailer.py"]}
+  - {id: sendgrid, name: SendGrid, type: external-system, desc: Processes email outside Shop, at: [0,1], evidence: ["shop-worker/pyproject.toml: sendgrid"]}
+relationships:
+  - {from: web, to: api, what: Sends the order, how: "POST /api/orders", data_class: personal, style: sync, evidence: ["shop-web/src/api.js:3"]}
+  - {from: api, to: db, what: Stores the order, how: "INSERT orders", data_class: personal, style: sync, evidence: ["shop-api/shop_api/db.py:8"]}
+  - {from: api, to: redis, what: Publishes OrderCreated, how: order.created, data_class: personal, style: async, evidence: ["shop-api/shop_api/orders.py:13"]}
+  - {from: worker, to: redis, what: Receives OrderCreated, how: order.created, data_class: personal, style: async, evidence: ["shop-worker/shop_worker/main.py:10"]}
+  - {from: worker, to: sendgrid, what: Sends email to the customer, how: SendGrid SDK, data_class: personal, style: sync, evidence: ["shop-worker/shop_worker/mailer.py:7"]}

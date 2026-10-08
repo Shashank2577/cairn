@@ -1,0 +1,14 @@
+diagram: state
+title: Lifecycle of a Cairn memory
+scope: one memory in the Memory layer
+description: A memory is stored active; a newer memory can supersede it, and a person can forget it; superseded and forgotten memories leave search and the brief.
+source_note: replaces the template "Rule Lifecycle"; real code from Cairn itself
+elements:
+  - {id: new, name: Statement offered, type: state, at: [0,0], evidence: ["src/cairn/engines/memory.py:229"]}
+  - {id: active, name: Active, type: state, at: [1,0], focus: true, evidence: ["src/cairn/store.py:285"]}
+  - {id: sup, name: Superseded, type: state, at: [2,0], evidence: ["src/cairn/store.py:273"]}
+  - {id: gone, name: Forgotten, type: state, at: [1,1], evidence: ["src/cairn/store.py:292"]}
+relationships:
+  - {from: new, to: active, what: Stored if not a duplicate, style: sync, evidence: ["src/cairn/engines/memory.py:246"]}
+  - {from: active, to: sup, what: A newer memory replaces it, style: sync, evidence: ["src/cairn/engines/memory.py:305"]}
+  - {from: active, to: gone, what: Someone runs forget, style: sync, evidence: ["src/cairn/store.py:294"]}

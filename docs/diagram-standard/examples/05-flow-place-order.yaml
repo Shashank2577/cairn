@@ -1,0 +1,21 @@
+diagram: flow
+title: Flow of placing an order in Shop
+scope: Shop containers, from checkout to confirmation email
+description: Checkout posts the order to the API, which stores it and publishes order.created; the worker picks the event up and sends the confirmation email.
+source_note: replaces "Primary User Workflow", "Data Creation/Modification Flow" and the data-flow scenarios
+elements:
+  - {id: web, name: shop-web, type: container, kind: web-app, tech: Express, desc: Storefront, evidence: ["shop-web/server.js"]}
+  - {id: api, name: shop-api, type: container, kind: service, tech: FastAPI, desc: Orders API, evidence: ["shop-api/shop_api/orders.py"]}
+  - {id: db, name: PostgreSQL, type: data-store, tech: postgres, desc: Orders, evidence: ["shop-api/shop_api/db.py"]}
+  - {id: redis, name: Redis, type: channel, tech: pub/sub, desc: Events, evidence: ["shop-api/shop_api/events.py"]}
+  - {id: worker, name: shop-worker, type: container, kind: worker, tech: Python, desc: Mailer, evidence: ["shop-worker/shop_worker/main.py"]}
+  - {id: sendgrid, name: SendGrid, type: external-system, desc: Email, evidence: ["shop-worker/shop_worker/mailer.py"]}
+flow:
+  participants: [web, api, db, redis, worker, sendgrid]
+  messages:
+    - {from: web, to: api, what: Create order, how: "POST /api/orders", style: sync, evidence: ["shop-web/src/api.js:3"]}
+    - {from: api, to: db, what: Insert order row, how: "INSERT INTO orders", style: sync, evidence: ["shop-api/shop_api/db.py:8"]}
+    - {from: api, to: redis, what: Publish OrderCreated, how: "PUBLISH order.created", style: async, evidence: ["shop-api/shop_api/events.py:8"]}
+    - {from: api, to: web, what: Order id, how: "200 {id}", style: return, evidence: ["shop-api/shop_api/orders.py:14"]}
+    - {from: redis, to: worker, what: Deliver OrderCreated, how: "SUBSCRIBE order.created", style: async, evidence: ["shop-worker/shop_worker/main.py:10"]}
+    - {from: worker, to: sendgrid, what: Send confirmation, how: "SendGrid SDK send()", style: sync, evidence: ["shop-worker/shop_worker/mailer.py:7"]}

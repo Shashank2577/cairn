@@ -1,0 +1,25 @@
+diagram: container
+title: Containers of Shop
+scope: Shop (software system)
+description: The storefront calls the orders API over HTTP; the API stores orders in PostgreSQL and publishes order.created on Redis, which the worker consumes to email the customer through SendGrid.
+source_note: replaces the layered "High-Level Architecture" template
+elements:
+  - {id: customer, name: Customer, type: person, desc: Places orders, at: [0,0], provenance: declared, evidence: ["system.yaml: actors"]}
+  - {id: web, name: shop-web, type: container, kind: web-app, tech: Node.js · Express, desc: Storefront pages and checkout, at: [1,0], evidence: ["shop-web/package.json", "shop-web/Dockerfile: EXPOSE 3000"]}
+  - {id: api, name: shop-api, type: container, kind: service, tech: Python · FastAPI, desc: Creates and serves orders, at: [2,0], focus: true, evidence: ["shop-api/pyproject.toml: [project.scripts]", "shop-api/Dockerfile: EXPOSE 8000"]}
+  - {id: db, name: PostgreSQL, type: data-store, tech: postgres 16, desc: Stores orders, at: [3,0], evidence: ["shop-api/docker-compose.yml: db image postgres:16", "shop-api/shop_api/db.py:2"]}
+  - {id: redis, name: Redis, type: channel, tech: redis 7 pub/sub, desc: Carries order events, at: [3,1], evidence: ["shop-api/docker-compose.yml: redis image redis:7"]}
+  - {id: worker, name: shop-worker, type: container, kind: worker, tech: Python, desc: Emails order confirmations, at: [2,1], evidence: ["shop-worker/pyproject.toml: [project.scripts]", "shop-worker/Dockerfile"]}
+  - {id: sendgrid, name: SendGrid, type: external-system, desc: Delivers email, at: [1,1], evidence: ["shop-worker/pyproject.toml: sendgrid"]}
+  - {id: contracts, name: shop-contracts, type: library, tech: Python package, desc: Shared order types, at: [2,2], evidence: ["shop-contracts/pyproject.toml"]}
+boundaries:
+  - {id: shop, name: Shop, type: software system, contains: [web, api, db, redis, worker, contracts]}
+relationships:
+  - {from: customer, to: web, what: Places orders, how: "HTTPS · POST /checkout", style: sync, evidence: ["shop-web/server.js:5"]}
+  - {from: web, to: api, what: Creates and reads orders, how: "HTTP · /api/orders", style: sync, evidence: ["shop-web/src/api.js:3", "shop-api/shop_api/orders.py:9"]}
+  - {from: api, to: db, what: Reads and writes orders, how: SQL · psycopg, style: sync, evidence: ["shop-api/shop_api/db.py:7"]}
+  - {from: api, to: redis, what: Publishes order.created, how: Redis PUBLISH, style: async, evidence: ["shop-api/shop_api/events.py:8"]}
+  - {from: worker, to: redis, what: Subscribes to order.created, how: Redis SUBSCRIBE, style: async, evidence: ["shop-worker/shop_worker/main.py:10"]}
+  - {from: api, to: contracts, what: Uses shared types, how: package shop-contracts, style: build, evidence: ["shop-api/shop_api/orders.py:2"]}
+  - {from: worker, to: contracts, what: Uses shared types, how: package shop-contracts, style: build, evidence: ["shop-worker/shop_worker/main.py:3"]}
+  - {from: worker, to: sendgrid, what: Sends confirmation email, how: HTTPS · SendGrid SDK, style: sync, evidence: ["shop-worker/shop_worker/mailer.py:6"]}

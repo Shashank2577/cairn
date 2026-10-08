@@ -1,0 +1,150 @@
+diagram: container
+title: Containers of Shop
+scope: Shop (4 repositories, from system.yaml)
+description: 'Computed by Cairn from code, manifests and deploy files with no model calls: 8 elements and 8 relationships, each with evidence.'
+source_note: computed, 0 model calls
+elements:
+- id: shop-web
+  name: shop-web
+  type: container
+  kind: service
+  tech: Node.js · Express · port 3000
+  desc: Serves GET /orders/{}, POST /checkout
+  evidence:
+  - shop-web/Dockerfile:5
+  - shop-web/Dockerfile:6
+  - 'shop-web/package.json: scripts.start'
+  - shop-web/server.js:5
+  - shop-web/server.js:6
+- id: shop-api
+  name: shop-api
+  type: container
+  kind: service
+  tech: Python · FastAPI · port 8000
+  desc: Serves GET /api/orders/{}, POST /api/orders
+  evidence:
+  - shop-api/Dockerfile:5
+  - shop-api/Dockerfile:6
+  - shop-api/pyproject.toml:6
+  - shop-api/shop_api/orders.py:8
+  - shop-api/shop_api/orders.py:15
+- id: shop-worker
+  name: shop-worker
+  type: container
+  kind: worker
+  tech: Python
+  desc: Consumes order.created
+  evidence:
+  - shop-worker/Dockerfile:5
+  - shop-worker/pyproject.toml:6
+- id: shop-contracts
+  name: shop-contracts
+  type: library
+  tech: Python package
+  desc: Shared code used at build time
+  evidence:
+  - 'shop-contracts: provides shop-contracts; no entry point or Dockerfile'
+- id: PostgreSQL
+  name: PostgreSQL
+  type: data-store
+  tech: PostgreSQL 16
+  desc: Stores data
+  evidence:
+  - 'shop-api/docker-compose.yml: services.db image postgres:16'
+  - shop-api/shop_api/db.py:2
+- id: Redis
+  name: Redis
+  type: channel
+  tech: Redis 7
+  desc: Carries messages
+  evidence:
+  - 'shop-api/docker-compose.yml: services.redis image redis:7'
+  - shop-api/shop_api/events.py:3
+  - shop-worker/shop_worker/main.py:2
+- id: SendGrid
+  name: SendGrid
+  type: external-system
+  desc: Delivers transactional email
+  evidence:
+  - shop-worker/shop_worker/mailer.py:2
+- id: customer
+  name: Customer
+  type: person
+  desc: Places orders
+  provenance: declared
+  evidence:
+  - 'system.yaml: actors'
+boundaries:
+- id: sys
+  name: Shop
+  type: software system
+  contains:
+  - shop-web
+  - shop-api
+  - shop-worker
+  - shop-contracts
+  - PostgreSQL
+  - Redis
+relationships:
+- from: shop-api
+  to: PostgreSQL
+  what: Writes and reads orders
+  how: SQL · psycopg
+  style: sync
+  evidence:
+  - shop-api/shop_api/db.py:2
+  - shop-api/shop_api/db.py:8
+- from: shop-api
+  to: Redis
+  what: Publishes order.created
+  how: Redis PUBLISH
+  style: async
+  evidence:
+  - shop-api/shop_api/orders.py:12
+- from: shop-api
+  to: shop-contracts
+  what: Uses shared types
+  how: package shop-contracts
+  style: build
+  evidence:
+  - shop-api/shop_api/orders.py:2
+- from: shop-worker
+  to: SendGrid
+  what: Sends email
+  how: HTTPS · SendGrid SDK
+  style: sync
+  evidence:
+  - shop-worker/shop_worker/mailer.py:2
+- from: shop-worker
+  to: Redis
+  what: Subscribes to order.created
+  how: Redis SUBSCRIBE
+  style: async
+  evidence:
+  - shop-worker/shop_worker/main.py:9
+  rank_reverse: true
+- from: shop-worker
+  to: shop-contracts
+  what: Uses shared types
+  how: package shop-contracts
+  style: build
+  evidence:
+  - shop-worker/shop_worker/main.py:3
+- from: shop-web
+  to: shop-api
+  what: Calls the orders API
+  how: HTTP · GET, POST /api/orders
+  style: sync
+  evidence:
+  - shop-web/src/api.js:3
+  - shop-web/src/api.js:7
+  - shop-api/shop_api/orders.py:8
+  - shop-api/shop_api/orders.py:15
+- from: customer
+  to: shop-web
+  what: Places orders
+  how: HTTPS
+  style: sync
+  provenance: declared
+  evidence:
+  - 'system.yaml: actors'

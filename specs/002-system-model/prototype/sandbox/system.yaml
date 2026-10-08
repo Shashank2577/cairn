@@ -1,0 +1,9 @@
+# Product file. Today's schema (system, repos) plus the optional additions proposed in FR-012.
+system: Shop
+repos:
+  - path: shop-web
+  - path: shop-api
+  - path: shop-worker
+  - path: shop-contracts
+actors:                       # proposed, optional: people Cairn cannot see in code
+  - {name: Customer, desc: Places orders, uses: shop-web, what: Places orders, how: HTTPS}

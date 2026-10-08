@@ -1,0 +1,24 @@
+# Faithful transcription of the Taazaa template "High-Level Architecture Diagram" (core-templates.md:19)
+diagram: container
+title: High-Level Architecture
+elements:
+  - {id: WEB, name: Web Application, type: container}
+  - {id: GW, name: API Gateway, type: container}
+  - {id: SVC1, name: Service 1, type: container}
+  - {id: SVC2, name: Service 2, type: container}
+  - {id: DB, name: Database, type: data-store}
+  - {id: CACHE, name: Cache, type: data-store}
+  - {id: EXT, name: Third-Party API, type: external-system}
+boundaries:
+  - {id: client, name: Client Layer, contains: [WEB]}
+  - {id: api, name: API Layer, contains: [GW]}
+  - {id: svc, name: Service Layer, contains: [SVC1, SVC2]}
+  - {id: data, name: Data Layer, contains: [DB, CACHE]}
+  - {id: ext, name: External Services, contains: [EXT]}
+relationships:
+  - {from: WEB, to: GW}
+  - {from: GW, to: SVC1}
+  - {from: GW, to: SVC2}
+  - {from: SVC1, to: DB}
+  - {from: SVC2, to: CACHE}
+  - {from: SVC1, to: EXT}
