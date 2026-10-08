@@ -25,6 +25,46 @@ This feature adds a **system model**: a stored set of elements and relationships
 backed by evidence, computed from the repository with no model calls, kept current on every sync, and
 drawn with one diagram standard everywhere Cairn or its users draw architecture.
 
+## Slices (umbrella index)
+
+This feature was too big for one spec (57 tasks, 7 stories). On 2026-10-08 it was split into six slices,
+each with its own spec, plan and tasks, shippable on its own. Ids for requirements, acceptance scenarios
+(`US<n>-AS<m>`) and tasks are unchanged, so [traceability.md](traceability.md) stays the single table.
+
+| Slice | Goal | Requirements | Tasks | Depends on | Size | State at checkpoint |
+|---|---|---|---|---|---|---|
+| 002 foundation | Store migrations, model, limits, safe YAML, tokens, traceability, constitution 1.1.1 | (shared) | T000, T001, T004, T004a, T005 | none | done | 5/5 done |
+| [003 diagram standard](../003-diagram-standard/spec.md) | Checker, layout, SVG, Mermaid (US2) | FR-020 to 023, 024a, 031 to 033, SC-006 | 14 | 002 | M | 11 done, 2 partial, 1 open |
+| [004 system extraction](../004-system-extraction/spec.md) | Extraction, linking, containers view (US1) | FR-001 to 015, 029a/b/c, 034, SC-001 to 003, SC-008 | 17 | 002 (003 for `--svg`) | L | 11 done, 6 partial |
+| [005 staleness](../005-architecture-staleness/spec.md) | Re-check and drift (US3) | FR-018, 019, SC-004 | 3 | 004 | S | open |
+| [006 Map views](../006-map-views/spec.md) | Five views, dependency layers (US5) | FR-016, 017, 024 to 027, SC-005 | 9 | 003, 004 | L | 1 done, 1 partial, 7 open |
+| [007 agent context](../007-agent-system-context/spec.md) | Brief line, consumers in context (US4) | FR-028, SC-007 | 4 | 004 | S | open |
+| [008 docs export](../008-architecture-docs-export/spec.md) | Export and optional narrative (US6, US7) | FR-029, FR-030 | 5 | 003, 004 (006 for components and flows) | M | open |
+
+**Why this cut.** The foundation is imported by every slice, so it lands alone and first. The diagram
+standard has no dependency on extraction and is the most finished, so it is the first user-facing slice.
+Components and flows (FR-016, FR-017) moved to Map views: they are computed for views, share no code path
+with deploy-unit extraction, and keeping them out lets extraction ship now.
+
+### Landing order and branch plan
+
+1. `002-foundation` — cut from `main`; takes `src/cairn/store.py`, `src/cairn/system/{__init__,limits,model,safeyaml}.py`,
+   `src/cairn/system/diagram/tokens.json`, `scripts/{sync_tokens,traceability}.py`, the UI token block,
+   `.cairn/workflow/memory/constitution.md`, `tests/system/test_foundation.py`. PR 1.
+2. `003-diagram-standard` — cut from `main` after PR 1; takes `src/cairn/system/diagram/*`, `tests/system/test_diagram_*`,
+   `docs/diagram-standard/`, and only the `diagram` registration hunk of `src/cairn/cli.py`. PR 2.
+3. `004-system-extraction` — after PR 1; takes `src/cairn/system/{build,link,views}.py`, `signals/`, `catalog/`,
+   the `system` step in `src/cairn/sync.py`, `src/cairn/engines/systems.py`, the `system` command hunk of `cli.py`,
+   `tests/system/{util,scoring}.py`, `fixtures/`, `test_extract_*`, `test_link_*`, `test_views_*`. PR 3 (parallel to PR 2;
+   the one test that renders through the checker lands after PR 2 or is skipped until then).
+4. `005`, `007` — after PR 3, small, in either order.
+5. `006` — after PRs 2 and 3; takes the layers redesign now in `mapper.py`, `core.py`, `archmap.js`, `test_layers.py`.
+6. `008` — last.
+
+Each slice branch is cut from `main` and takes its own paths from `002-system-model` with
+`git checkout 002-system-model -- <paths>`; shared files (`cli.py`, `sync.py`) are split by hunk. The
+`002-system-model` branch stays as the integration branch and archive until every slice has landed.
+
 ## Clarifications
 
 ### Session 2026-10-08 (answered by the user)
