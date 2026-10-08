@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.2.2 — 2026-10-08
+
+### Added
+
+- **One install for every agent:** `cairn global install` wires Claude Code, Codex, Cursor, Gemini
+  CLI, OpenCode, Copilot CLI and Antigravity at user level, once: Cairn's MCP tools, memory at session
+  start and session capture. In a git repository without Cairn the agent gets a one-line offer to run
+  `cairn init --no-deep` and nothing is written until you say yes. `cairn global remove` undoes it;
+  `cairn global status` shows each agent.
+- **Session-start panel:** Claude Code shows the person what Cairn remembers when a session opens:
+  where the last working session left off (asked, done, next), what is new since then, what the team
+  knows (each memory with its source and age), files to handle with care (fix and revert history) and
+  open work. Built from the local store with no model calls.
+- **Ambient context:** on each Claude Code prompt that plausibly touches code, a context nugget of at
+  most 500 tokens (targets and memories). On by default; `[context] ambient = false` turns it off.
+- **Review context:** `cairn review-context --files a,b` builds a reviewer's pack: the ticket from the
+  branch and commit trailers, local impact, and hits in sibling repositories. No model calls.
+- **System layer:** `system.yaml` groups repositories into one product; `cairn system` lists them and
+  sibling stores are read read-only.
+- **Recap:** `cairn recap` shows what Cairn has done for a repository, with receipts: memories learned,
+  commits and sessions watched, drift, and what each answer cost against reading the files.
+- **Ask:** answers close gaps from the documents they cite, every question is logged, related earlier
+  questions are surfaced, and each answered question becomes recallable knowledge.
+- **Team server hosting:** `deploy/` adds a Dockerfile (team mode only) and docker-compose;
+  `docs/multi-repo.md` describes the multi-repository model.
+
+### Changed
+
+- MCP tool descriptions say when to call each tool and what it costs.
+- Memory seeding stops after `memory.wall_seconds` (default 300); remaining seeds continue next sync.
+
+### Fixed
+
+- **Hooks:** agent hooks never fail on a busy store; a session-start hook no longer waits behind a
+  running sync and errors with "database is locked".
+- **MCP server:** creates nothing in a repository where Cairn is not set up; it answers with the setup
+  offer instead, and `cairn init` mid-session works without restarting the agent.
+- **Worktrees:** a linked worktree reads and records with its main checkout's memory, and capture never
+  climbs above the repository root or treats the home folder as a project.
+- **Injected context** names tools `cairn mcp` actually serves; the setup offer also appears when an
+  agent starts in a sub-folder; "Handle with care" lists source files, not tests.
+- **Recall worker:** re-enabled, so captured sessions become observations and summaries again;
+  `.cairn/config.local.toml` overrides recall settings like every other setting.
+- **Doctor** reports capture honestly (wired, nothing yet, or N observations) and flags a queue the
+  worker never drains.
+- **Windows:** file locks, paths, bash and claude.cmd resolution, UTF-8 input and output, and
+  worker-lock detection; CI is green on Windows, macOS and Linux for Python 3.11 to 3.13.
+- **Version:** `cairn --version` reports the installed version instead of a hardcoded one.
+
 ## 0.2.1 — 2026-10-02
 
 ### Added

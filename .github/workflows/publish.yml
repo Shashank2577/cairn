@@ -14,7 +14,7 @@
 #      (If the project does not exist yet, the first tagged run creates it from this
 #      pending publisher; no manual upload is needed.)
 #
-# Then push a `v*` tag (e.g. v0.2.1) or run it from the Actions tab.
+# Then push a `v*` tag (e.g. v0.2.2) or run it from the Actions tab.
 name: Publish
 
 on:

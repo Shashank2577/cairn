@@ -1,7 +1,7 @@
 #!/bin/sh
 # Cairn installer: one line, no sudo.  curl -fsSL <raw-url>/install.sh | sh
 #   CAIRN_EXTRAS=memory-server,temporal-neo4j   optional extras (shared stores for team servers, more languages …)
-#   CAIRN_SOURCE=...                             install from a different source (default: this repository on GitHub — PyPI publishing is pending)
+#   CAIRN_SOURCE=...                             install from a different source (default: cairn-brain from PyPI)
 set -eu
 say() { printf '\033[38;5;179m▲\033[0m %s\n' "$1"; }
 
