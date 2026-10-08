@@ -18,6 +18,17 @@ from pathlib import Path
 # Edges along which a change propagates to the *source* of the edge (source depends on target).
 DEPENDENCY_RELS = frozenset({"calls", "indirect_call", "imports", "imports_from", "inherits", "uses",
                              "references", "re_exports", "mixes_in", "depends_on", "implements"})
+LAYER_BUDGET = 12  # docs/diagram-standard/tokens.json budget.nodes_soft
+CYCLE_COLLAPSE = 5  # an import cycle of this many units or more is drawn as one block
+EVIDENCE_FILES = 12
+_VENDOR_SEGMENTS = frozenset({"vendor", "vendors", "third_party", "third-party", "thirdparty", "node_modules",
+                              "bower_components", "site-packages"})
+_VENDOR_MARKERS = (".vendored", "VENDORED", "VENDOR.md", "UPSTREAM")
+_VENDOR_WORDS = re.compile(r"vendored|bundled|third[- ]party|unmodified|verbatim|copied", re.I)
+_ENTRY_ORDER = {"container": 0, "script": 1, "main": 2, "server": 3}
+_SERVER_STEMS = frozenset({"server", "app", "wsgi", "asgi", "manage", "main"})
+_SERVER_EXTS = frozenset({".py", ".js", ".ts", ".mjs", ".go"})
+_TEST_RE = re.compile(r"(^|/)tests?(/|$)|(^|/)test_|_test\.")
 STRUCTURE_RELS = frozenset({"contains", "method", "defines"})
 CODE_TYPES = frozenset({"code"})
 FILE_EXTS = frozenset([".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".rs", ".java", ".kt", ".kts", ".scala", ".rb", ".php", ".cs", ".c", ".h", ".cc", ".cpp", ".hpp", ".swift", ".m", ".mm", ".lua", ".ex", ".exs", ".erl", ".hs", ".ml", ".dart", ".vue", ".svelte", ".sql", ".sh", ".bash", ".md", ".mdx", ".rst", ".txt", ".json", ".yaml", ".yml", ".toml", ".tf", ".proto", ".graphql", ".html", ".css", ".scss"])
@@ -412,45 +423,154 @@ class MapIndex:
                   "degree": self.degree(n)} for n in ids]
         return {"nodes": nodes, "links": links}
 
-    def file_graph(self, max_files: int = 120) -> dict:
-        """Code files (or their folders, past ``max_files``) and the cross-file dependencies between them.
+    def file_graph(self, max_files: int = 120, *, root: Path | None = None, vendored: Iterable[str] = (),
+                   hints: dict[str, str] | None = None, layer_budget: int = LAYER_BUDGET) -> dict:
+        """First-party code files (or their folders, past ``max_files``) as dependency layers (FR-026).
 
-        Each node gets a ``layer``: the longest dependency chain beneath it, so foundations sit at 0 and
-        entry points on top. Import cycles are collapsed first and share a layer (``cycle`` names them).
+        Vendored and third-party folders are left out of the layers and reported under ``vendored``.
+        Import cycles of ``CYCLE_COLLAPSE`` units or more collapse into one ``cycle`` block (``cycles``
+        carries the members); smaller ones stay as units that share a layer. Each block gets a ``layer``
+        (the longest dependency chain beneath it) and ``layers`` keeps at most ``layer_budget`` per layer,
+        the rest listed under ``rest``. ``entry`` comes from real signals (see :func:`entry_signals`),
+        never from position. Output is deterministic.
         """
         files = {f: sum(1 for i in ids if self.is_code(i)) for f, ids in self.by_file.items()}
         files = {f: n for f, n in files.items() if n}
-        group = len(files) > max_files
-        unit = (lambda f: str(Path(f).parent) if group else f)
+        dirs = {f: _parent(f) for f in files}
+        vend = vendored_folders(set(dirs.values()), root, vendored)
+        first = {f: n for f, n in files.items() if dirs[f] not in vend}
+        group = len(first) > max_files
+        unit = (lambda f: dirs[f]) if group else (lambda f: f)
         sizes: dict[str, int] = defaultdict(int)
-        for f, n in files.items():
-            sizes[unit(f)] += n
+        count: dict[str, int] = defaultdict(int)
+        members_of: dict[str, list[str]] = defaultdict(list)
+        for f, n in first.items():
+            u = unit(f)
+            sizes[u] += n
+            count[u] += 1
+            members_of[u].append(f)
         weights: dict[tuple[str, str], int] = defaultdict(int)
+        vlinks: dict[tuple[str, str], int] = defaultdict(int)
         for s, edges in self.out.items():
             fs = self.file_of(s)
-            if fs not in files:
+            if fs not in first:
                 continue
+            us = unit(fs)
             for e in edges:
+                if e.rel not in DEPENDENCY_RELS:
+                    continue
                 ft = self.file_of(e.other)
-                if e.rel in DEPENDENCY_RELS and ft in files and unit(ft) != unit(fs):
-                    weights[(unit(fs), unit(ft))] += 1
+                if ft in first:
+                    ut = unit(ft)
+                    if ut != us:
+                        weights[(us, ut)] += 1
+                elif ft in files:
+                    vlinks[(us, dirs[ft])] += 1
         succ: dict[str, set[str]] = defaultdict(set)
-        for a, b in weights:
+        total_in: dict[str, int] = defaultdict(int)
+        total_out: dict[str, int] = defaultdict(int)
+        for (a, b), w in weights.items():
             succ[a].add(b)
-        comp = _components(list(sizes), succ)
+            total_out[a] += w
+            total_in[b] += w
+        comp = _components(sorted(sizes), succ)
         csucc: dict[int, set[int]] = defaultdict(set)
         for a, bs in succ.items():
             csucc[comp[a]].update(comp[b] for b in bs if comp[b] != comp[a])
         layer: dict[int, int] = {}
         for c in sorted(set(comp.values())):  # components arrive in reverse topological order
             layer[c] = 1 + max((layer[d] for d in csucc[c]), default=-1)
-        members: dict[int, list[str]] = defaultdict(list)
+        comp_members: dict[int, list[str]] = defaultdict(list)
         for u, c in comp.items():
-            members[c].append(u)
-        nodes = [{"id": u, "symbols": sizes[u], "layer": layer[comp[u]],
-                  "cycle": sorted(members[comp[u]]) if len(members[comp[u]]) > 1 else []} for u in sizes]
-        links = [{"source": a, "target": b, "weight": w} for (a, b), w in weights.items()]
-        return {"level": "folder" if group else "file", "nodes": nodes, "links": links}
+            comp_members[c].append(u)
+        for m in comp_members.values():
+            m.sort()
+        big = sorted((c for c, m in comp_members.items() if len(m) >= CYCLE_COLLAPSE),
+                     key=lambda c: (-len(comp_members[c]), comp_members[c][0]))
+        cycle_id = {c: f"cycle:{i}" for i, c in enumerate(big)}
+        block_of = {u: cycle_id.get(c, u) for u, c in comp.items()}
+
+        kind = "folder" if group else "file"
+        signals = entry_signals(first, root, hints, unit)
+
+        def entry_of(us: Iterable[str]) -> list[dict]:
+            seen: dict[tuple, dict] = {}
+            for u in us:
+                for sg in signals.get(u, ()):
+                    seen.setdefault((sg["kind"], sg["detail"], sg["file"]), sg)
+            return sorted(seen.values(), key=lambda g: (_ENTRY_ORDER.get(g["kind"], 9), g["detail"], g["file"]))[:4]
+
+        def evidence(u: str) -> dict:
+            fl = sorted(members_of[u], key=lambda f: (-first[f], f))
+            return {"files": [{"path": f, "symbols": first[f]} for f in fl[:EVIDENCE_FILES]],
+                    "files_total": len(fl), "imports_in": total_in.get(u, 0), "imports_out": total_out.get(u, 0)}
+
+        blocks: dict[str, dict] = {}
+        for u in sorted(sizes):
+            b = block_of[u]
+            if b != u:
+                continue
+            cm = comp_members[comp[u]]
+            blocks[u] = {"id": u, "kind": kind, "symbols": sizes[u], "files": count[u], "layer": layer[comp[u]],
+                         "cycle": cm if len(cm) > 1 else [], "entry": entry_of([u]), "evidence": evidence(u),
+                         "test": bool(_TEST_RE.search(u))}
+        cycles: list[dict] = []
+        for c in big:
+            cm = comp_members[c]
+            bid = cycle_id[c]
+            blocks[bid] = {"id": bid, "kind": "cycle", "label": f"cycle of {len(cm)} {kind}s", "symbols": sum(sizes[u] for u in cm),
+                           "files": sum(count[u] for u in cm), "layer": layer[c], "cycle": [], "members": cm,
+                           "entry": entry_of(cm), "test": False,
+                           "evidence": {"members": len(cm), "files_total": sum(count[u] for u in cm),
+                                        "imports_in": sum(w for (a, b), w in weights.items() if block_of[b] == bid and block_of[a] != bid),
+                                        "imports_out": sum(w for (a, b), w in weights.items() if block_of[a] == bid and block_of[b] != bid)}}
+            cycles.append({"id": bid, "size": len(cm), "links": [],
+                           "members": [{"id": u, "symbols": sizes[u], "files": count[u], "entry": entry_of([u]),
+                                        "evidence": evidence(u)} for u in cm]})
+        cyc = {c["id"]: c for c in cycles}
+        agg: dict[tuple[str, str], int] = defaultdict(int)
+        for (a, b), w in sorted(weights.items()):
+            ba, bb = block_of[a], block_of[b]
+            if ba != bb:
+                agg[(ba, bb)] += w
+            if ba in cyc:
+                cyc[ba]["links"].append({"source": a, "target": b if bb in (ba, b) else bb, "weight": w})
+            if bb in cyc and bb != ba:
+                cyc[bb]["links"].append({"source": a if ba == a else ba, "target": b, "weight": w})
+        links = [{"source": a, "target": b, "weight": w} for (a, b), w in sorted(agg.items())]
+        linked = {x for ln in links for x in (ln["source"], ln["target"])}
+        isolated = sorted(b for b, n in blocks.items() if b not in linked and not n["entry"] and n["kind"] != "cycle")
+        for b in isolated:
+            del blocks[b]
+        wdeg: dict[str, int] = defaultdict(int)
+        for ln in links:
+            wdeg[ln["source"]] += ln["weight"]
+            wdeg[ln["target"]] += ln["weight"]
+
+        def rank(n: dict) -> tuple:
+            return (n["test"], not n["entry"], n["kind"] != "cycle", -wdeg.get(n["id"], 0), -n["symbols"], n["id"])
+        by_layer: dict[int, list[dict]] = defaultdict(list)
+        for n in blocks.values():
+            by_layer[n["layer"]].append(n)
+        layers = []
+        for lv in sorted(by_layer, reverse=True):
+            ordered = [n["id"] for n in sorted(by_layer[lv], key=rank)]
+            layers.append({"layer": lv, "total": len(ordered), "shown": ordered[:layer_budget], "rest": ordered[layer_budget:]})
+        vfolders = []
+        for d in sorted(set(dirs[f] for f in files) & set(vend)):
+            fl = [f for f in files if dirs[f] == d]
+            vfolders.append({"id": d, "files": len(fl), "symbols": sum(files[f] for f in fl), "reason": vend[d]})
+        vfolders.sort(key=lambda v: (-v["files"], v["id"]))
+        vagg: dict[tuple[str, str], int] = defaultdict(int)
+        for (a, d), w in vlinks.items():
+            vagg[(block_of[a], d)] += w
+        entries = sorted(({"id": n["id"], "signals": n["entry"]} for n in blocks.values() if n["entry"]),
+                         key=lambda e: (_ENTRY_ORDER.get(e["signals"][0]["kind"], 9), e["id"]))
+        return {"level": kind, "budget": layer_budget, "scope": {"files": len(first), "units": len(sizes)},
+                "nodes": sorted(blocks.values(), key=lambda n: n["id"]), "links": links, "layers": layers,
+                "cycles": cycles, "entries": entries, "isolated": isolated,
+                "vendored": {"count": len(vfolders), "folders": vfolders,
+                             "links": [{"source": a, "target": d, "weight": w} for (a, d), w in sorted(vagg.items())]}}
 
     def languages(self) -> dict[str, int]:
         counts: dict[str, int] = defaultdict(int)
@@ -459,6 +579,108 @@ class MapIndex:
             if ext:
                 counts[ext] += 1
         return dict(sorted(counts.items(), key=lambda kv: -kv[1])[:8])
+
+
+def _parent(path: str) -> str:
+    return path.rpartition("/")[0] or "."
+
+
+def vendored_folders(folders: Iterable[str], root: Path | None, configured: Iterable[str] = ()) -> dict[str, str]:
+    """Which folders are vendored or third-party code, with the reason for each (FR-026).
+
+    Signals: a path segment such as ``vendor/`` or ``node_modules/``; the ``map.vendored`` config list;
+    ``linguist-vendored`` in ``.gitattributes``; a marker file (``.vendored``, ``VENDORED``) in the folder;
+    and folders a NOTICE / THIRD_PARTY file names in an entry that calls them vendored or bundled.
+    """
+    prefixes: list[tuple[str, str]] = [(p.strip().strip("/"), "listed in map.vendored") for p in configured if p.strip().strip("/")]
+    if root is not None:
+        try:
+            attrs = (root / ".gitattributes").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            attrs = ""
+        for line in attrs.splitlines():
+            parts = line.split()
+            if len(parts) > 1 and "linguist-vendored" in parts[1:] and not parts[0].startswith("#"):
+                prefixes.append((re.sub(r"(/\*+)+$", "", parts[0].lstrip("/")).rstrip("/"), "linguist-vendored in .gitattributes"))
+        try:
+            names = sorted(p.name for p in root.iterdir() if p.is_file())
+        except OSError:
+            names = []
+        for name in names:
+            if not re.match(r"(?i)(notice|third[_-]?party)", name):
+                continue
+            try:
+                text = (root / name).read_text(encoding="utf-8", errors="replace")[:65536]
+            except OSError:
+                continue
+            for entry in re.split(r"\n\s*\n|\n(?=\s*[-*] )", text):
+                if _VENDOR_WORDS.search(entry):
+                    prefixes.extend((t.rstrip("/"), f"listed in {name}") for t in re.findall(r"[\w.@-]+(?:/[\w.@-]+)+/?|[\w.@-]+/", entry))
+    out: dict[str, str] = {}
+    for d in sorted(set(folders)):
+        segs = d.split("/")
+        seg = next((s for s in segs if s in _VENDOR_SEGMENTS), None)
+        if seg:
+            out[d] = f"{seg}/ folder"
+            continue
+        why = next((r for p, r in prefixes if p and (d == p or d.startswith(p + "/"))), None)
+        if why is None and root is not None and d != ".":
+            why = next((f"{m} marker file" for m in _VENDOR_MARKERS if (root / d / m).is_file()), None)
+        if why:
+            out[d] = why
+    return out
+
+
+def entry_signals(files: Iterable[str], root: Path | None, hints: dict[str, str] | None,
+                  unit) -> dict[str, list[dict]]:
+    """Entry points from real signals, keyed by unit: system-model containers (``hints``: file path to
+    container name), ``[project.scripts]`` in pyproject, ``bin``/``main`` in package.json, ``__main__.py``
+    and server modules. Position in the dependency graph plays no part."""
+    files = sorted(files)
+    out: dict[str, list[dict]] = defaultdict(list)
+
+    def add(f: str, kind: str, detail: str) -> None:
+        out[unit(f)].append({"kind": kind, "detail": detail, "file": f})
+    fileset = set(files)
+    for path, name in sorted((hints or {}).items()):
+        if path in fileset:
+            add(path, "container", f"container {name}")
+    if root is not None:
+        try:
+            import tomllib
+            proj = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8")).get("project") or {}
+        except (OSError, ValueError):
+            proj = {}
+        for table in ("scripts", "gui-scripts"):
+            for name, target in sorted((proj.get(table) or {}).items()):
+                mod = str(target).split(":")[0].split("[")[0].strip().replace(".", "/")
+                cands = [mod + ".py", mod + "/__init__.py"]
+                hit = sorted((f for f in files if any(f == c or f.endswith("/" + c) for c in cands)),
+                             key=lambda f: (f.count("/"), f))
+                if hit:
+                    add(hit[0], "script", f"script {name} in [project.{table}]")
+        try:
+            pkg = json.loads((root / "package.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pkg = {}
+        if isinstance(pkg, dict):
+            bins = pkg.get("bin")
+            bins = {pkg.get("name", "bin"): bins} if isinstance(bins, str) else (bins if isinstance(bins, dict) else {})
+            for name, target in sorted(bins.items()):
+                t = str(target).removeprefix("./")
+                if t in fileset:
+                    add(t, "script", f"script {name} in package.json bin")
+            m = str(pkg.get("main") or "").removeprefix("./")
+            if m in fileset:
+                add(m, "main", "package.json main")
+    for f in files:
+        base = f.rpartition("/")[2]
+        stem, dot, ext = base.rpartition(".")
+        if base == "__main__.py":
+            add(f, "main", "__main__.py")
+        elif dot and stem in _SERVER_STEMS and "." + ext in _SERVER_EXTS:
+            add(f, "main" if stem == "main" else "server", f"{base} entry module" if stem == "main" else f"{base} server module")
+    return out
 
 
 def _components(nodes: list[str], succ: dict[str, set[str]]) -> dict[str, int]:
@@ -470,6 +692,7 @@ def _components(nodes: list[str], succ: dict[str, set[str]]) -> dict[str, int]:
     stack: list[str] = []
     comp: dict[str, int] = {}
     counter = 0
+    ncomp = 0
     for root in nodes:
         if root in index:
             continue
@@ -495,7 +718,8 @@ def _components(nodes: list[str], succ: dict[str, set[str]]) -> dict[str, int]:
                 if work:
                     low[work[-1][0]] = min(low[work[-1][0]], low[v])
                 if low[v] == index[v]:
-                    cid = len(set(comp.values()))
+                    cid = ncomp
+                    ncomp += 1
                     while True:
                         w = stack.pop()
                         on.discard(w)

@@ -713,8 +713,14 @@ class Cairn:
 
     # ---- views for the page ----------------------------------------------------------------------
     def architecture(self) -> dict:
-        """The file graph, with what the other layers know about each file."""
-        g = self.map.file_graph()
+        """Dependency layers (FR-026): first-party folders by layer, with what the other layers know about each."""
+        hints: dict[str, str] = {}
+        with contextlib.suppress(Exception):  # the system model's containers are entry points when one is built
+            for r in self.brain.q("SELECT e.name, v.file FROM sm_element e JOIN sm_evidence v ON v.claim_id = e.id "
+                                  "WHERE e.type = 'container' AND v.file IS NOT NULL ORDER BY e.name, v.file"):
+                hints.setdefault(r["file"], r["name"])
+        vend = self.project.cfg("map.vendored", []) or []
+        g = self.map.file_graph(root=self.project.root, vendored=vend if isinstance(vend, list) else [], hints=hints)
         agent: dict[str, dict[str, int]] = {}
         for r in self.brain.q("SELECT dst, rel, COUNT(*) n FROM links WHERE rel IN ('reads','modifies') "
                               "AND dst LIKE 'file:%' GROUP BY dst, rel"):
@@ -727,11 +733,21 @@ class Cairn:
         def roll(table: dict, path: str, key: str | None = None) -> int:
             rows = [v for k, v in table.items() if (str(Path(k).parent) == path if folder else k == path)]
             return sum((v.get(key, 0) if key else v) for v in rows) if rows else 0
+
+        def facts(u: str) -> dict:
+            return {"commits": roll(stats, u, "commits"), "fixes": roll(stats, u, "risky"),
+                    "agent_reads": roll(agent, u, "reads"), "agent_edits": roll(agent, u, "modifies"),
+                    "tasks": roll(owned, u)}
+        for c in g["cycles"]:
+            for m in c["members"]:
+                m.update(facts(m["id"]), test=bool(re.search(r"(^|/)tests?(/|$)|(^|/)test_|_test\.", m["id"])))
+        members = {m["id"]: m for c in g["cycles"] for m in c["members"]}
         for n in g["nodes"]:
-            u = n["id"]
-            n.update(commits=roll(stats, u, "commits"), fixes=roll(stats, u, "risky"),
-                     agent_reads=roll(agent, u, "reads"), agent_edits=roll(agent, u, "modifies"),
-                     tasks=roll(owned, u), test=bool(re.search(r"(^|/)tests?(/|$)|(^|/)test_|_test\.", u)))
+            if n["kind"] == "cycle":
+                ms = [members[u] for u in n["members"]]
+                n.update({k: sum(m[k] for m in ms) for k in ("commits", "fixes", "agent_reads", "agent_edits", "tasks")})
+            else:
+                n.update(facts(n["id"]))
         return g
 
     def agent_activity(self, limit: int = 80) -> dict:
