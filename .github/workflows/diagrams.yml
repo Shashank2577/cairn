@@ -1,0 +1,55 @@
+# Renders every Mermaid export with the real Mermaid CLI, so an export that GitHub or Mermaid cannot parse
+# fails here (feature 002 / slice 003, task T050). Kept out of ci.yml: it needs Node and a browser, and the
+# 9-job test matrix stays as it is.
+name: Diagrams
+
+on:
+  pull_request:
+    paths: ["src/cairn/system/**", "docs/diagram-standard/**", ".github/workflows/diagrams.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diagrams-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mermaid:
+    name: Mermaid exports render
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Cairn
+        run: python -m pip install -e .
+      - name: Export every example and fixture view to Mermaid
+        run: |
+          mkdir -p out
+          for f in docs/diagram-standard/examples/*.yaml; do
+            for theme in light dark; do
+              cairn diagram to-mermaid "$f" --theme "$theme" > "out/$(basename "$f" .yaml)-$theme.mmd"
+            done
+          done
+          python scripts/export_fixture_views.py out
+          ls out | wc -l
+      - name: Render each with the Mermaid CLI (fails on any parse error)
+        run: |
+          set -e
+          echo '{"args":["--no-sandbox"]}' > puppeteer.json
+          for m in out/*.mmd; do
+            npx -y @mermaid-js/mermaid-cli@11.4.1 -p puppeteer.json -q -i "$m" -o "${m%.mmd}.svg"
+            test -s "${m%.mmd}.svg"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mermaid-renders
+          path: out/
