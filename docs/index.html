@@ -555,11 +555,11 @@ footer .about p{margin-top:var(--s3);max-width:36ch}
 
     <div class="receipt rv">
       <div><b>0</b><span>model calls to open a session, about 2,200 tokens of context</span></div>
-      <div><b>~448k</b><span>tokens of file reading saved across 21 answers</span></div>
+      <div><b>~1.24M</b><span>tokens of file reading saved across 25 answers</span></div>
       <div><b>875</b><span>files mapped into 16,906 nodes</span></div>
       <div><b>32 · 1,216</b><span>team memories and session notes, each with a source</span></div>
     </div>
-    <p class="src">Cairn on its own repository, October 6, 2026. Sources: cairn status, cairn recap, the session-start hook and the Overview page. Each answer is logged with its size and the size of the files it cites.</p>
+    <p class="src">Cairn on its own repository; savings as of October 8, 2026, other counts unchanged since October 6. Sources: cairn status, cairn recap, the session-start hook and the Overview page. Each answer is logged with its size and the size of the files it cites.</p>
 
     <ul class="symptoms rv" aria-label="What agents repeat without memory">
       <li>Without memory, agents</li>
@@ -1098,7 +1098,7 @@ footer .about p{margin-top:var(--s3);max-width:36ch}
      out:'<span class="t-key">▲</span> cairn  standup\n 2026-10-06\n   <span class="t-ok">✓</span> fix: injected context names real tools; setup offer from sub-folders…\n   <span class="t-ok">✓</span> fix: session capture never climbs above the repository root\n   <span class="t-ok">✓</span> feat: cairn global install — one install for every agent\n   <span class="t-mem">● Agent hooks never fail on a busy store: Opening the store wrote…</span>\n   ◆ src/cairn/hooks.py implements the session-start panel, which was …\n   … +70 more facts\n   ◇ 6 agent sessions\n   <span class="t-key">⚠</span> 90 drift findings → cairn drift'},
     {k:'Learn', who:'Agent + person', d:'Session summaries, timeline facts and one to three recorded learnings per implemented spec. The next cycle starts with them, in every agent.',
      cmd:'cairn recap',
-     out:'<span class="t-key">▲</span> cairn  recap — tracking since 12d ago\n  learned     <span class="t-mem">54 memories from this repo\'s history</span>\n  watched     47 commits, 1317 agent sessions\n  watching    90 drift findings right now\n  answered    21 queries — saved ~447,988 tokens (97% vs reading the files)'}
+     out:'<span class="t-key">▲</span> cairn  recap — tracking since 14d ago\n  learned     <span class="t-mem">54 memories from this repo\'s history</span>\n  watched     47 commits, 1317 agent sessions\n  watching    90 drift findings right now\n  answered    25 queries — saved ~1,238,256 tokens (98% vs reading the files)'}
   ];
   var stagesEl = $('#stages'), body = $('#stageBody'), panel = $('#stagePanel');
   var R = 37.5; // ring radius as % of box
