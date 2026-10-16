@@ -12,8 +12,11 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
+from pathlib import Path
 
+from . import __version__
 from .platform import Platform, ServerConfig
 from .platform.config import cairn_home
 from .project import Project
@@ -43,8 +46,47 @@ def _health(port: int) -> dict | None:
         return None
 
 
+def _ui_ok(port: int) -> bool:
+    """The server's own page loads. `/api/health` keeps answering when the files behind the page are gone."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1.5) as r:
+            return r.status == 200
+    except (OSError, ValueError, urllib.error.URLError):
+        return False
+
+
+def new_record(pid: int, port: int) -> dict:
+    """What a server writes about itself at start: where its code lives, which version and interpreter it runs."""
+    return {"pid": pid, "port": port, "started": time.time(), "code_root": str(Path(__file__).resolve().parent),
+            "version": __version__, "python": sys.executable, "path": os.environ.get("PATH", "")}
+
+
+RESTART_FIX = ("run `cairn up` (it replaces the server; every repository on this machine is interrupted "
+               "for a few seconds)")
+
+
+def verdict(record: dict, version: str = __version__, ui_ok: bool = True) -> dict | None:
+    """None for a server that can be trusted; otherwise why it cannot, and the one command that fixes it.
+
+    A record written by an older Cairn has no code location, so it is judged by whether its page loads."""
+    root, python = record.get("code_root"), record.get("python")
+    if root and not Path(root).exists():
+        return {"stale": "code-missing", "reason": f"the server runs from code that no longer exists ({root})",
+                "fix": RESTART_FIX}
+    if python and not Path(python).exists():
+        return {"stale": "python-missing", "reason": f"the server's Python no longer exists ({python})",
+                "fix": RESTART_FIX}
+    if record.get("version") and record["version"] != version:
+        return {"stale": "version-differs", "fix": RESTART_FIX,
+                "reason": f"the server is version {record['version']} but the installed cairn is {version}"}
+    if not ui_ok:
+        return {"stale": "ui-broken", "fix": RESTART_FIX,
+                "reason": "the server answers but its page does not load (its files may have been removed)"}
+    return None
+
+
 def info() -> dict | None:
-    """The running server, or None."""
+    """The running server (with a `stale` verdict, None when it can be trusted), or None."""
     f = _state_file()
     if not f.exists():
         return None
@@ -52,8 +94,9 @@ def info() -> dict | None:
         data = json.loads(f.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
-    if _health(int(data.get("port", 0))):
-        return {**data, "url": f"http://127.0.0.1:{data['port']}"}
+    port = int(data.get("port", 0))
+    if _health(port):
+        return {**data, "url": f"http://127.0.0.1:{port}", "stale": verdict(data, ui_ok=_ui_ok(port))}
     return None
 
 
@@ -93,8 +136,12 @@ def start(project: Project | None = None, wait: float = 10.0) -> dict:
         stop_legacy(project)
     pid = register(project) if project is not None else None
     cur = info()
-    if cur:
+    replaced = None
+    if cur and not cur.get("stale"):
         return {**cur, "project_id": pid, "project_url": project_url(cur["url"], pid)}
+    if cur:  # running but untrustworthy: replace it rather than reuse it
+        replaced = cur["stale"]
+        stop()
     port = ServerConfig.load().port
     while not _free(port):
         port += 1
@@ -103,14 +150,17 @@ def start(project: Project | None = None, wait: float = 10.0) -> dict:
     log = open(home / "server.log", "a", encoding="utf-8")
     proc = subprocess.Popen([sys.executable, "-m", "cairn", "serve", "--port", str(port)], cwd=str(home),
                             stdout=log, stderr=log, stdin=subprocess.DEVNULL, **_spawn_kwargs())
-    _state_file().write_text(json.dumps({"pid": proc.pid, "port": port, "started": time.time()}), encoding="utf-8")
+    _state_file().write_text(json.dumps(new_record(proc.pid, port)), encoding="utf-8")
     url = f"http://127.0.0.1:{port}"
     deadline = time.time() + wait
     while time.time() < deadline:
         if _health(port):
             break
         time.sleep(0.15)
-    return {"pid": proc.pid, "port": port, "url": url, "project_id": pid, "project_url": project_url(url, pid)}
+    out = {"pid": proc.pid, "port": port, "url": url, "project_id": pid, "project_url": project_url(url, pid)}
+    if replaced:
+        out["replaced"] = replaced
+    return out
 
 
 def _spawn_kwargs() -> dict:

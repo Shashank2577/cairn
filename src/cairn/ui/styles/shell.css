@@ -157,3 +157,13 @@
 .hits a.askrow { border-top: 1px solid var(--rule); margin-top: 4px; border-radius: 0 0 7px 7px; }
 .hits a.askrow .t { display: inline-flex; align-items: center; gap: 6px; }
 .hits a.askrow .t .ic { color: var(--spec); flex: none; }
+
+/* a failing server is said once, at the top of the page */
+.srv-banner { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; margin: 0 0 16px;
+  padding: 12px 14px; border: 1px solid var(--risk); border-radius: 8px; background: var(--risk-wash); color: var(--ink); font-size: 14px; line-height: 1.45; }
+.srv-banner code { font-family: var(--mono, ui-monospace, monospace); }
+
+.limits { display: grid; gap: 14px; }
+.limit { padding: 12px 14px; border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: 8px; }
+.limit h3 { margin: 0 0 4px; font-size: 15px; }
+.limit p { margin: 0 0 8px; font-size: 13.5px; opacity: .85; }

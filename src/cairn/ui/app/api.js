@@ -91,7 +91,17 @@ function adopt(raw) {
 export function setCsrf(token) { if (token !== undefined) env.csrf = token || ""; }
 
 async function detailOf(r) {
-  try { const j = await r.json(); return typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch (e) { return ""; }
+  try {
+    const j = await r.json();
+    if (typeof j.detail === "string") return j.detail;
+    if (j.error) return j.cause ? `${j.error} (${j.cause})` : j.error;  // the server's structured failure
+    return JSON.stringify(j.detail);
+  } catch (e) { return ""; }
+}
+
+/** Tell the page a request failed on the server (not a missing or forbidden item), so one banner can say why. */
+function announce(status, path, detail) {
+  window.dispatchEvent(new CustomEvent("cairn:api-error", { detail: { status, path, message: detail } }));
 }
 
 function fail(status, detail, retryAfter) {
@@ -113,9 +123,10 @@ export async function request(method, path, { query, body, signal } = {}) {
   const qs = q.length ? "?" + new URLSearchParams(q.map(([k, v]) => [k, String(v)])) : "";
   let r;
   try { r = await fetch(path + qs, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: "same-origin", signal }); }
-  catch (e) { if (e.name === "AbortError") throw e; throw new ApiError(0); }
+  catch (e) { if (e.name === "AbortError") throw e; announce(0, path, ""); throw new ApiError(0); }
   if (!r.ok) {
     const detail = await detailOf(r);
+    if (r.status >= 500) announce(r.status, path, detail);
     if (r.status === 404 && detail === "Not Found" && PROJECT_ROUTE.test(path)) return fromSample(method, path, Object.fromEntries(q), body);
     fail(r.status, detail, Number(r.headers.get("retry-after")) || undefined);
   }
