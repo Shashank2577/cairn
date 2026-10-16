@@ -22,6 +22,9 @@ from cairn import daemon
 from cairn.project import Project
 
 ROOT = Path(__file__).resolve().parents[2]
+# The `repo` fixture points HOME at a folder that does not exist; headless Chrome hangs without a real home (macOS
+# especially), so the browser check is given the home this module was imported with, before any fixture runs.
+REAL_HOME = {k: os.environ[k] for k in ("HOME", "USERPROFILE") if k in os.environ}
 SMOKE = ROOT / "tests" / "ui" / "smoke.mjs"
 CHROMES = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome",
            "/usr/bin/chromium", "/usr/bin/chromium-browser")
@@ -64,8 +67,13 @@ def _up(url: str, timeout: float = 40) -> bool:
 
 
 def _smoke(url: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["node", str(SMOKE), "--base", url, "--widths", "1440", "--timeout=60"], capture_output=True, text=True,
-                          timeout=900, check=False)
+    budget = os.environ.get("CAIRN_SMOKE_BUDGET", "420")  # seconds for the whole run; lower it to debug a hang
+    # The browser check gets the environment a person's terminal has, not the test run's (which pins model, embedding
+    # and thread settings and a throwaway HOME for the tests).
+    env = {**{k: v for k, v in os.environ.items() if not k.startswith(("CAIRN_", "PYTEST", "KMP_", "OMP_"))}, **REAL_HOME}
+    return subprocess.run(["node", str(SMOKE), "--base", url, "--widths", "1440", "--timeout=45", f"--budget={budget}",
+                           "--verbose"], capture_output=True, text=True, timeout=int(budget) + 120, check=False,
+                          env=env, stdin=subprocess.DEVNULL)
 
 
 @pytest.fixture

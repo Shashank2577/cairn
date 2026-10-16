@@ -5,7 +5,7 @@
 //   node tests/ui/smoke.mjs --base http://127.0.0.1:4747     against a running server (cairn ui / cairn serve)
 //   node tests/ui/smoke.mjs --mock                           against the UI's sample data; no Cairn server needed
 //
-// Options: --timeout=<seconds per page, default 20> --email/--password (team mode sign-in), --widths 1440,390, --project <id>, --chrome <path>
+// Options: --timeout=<seconds per page, default 20> --budget=<seconds for the whole run; 0 = none> --email/--password (team mode sign-in), --widths 1440,390, --project <id>, --chrome <path>
 // (or CHROME_PATH), --shots <dir> (a screenshot per page), --verbose. Needs Node 22+ (global WebSocket and fetch)
 // and Chrome or Chromium; without them it says why and exits 0. Exits 1 when any page has a problem.
 import { spawn, execFileSync } from "node:child_process";
@@ -267,7 +267,22 @@ async function interactions(page, d, problems, base) {
   if (args.verbose) console.log(`ok   ${n} dropdowns opened, ${frames.length} engine views load`);
 }
 
+/** Where the run is, so a hang names the page it is stuck on instead of timing out silently. */
+const progress = { route: "starting", page: null };
+
 async function main() {
+  const budget = Number(args.budget || 0);  // --budget=<seconds>: stop the whole run and say where it was
+  if (budget > 0) {
+    setTimeout(async () => {
+      const waiting = progress.page ? [...progress.page.inflight.values()].map(r => r.url).slice(0, 5) : [];
+      let seen = "(no page)";
+      if (progress.page) {  // what the page shows, if it still answers
+        seen = await Promise.race([progress.page.eval(`JSON.stringify({ url: location.href, state: document.readyState, text: (document.body?.innerText || "").slice(0, 300), app: document.getElementById("app")?.className })`).catch(e => "eval failed: " + e.message), sleep(4000).then(() => "the page did not answer")]);
+      }
+      console.error(`FAIL: the check ran past its ${budget}s budget. Last step: ${progress.route}. Still waiting on: ${waiting.join(", ") || "nothing recorded"}. The page shows: ${seen}`);
+      process.exit(1);
+    }, budget * 1000).unref();
+  }
   if (typeof WebSocket === "undefined" || typeof fetch === "undefined") skip(`needs Node 22 or newer (this is ${process.version}).`);
   if (!args.base && !args.mock) { console.error("Usage: node tests/ui/smoke.mjs --base http://127.0.0.1:4747   or   --mock"); process.exit(2); }
   const bin = findChrome();
@@ -281,13 +296,18 @@ async function main() {
   }
   if (args.shots) fs.mkdirSync(args.shots, { recursive: true });
   // A runner that is busy at that moment can miss the start-up window once; a second try is not hiding a UI fault.
+  progress.route = "launching Chrome";
   const chrome = await launchChrome(bin).catch(() => launchChrome(bin));
+  progress.route = "connecting to Chrome";
   const B = await connect(chrome.ws);
+  progress.route = "Chrome connected";
   const problems = [];
   let visited = 0;
   try {
     for (const width of WIDTHS) {
+      progress.route = `${width}px opening a tab`;
       const page = await openPage(B, width);
+      progress.page = page; progress.route = `${width}px loading the start page`;
       await page.send("Page.navigate", { url: entry + "#/" });
       await settle(page);
       if (!args.mock && await page.eval(`fetch("/api/session", { credentials: "same-origin" }).then(async r => { await r.text(); return r.status; })`) === 401) {
@@ -295,11 +315,13 @@ async function main() {
         if (why) { console.error("FAIL: " + why); process.exitCode = 1; return; }
         await page.send("Page.reload", { ignoreCache: true }); await settle(page);
       }
+      progress.route = `${width}px finding the pages to visit`;
       const d = await discover(page, args.project);
       if (d.error) { console.error("FAIL: " + d.error); process.exitCode = 1; return; }
       if (width === WIDTHS[0]) console.log(`Cairn UI smoke: ${args.mock ? "sample data" : base} (${d.mode} mode), project ${d.pid}, widths ${WIDTHS.join(" and ")}px, Chrome ${path.basename(bin)}`);
       page.drain(); page.inflight.clear();  // the start page, sign-in and discovery are not under test
       for (const route of routesFor(d)) {
+        progress.route = `${width}px ${decodeURIComponent(route)}`; progress.page = page;
         await page.eval(`location.hash = ${JSON.stringify(route)}`);
         const settled = await settle(page);
         const c = await page.eval(CHECK);
