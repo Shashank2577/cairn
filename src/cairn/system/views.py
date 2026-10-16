@@ -138,6 +138,7 @@ def scope_line(product, commit: str, extra: str = "") -> str:
     line = f"{boundary_name(product)} (software system, {n} repositor{'y' if n == 1 else 'ies'})"
     if commit:
         line += f" · commit {commit}"
+    line += " · 0 model calls"
     return line + (f" · {extra}" if extra else "")
 
 

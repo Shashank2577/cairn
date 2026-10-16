@@ -378,6 +378,12 @@ class _Linker:
             pinned = m.get("target")
             if pinned and pinned not in self.out.elements:
                 pinned = self.alias.get(pinned)
+            if pinned and m.get("inferred_target") and m.get("host_key"):
+                # an address that only looked like an outside domain, but a sibling repository answers to it:
+                # the sibling wins, and no outside system is claimed
+                hits = names.get(m["host_key"], set()) - {src}
+                if len(hits) == 1:
+                    pinned = next(iter(hits))
             if not pinned and m.get("base"):
                 t = cfg_targets.get((call.repo, m["base"]))
                 if t and t.startswith("hostkey:"):
