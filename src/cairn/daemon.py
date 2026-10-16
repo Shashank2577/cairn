@@ -100,6 +100,53 @@ def info() -> dict | None:
     return None
 
 
+def _listeners(lo: int, hi: int) -> dict[int, int]:
+    """Loopback ports lo..hi that something listens on, as {port: pid}. POSIX only (`lsof`); anywhere else, or
+    without `lsof`, nothing is reported rather than guessed."""
+    if os.name == "nt":
+        return {}
+    try:
+        res = subprocess.run(["lsof", "-nP", f"-iTCP:{lo}-{hi}", "-sTCP:LISTEN", "-Fpn"], capture_output=True,
+                             text=True, timeout=5, check=False, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    found: dict[int, int] = {}
+    pid = 0
+    for line in res.stdout.splitlines():
+        if line.startswith("p") and line[1:].isdigit():
+            pid = int(line[1:])
+        elif line.startswith("n") and pid:
+            port = line.rsplit(":", 1)[-1]
+            if port.isdigit():
+                found[int(port)] = pid
+    return found
+
+
+def stray_servers() -> list[dict]:
+    """Cairn servers running on the usual ports that the record does not know about: a server left from an older
+    install or a deleted worktree. `cairn down` cannot reach them, and one on the default port is the page a
+    bookmark opens."""
+    f = _state_file()
+    try:
+        known = int(json.loads(f.read_text(encoding="utf-8")).get("pid") or 0) if f.exists() else 0
+    except (ValueError, json.JSONDecodeError):
+        known = 0
+    first = ServerConfig.load().port
+    out = []
+    for port, pid in sorted(_listeners(first, first + 20).items()):
+        if pid == known:
+            continue
+        cmd = _command_line(pid)
+        if "cairn serve" in cmd:
+            out.append({"port": port, "pid": pid, "command": cmd.strip()[:160]})
+    return out
+
+
+def stop_strays() -> list[int]:
+    """Stop every stray Cairn server; returns the ports freed."""
+    return [s["port"] for s in stray_servers() if _terminate(s["pid"])]
+
+
 def stop_legacy(project: Project) -> bool:
     """Earlier versions ran one server per repository (state in `<repo>/.cairn/server.json`). Stop such a
     leftover server so it can't hold the repository's stores open, and forget it."""

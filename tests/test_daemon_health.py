@@ -101,3 +101,29 @@ def test_start_reuses_a_healthy_server(home, monkeypatch):
     monkeypatch.setattr(daemon.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start a second server"))
     out = daemon.start(None)
     assert out["pid"] == 1 and "replaced" not in out
+
+
+# ---- servers the record does not know about (a leftover server on another port kept answering for a week) ----
+def test_a_cairn_server_the_record_does_not_know_is_a_stray(home, monkeypatch):
+    (home / "server.json").write_text(json.dumps({"pid": 10, "port": 4748}), encoding="utf-8")
+    monkeypatch.setattr(daemon, "_listeners", lambda lo, hi: {4747: 85413, 4748: 10, 4760: 555})
+    cmds = {85413: "/old/.venv/bin/python3 .venv/bin/cairn serve --port 4747", 10: "python -m cairn serve --port 4748",
+            555: "node server.js"}
+    monkeypatch.setattr(daemon, "_command_line", lambda pid: cmds[pid])
+    strays = daemon.stray_servers()
+    assert [(s["port"], s["pid"]) for s in strays] == [(4747, 85413)]  # not the recorded server, not node
+    assert "cairn serve" in strays[0]["command"]
+
+
+def test_stop_strays_stops_only_cairn_servers(home, monkeypatch):
+    monkeypatch.setattr(daemon, "stray_servers", lambda: [{"port": 4747, "pid": 85413, "command": "cairn serve"}])
+    killed = []
+    monkeypatch.setattr(daemon, "_terminate", lambda pid: killed.append(pid) or True)
+    assert daemon.stop_strays() == [4747] and killed == [85413]
+
+
+def test_no_lsof_means_no_strays_not_an_error(home, monkeypatch):
+    def boom(*a, **k):
+        raise FileNotFoundError("lsof")
+    monkeypatch.setattr(daemon.subprocess, "run", boom)
+    assert daemon._listeners(4747, 4760) == {} and daemon.stray_servers() == []

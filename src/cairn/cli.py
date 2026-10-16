@@ -322,6 +322,9 @@ def status(as_json: bool = typer.Option(False, "--json", help="Machine-readable 
     console.print("   ".join(bits))
     if srv and srv.get("stale"):  # the server answers but cannot be trusted: say why and the one fix
         console.print(f"[{ROSE}]⚠ {escape(srv['stale']['reason'])}[/]\n  fix: {escape(srv['stale']['fix'])}")
+    for x in daemon.stray_servers():
+        console.print(f"[{ROSE}]⚠ another Cairn server is running on port {x['port']} (pid {x['pid']})[/]"
+                      "\n  fix: run `cairn down --all`, then `cairn up`")
 
 
 def _ago(ts: float) -> str:
@@ -411,6 +414,11 @@ def doctor():
     row(bool(srv) and not stale, "Local UI",
         (f"{srv['url']} · {stale['reason']}" if stale else srv["url"]) if srv else "stopped",
         stale["fix"] if stale else "cairn ui")
+    strays = daemon.stray_servers()
+    row(not strays, "Other Cairn servers",
+        "none" if not strays else "; ".join(f"port {x['port']} (pid {x['pid']})" for x in strays)
+        + " · not the server `cairn up` manages, so it can serve old or deleted code",
+        "cairn down --all")
     row(bool(shutil.which("cairn")), "cairn on PATH", "yes" if shutil.which("cairn") else "no",
         "uv tool install --python 3.12 cairn-brain")
     from . import agents as agents_mod
@@ -1011,10 +1019,15 @@ def up():
 
 
 @app.command()
-def down():
+def down(all_servers: bool = typer.Option(False, "--all", help="Also stop leftover Cairn servers on other ports.")):
     """Stop the local server (it serves every registered repository)."""
     from . import daemon
     console.print(f"[{MOSS}]✓[/] stopped" if daemon.stop() else f"[{SLATE}]not running[/]")
+    if all_servers:
+        freed = daemon.stop_strays()
+        if freed:
+            console.print(f"[{MOSS}]✓[/] also stopped leftover servers on port{'s' if len(freed) > 1 else ''} "
+                          + ", ".join(str(p) for p in freed))
 
 
 @app.command()
