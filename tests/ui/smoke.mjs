@@ -74,11 +74,15 @@ function serveUi() {
 /** Launch Chrome on a free debugging port and return its browser WebSocket URL. */
 function launchChrome(bin) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "cairn-ui-smoke-"));
-  const proc = spawn(bin, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check",
-    "--disable-gpu", "--disable-extensions", "--hide-scrollbars", "--mute-audio", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+  const flags = ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check",
+    "--disable-gpu", "--disable-extensions", "--hide-scrollbars", "--mute-audio", "about:blank"];
+  // Containers and CI runners often have a tiny /dev/shm and no sandbox support; both make Chrome slow or unable to start.
+  if (process.platform === "linux") flags.splice(1, 0, "--disable-dev-shm-usage", ...(process.env.CI || os.userInfo().uid === 0 ? ["--no-sandbox"] : []));
+  const proc = spawn(bin, flags, { stdio: ["ignore", "ignore", "pipe"] });
+  const wait = Math.max(20000, PAGE_TIMEOUT_MS);
   return new Promise((resolve, reject) => {
     let buf = "";
-    const t = setTimeout(() => reject(new Error("Chrome didn't open a debugging port within 20 seconds.")), 20000);
+    const t = setTimeout(() => { proc.kill(); reject(new Error(`Chrome didn't open a debugging port within ${wait / 1000} seconds.`)); }, wait);
     proc.stderr.on("data", d => { buf += d; const m = buf.match(/DevTools listening on (ws:\/\/\S+)/); if (m) { clearTimeout(t); resolve({ proc, ws: m[1], profile }); } });
     proc.on("exit", code => { clearTimeout(t); reject(new Error(`Chrome exited (${code}) before it was ready.`)); });
   });
@@ -276,7 +280,8 @@ async function main() {
     catch (e) { console.error(`FAIL: no Cairn server at ${base} (${e.message}). Start one with \`cairn ui\`, or run with --mock.`); process.exit(1); }
   }
   if (args.shots) fs.mkdirSync(args.shots, { recursive: true });
-  const chrome = await launchChrome(bin);
+  // A runner that is busy at that moment can miss the start-up window once; a second try is not hiding a UI fault.
+  const chrome = await launchChrome(bin).catch(() => launchChrome(bin));
   const B = await connect(chrome.ws);
   const problems = [];
   let visited = 0;
