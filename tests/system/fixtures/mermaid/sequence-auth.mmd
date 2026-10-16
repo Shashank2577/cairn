@@ -1,0 +1,32 @@
+---
+title: "Sign in with a token"
+---
+sequenceDiagram
+    autonumber
+    actor User as Shopper
+    participant Web as Storefront
+    participant Gate as API gateway
+    participant Auth as Auth service
+
+    User->>Web: Sign in with email<br/>[POST /session]
+    Web->>Gate: Create session<br/>[POST /session]
+    Gate->>Auth: Verify the password<br/>[principal()]
+    alt password accepted
+        Auth-->>Gate: Principal and scopes
+        Gate-->>Web: Session token
+        Web-->>User: Signed in
+    else rejected
+        Gate--)User: 401 with a reason
+    end
+    opt refresh soon
+        Web->>Gate: Refresh the token<br/>[POST /session/refresh]
+        Gate-->>Web: A new token
+    end
+    loop every 5 minutes while the tab is open
+        Web->>Gate: Heartbeat<br/>[GET /session]
+        Gate-->>Web: Still valid
+    end
+    Note over Gate,Auth: Credentials never appear in a label
+    activate Gate
+    Gate->>Auth: Record the sign-in
+    deactivate Gate

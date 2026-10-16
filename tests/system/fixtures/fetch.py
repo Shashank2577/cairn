@@ -62,3 +62,14 @@ def pinned_repo(url: str, commit: str, name: str) -> Path:
 
 def voting_app() -> Path:
     return pinned_repo(VOTING_APP_URL, VOTING_APP_COMMIT, "example-voting-app")
+
+
+# A second unseen real product: Google's Online Boutique (microservices-demo), pinned at a known commit.
+# Chosen because it is a real multi-service product (11 services, 5 languages) that the extractor has
+# never seen, satisfying T002's requirement for a second blind accuracy measurement.
+BOUTIQUE_URL = "https://github.com/GoogleCloudPlatform/microservices-demo"
+BOUTIQUE_COMMIT = "39efed435e697bcdcd31c5e45f4d36dc35c98a63"  # v0.10.1
+
+
+def boutique() -> Path:
+    return pinned_repo(BOUTIQUE_URL, BOUTIQUE_COMMIT, "microservices-demo")

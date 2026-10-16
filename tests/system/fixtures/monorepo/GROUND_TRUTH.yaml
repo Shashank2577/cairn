@@ -1,0 +1,28 @@
+# Ground truth for the monorepo fixture: one repository, several deploy units (T002).
+# Written from the intended design of the product below, before extraction was run on this fixture.
+# It states what a developer would draw by reading the repository, not what Cairn produced.
+fixture: monorepo
+layout: monorepo (one repository, three deploy units built from sibling directories by docker-compose.yml)
+written: 2026-10-09, before extraction
+
+# The three units are deliberately different languages and frameworks, so the route and client rules
+# have to read each of them: gateway is Express, billing is FastAPI, notify is net/http over Kafka.
+elements:
+  - {id: gateway, type: container,  kind: web-app, tech: Node.js Express,   note: "edge/ - public HTTP API; routes /health and /checkout/invoices"}
+  - {id: billing, type: container,  kind: service,  tech: Python FastAPI,    note: "billing/ - creates and reads invoices"}
+  - {id: notify,  type: container,  kind: worker,   tech: Go net/http,       note: "notify/ - consumes order.placed"}
+  - {id: db,      type: data-store, tech: PostgreSQL, note: "postgres:16 - stores invoices"}
+  - {id: bus,     type: channel,    tech: Kafka,     note: "bitnami/kafka - carries order.placed"}
+  - {id: stripe,  type: external-system, tech: Stripe, note: "charges the customer"}
+
+# Messaging is drawn through the channel, not publisher to consumer: the two units share the topic and
+# each has an edge to it (the same shape the shop fixture's ground truth states).
+relationships:
+  - {from: gateway, to: billing, what: creates invoices, style: sync,  note: "fetch POST ${BILLING_URL}/invoices; matched to the billing route POST /invoices"}
+  - {from: billing, to: db,      what: reads and writes invoices, style: sync, note: "psycopg connect; INSERT invoices"}
+  - {from: billing, to: bus,     what: publishes order.placed, style: async, note: "kafka-python producer on order.placed"}
+  - {from: notify,  to: bus,     what: subscribes to order.placed, style: async, note: "kafka-go Reader on order.placed"}
+  - {from: billing, to: stripe,  what: charges the customer, style: sync, note: "stripe SDK client"}
+
+# Not scored: the compose depends_on edges (startup order, not traffic), the gateway's own health route
+# (a code-level element, not a container relationship) and the shared library package edge (build time).

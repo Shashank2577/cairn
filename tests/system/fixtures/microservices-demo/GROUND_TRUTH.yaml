@@ -1,0 +1,40 @@
+# BLIND ground truth for GoogleCloudPlatform/microservices-demo (Online Boutique), written BEFORE any Cairn
+# extraction ran on it and before anyone working on this feature read its source code. Sources: the README's
+# architecture diagram and service list at the pinned tag, the kubernetes-manifests/ service list, and general
+# knowledge of this public demo. No extraction rule may be edited while looking at this fixture (T002).
+fixture: microservices-demo
+upstream: https://github.com/GoogleCloudPlatform/microservices-demo
+licence: Apache-2.0
+commit: v0.10.1
+layout: monorepo (one repository, src/ per service, kubernetes-manifests/ at the root)
+written: 2026-10-09, before extraction
+scope: kubernetes-manifests/ and src/ service list only (loadgenerator and locust are out of scope)
+
+elements:
+  - {id: frontend,        type: container,  kind: web-app, tech: Go, note: "serves the UI, talks to every service"}
+  - {id: currencyservice,  type: container,  kind: service, tech: Node.js}
+  - {id: productcatalogservice, type: container, kind: service, tech: Go}
+  - {id: cartservice,      type: container,  kind: service, tech: C#}
+  - {id: checkoutservice,  type: container,  kind: service, tech: Go}
+  - {id: shippingservice,  type: container,  kind: service, tech: Go}
+  - {id: paymentservice,   type: container,  kind: service, tech: Node.js}
+  - {id: emailservice,     type: container,  kind: service, tech: Python}
+  - {id: recommendationservice, type: container, kind: service, tech: Python}
+  - {id: adserviceservice, type: container,  kind: service, tech: Java}
+  - {id: redis,           type: data-store, tech: Redis, note: "cart storage"}
+  - {id: productcatalog,  type: data-store, tech: "in-memory JSON", note: "not a real database; product catalog data"}
+
+relationships:
+  - {from: frontend, to: currencyservice,    style: sync, note: "gRPC"}
+  - {from: frontend, to: productcatalogservice, style: sync, note: "gRPC"}
+  - {from: frontend, to: cartservice,        style: sync, note: "gRPC"}
+  - {from: frontend, to: recommendationservice, style: sync, note: "gRPC"}
+  - {from: frontend, to: shippingservice,    style: sync, note: "gRPC"}
+  - {from: frontend, to: checkoutservice,    style: sync, note: "gRPC"}
+  - {from: frontend, to: adserviceservice,   style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: productcatalogservice, style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: shippingservice, style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: paymentservice, style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: emailservice, style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: currencyservice, style: sync, note: "gRPC"}
+  - {from: cartservice, to: redis,           style: sync, note: "cart storage"}

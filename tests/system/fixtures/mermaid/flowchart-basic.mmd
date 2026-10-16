@@ -1,0 +1,8 @@
+%% The everyday hand-written chart: shapes per element type, labels on every arrow.
+flowchart LR
+  shopper([Customer]) -->|"Browses the store"| web["Storefront<br/>[Node.js]"]
+  web -->|"Creates orders"| api["Orders API<br/>[Python · FastAPI]"]
+  api -->|"Reads and writes orders"| db[("Orders<br/>[PostgreSQL]")]
+  api -.->|"Publishes order.created"| bus[["Events<br/>[Redis]"]]
+  worker["Order worker<br/>[Python]"] -->|"Consumes order.created"| bus
+  api -->|"Sends confirmations"| mail[/"SendGrid<br/>[HTTPS]"/]

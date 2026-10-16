@@ -1,0 +1,24 @@
+%% Boundaries. The nested subgraph is flattened, the arrow into the subgraph is dropped, and the last
+%% subgraph is never closed: every one of those is a fact this importer cannot keep, so each one warns.
+flowchart LR
+  subgraph shop["Shop · software system"]
+    direction LR
+    web["Storefront"]
+    api["Orders API"]
+    subgraph inner["Runtime"]
+      worker["Order worker"]
+      sched["Scheduler"]
+    end
+  end
+  subgraph net["Compose network · network isolation"]
+    db[("PostgreSQL")]
+    redis[("Redis")]
+  end
+  web --> api
+  api --> db
+  api --> redis
+  worker --> redis
+  sched --> web
+  shop -->|"Depends on"| net
+  subgraph unclosed["Reporting"]
+    rep["Nightly report"]

@@ -1,0 +1,24 @@
+%% What real sequence files get wrong. Nothing here may crash, and nothing may be lost quietly:
+%% the stray end, the lost-message arrow, the unclosed fragment and the orphan comment each warn.
+sequenceDiagram
+  title Refund a card payment
+  participant Web as Storefront
+  participant Pay as Payments
+  participant Ledger as Ledger
+
+  Web->>Pay: Charge the card<br/>[POST /charges]
+  Pay--xLedger: Write the entry
+  Pay-->>Web: Charge id
+
+  critical the ledger must accept
+    Pay->>Ledger: Post the entry<br/>[gRPC]
+  end
+  rect rgb(230, 230, 230)
+    Pay->>Ledger: Confirm the write
+  end
+  %% cairn:msg 99 {"how": "this message does not exist"}
+  %% cairn Web->>Nobody how="no such arrow"
+  Web->>Pay: Ask for a refund<br/>[POST /refunds]
+  loop until the ledger settles
+    Pay->>Ledger: Poll the entry
+  Pay-->>Web: Refunded

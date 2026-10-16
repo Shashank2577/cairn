@@ -1,0 +1,7 @@
+{
+  "name": "gateway",
+  "version": "1.0.0",
+  "description": "Public checkout API for the Plate product",
+  "main": "server.js",
+  "dependencies": {"express": "4.19.2"}
+}
