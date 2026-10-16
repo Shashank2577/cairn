@@ -323,8 +323,9 @@ class _Linker:
             coded = [c for c in g["calls"] if not str(c.meta.get("client", "")).startswith("config")]
             proto_calls = [str(c.meta.get("client", "")) for c in coded]
             grpc = sum(1 for x in proto_calls if "grpc" in x)
-            proto = ("" if not proto_calls else "gRPC" if grpc == len(proto_calls) else
-                     "HTTP/gRPC" if grpc else "HTTP")
+            proto = ("HTTP" if g["calls"] and all(c.meta.get("scheme") == "http" for c in g["calls"]) else ""
+                     ) if not proto_calls else ("gRPC" if grpc == len(proto_calls) else
+                                                "HTTP/gRPC" if grpc else "HTTP")
             # a configured address with a code call beside it adds no path of its own
             paths = sorted({_call_label(c) for c in (coded or g["calls"])})
             how = clip((proto + " · " if proto else "") + _summarise(paths), 36)

@@ -147,9 +147,10 @@ def cairn_why(target: str, budget: int = 1200) -> str:
 def cairn_search(query: str, kinds: list[str] | None = None, limit: int = 12) -> str:
     """Call to find anything in the memory graph when the task names a symbol, file, spec, task, commit, decision
     or memory you don't recognise: returns a short hit list of ids and paths. kinds ⊆ symbol,file,spec,task,req,
-    commit,memory,obs,fact."""
+    commit,memory,obs,fact,text (any line of code or config, with its function's lines)."""
+    from .textsearch import cite
     hits = _project().search(query, kinds, limit)
-    return "\n".join(f"- {h['title']} [{h['id']}]" + (f" {h['path']}" if h.get("path") else "") for h in hits) or "No matches."
+    return "\n".join(f"- {h['title']} [{h['id']}]" + (f" {cite(h)}" if h.get("path") else "") for h in hits) or "No matches."
 
 
 def cairn_trace(mode: str, a: str, b: str = "") -> str:

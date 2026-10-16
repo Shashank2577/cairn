@@ -1044,9 +1044,10 @@ class Builder:
                 continue          # a value that merely looks like a word (APP_ENV=dev) is not an address
             if name in reads:
                 path, line = reads[name]
-                site = self._use_site(path, line)
+                site, http = self._use_site(path, line)
                 ev = (self.ev("call", path, site) if site else self.ev("config", path, line, f"{name} address"))
             else:
+                http = False
                 d = u.env_names.get(name)
                 ev = self.ev("deploy-config", d.file if d else None, d.line if d else None, f"{name} address")
             target, hkey = self.resolve_host(host)
@@ -1061,7 +1062,8 @@ class Builder:
                 continue
             meta = {"method": "ANY", "path": routes_mod.norm_path(pu.path) if pu and pu.path else None,
                     "base": name, "target": target, "inferred_target": inferred, "host_key": hkey,
-                    "client": "config default" if name in reads else "config wiring"}
+                    "client": "config default" if name in reads else "config wiring",
+                    "scheme": "http" if http else None}
             self.model.add(Element(
                 id=f"{self.repo}:http-call:{u.key}:cfg:{name}", type="code", level="code",
                 name=f"ANY {pu.path if pu and pu.path else '(configured address)'}", repo=self.repo,
@@ -1070,22 +1072,27 @@ class Builder:
     _BOUND = re.compile(r"(\w+)\s*(?::\s*[\w.\[\]]+\s*)?=(?!=)")
     _CALLISH = re.compile(r"(?i)https?:|request|fetch|\.(?:get|post|put|delete|send)\b|\bnew\s|client|connect")
 
-    def _use_site(self, path: str, line: int | None) -> int | None:
+    _HTTP = re.compile(r"(?i)\bhttps?://")
+
+    def _use_site(self, path: str, line: int | None) -> tuple[int | None, bool]:
         """The line that USES the variable a configured address was read into, so a relationship cites the
         call and not the line that names the host (``var host = process.env.X || 'y'`` -> where ``host``
-        builds the request). None when the read is not bound to a name or the name is never used."""
+        builds the request). (None, False) when the read is not bound to a name or the name is never used;
+        the flag says an ``http://`` literal sits on the read or the use line (the scheme is then known)."""
         text = self.files.read(path)
         if not text or not line:
-            return None
+            return None, False
         lines = text.splitlines()
         if line > len(lines):
-            return None
+            return None, False
+        http = bool(self._HTTP.search(lines[line - 1]))
         m = self._BOUND.search(lines[line - 1])
         if not m:
-            return None
+            return None, http
         use = re.compile(r"\b" + re.escape(m.group(1)) + r"\b")
         hits = [i for i in range(line + 1, len(lines) + 1) if use.search(lines[i - 1])]
-        return next((i for i in hits if self._CALLISH.search(lines[i - 1])), hits[0] if hits else None)
+        site = next((i for i in hits if self._CALLISH.search(lines[i - 1])), hits[0] if hits else None)
+        return site, http or bool(site and self._HTTP.search(lines[site - 1]))
 
     def _config_external(self, name: str, scheme: str | None, ev: Evidence) -> str:
         """The outside system a configuration name points at (T056): inferred, named after the

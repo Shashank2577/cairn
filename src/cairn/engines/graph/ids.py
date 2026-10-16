@@ -91,3 +91,10 @@ def make_id(*parts: str) -> str:
     what the builder produces from the joined string.
     """
     return normalize_id("_".join(p.strip("_.") for p in parts if p))
+
+
+def is_external_symbol(node: dict) -> bool:
+    """A framework or library symbol the graph names but the repository does not define (``Psr\\Log\\LoggerInterface``,
+    ``org.springframework...GetMapping``): no source file, or marked external. Ranking, areas and queries
+    skip them, because everything that uses a library points at it and it says nothing about this system."""
+    return bool(node.get("external")) or (not node.get("source_file") and node.get("file_type") in ("code", "concept"))

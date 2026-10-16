@@ -773,8 +773,12 @@ class Cairn:
         return {"totals": self.brain.query_totals(), "recent": self.brain.queries(limit)}
 
     def search(self, q: str, kinds: list[str] | None = None, limit: int = 20) -> list[dict]:
-        hits = self.brain.search(q, kinds=kinds, limit=limit)
-        if not kinds or "symbol" in kinds:
+        asked = list(kinds or [])
+        want_text = not asked or "text" in asked
+        kinds = [k for k in asked if k != "text"]
+        text_only = bool(asked) and not kinds
+        hits = [] if text_only else self.brain.search(q, kinds=kinds or None, limit=limit)
+        if not text_only and (not kinds or "symbol" in kinds):
             idx = self.map
             for nid in idx.resolve(q, limit=3):
                 sid = f"symbol:{nid}"
@@ -783,7 +787,15 @@ class Cairn:
         for h in hits:
             e = self.brain.entity(h["id"])
             h["path"] = e["path"] if e else None
-        return hits[:limit]
+        hits = hits[:limit]
+        if want_text:
+            # names first; what no name matches (a word in a string, a port, a variable) fills the rest.
+            # An environment variable or a port is a literal, not a name: its text hits lead.
+            from . import textsearch
+            literal = re.fullmatch(r"[A-Z][A-Z0-9_]{3,}|\d{2,5}", q.strip()) is not None
+            found = textsearch.search(self.project.root, q, limit if literal else max(0, limit - len(hits)))
+            hits = (found + hits)[:limit] if literal else hits + found
+        return hits
 
 
 def _recency(ts: float | None, half_life_days: float = 30) -> float:

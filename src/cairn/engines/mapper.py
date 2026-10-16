@@ -239,6 +239,10 @@ class MapIndex:
     def is_code(self, nid: str) -> bool:
         return self.nodes.get(nid, {}).get("file_type") in CODE_TYPES
 
+    def is_external(self, nid: str) -> bool:
+        from .graph.ids import is_external_symbol
+        return is_external_symbol(self.nodes.get(nid, {}))
+
     def degree(self, nid: str) -> int:
         return sum(1 for e in self.out.get(nid, ()) if e.rel not in STRUCTURE_RELS) + \
             sum(1 for e in self.inc.get(nid, ()) if e.rel not in STRUCTURE_RELS)
@@ -373,7 +377,8 @@ class MapIndex:
         return out[:limit]
 
     def hubs(self, top: int = 10) -> list[dict]:
-        ranked = sorted((n for n in self.nodes if self.is_code(n)), key=self.degree, reverse=True)[:top]
+        ranked = sorted((n for n in self.nodes if self.is_code(n) and not self.is_external(n)),
+                        key=self.degree, reverse=True)[:top]
         return [{"id": n, "label": self.label(n), "file": self.file_of(n), "degree": self.degree(n)} for n in ranked]
 
     def areas(self, top_members: int = 5) -> list[dict]:
@@ -381,14 +386,17 @@ class MapIndex:
         names: dict[int, str] = {}
         for nid, n in self.nodes.items():
             c = n.get("community")
-            if c is None:
+            if c is None or self.is_external(nid):
                 continue
             groups[c].append(nid)
             if n.get("community_name"):
                 names[c] = n["community_name"]
+        externals = {n.get("label") for n in self.nodes.values() if self.is_external(n["id"])}
         out = []
         for c, ids in groups.items():
             ids.sort(key=self.degree, reverse=True)
+            if names.get(c) in externals:       # an area is never named after a library it merely uses
+                names[c] = self.label(ids[0])
             out.append({"id": c, "name": names.get(c, f"Area {c}"), "size": len(ids),
                         "top": [self.label(i) for i in ids[:top_members]]})
         return sorted(out, key=lambda a: a["size"], reverse=True)

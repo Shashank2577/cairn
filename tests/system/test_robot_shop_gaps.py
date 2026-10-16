@@ -41,6 +41,11 @@ def test_http_wiring_is_never_labelled_grpc(v, a, b):
     assert "grpc" not in rel(v, a, b)["how"].lower()
 
 
+@pytest.mark.parametrize("a,b", [("cart", "catalogue"), ("shipping", "cart")])
+def test_an_http_url_literal_beside_the_address_makes_it_http(v, a, b):
+    assert rel(v, a, b)["how"].startswith("HTTP"), rel(v, a, b)["how"]    # 'http://' + host / "http://%s/..."
+
+
 def test_config_wiring_cites_the_call_site_not_the_config_line(v):
     cart = rel(v, "cart", "catalogue")["evidence"][0]
     assert cart.endswith("cart/server.js:362"), cart            # request('http://' + catalogueHost + ...)
@@ -62,3 +67,11 @@ def test_summary_lists_every_distinct_call(v):
     assert "/check" in r["how"] and "POST /order" in r["how"], r["how"]
     assert "ANY" not in r["how"], r["how"]                      # the config default adds no path
     assert r["evidence"][0].endswith("payment/payment.py:64"), r["evidence"]
+
+
+def test_a_citation_carries_the_enclosing_functions_lines(v, tmp_path_factory):
+    from cairn.spans import annotate
+    src = pinned_repo("https://github.com/instana/robot-shop", PIN, "robot-shop")
+    ref = rel(v, "cart", "catalogue")["evidence"][0]                       # robot-shop/cart/server.js:362
+    assert annotate(src, ref) == f"{ref} (lines 360-374)"                  # function getProduct(sku) { ... }
+    assert annotate(src, "robot-shop/cart/missing.js:3") == "robot-shop/cart/missing.js:3"

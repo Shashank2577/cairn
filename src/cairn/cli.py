@@ -545,7 +545,7 @@ def ask(question: str = typer.Argument(...), budget: int = typer.Option(1800),
 
 
 @app.command()
-def search(query: str, kinds: Optional[str] = typer.Option(None, help="symbol,file,spec,task,req,commit,memory,obs,fact"),
+def search(query: str, kinds: Optional[str] = typer.Option(None, help="symbol,file,spec,task,req,commit,memory,obs,fact,text"),
            limit: int = 20, as_json: bool = typer.Option(False, "--json")):
     """Search every layer."""
     c = _cairn()
@@ -553,8 +553,11 @@ def search(query: str, kinds: Optional[str] = typer.Option(None, help="symbol,fi
     if as_json:
         _emit_json(hits)
         return
+    from rich.markup import escape
+
+    from .textsearch import cite
     for h in hits:
-        console.print(f" [{SLATE}]{h['kind']:<8}[/] [{INK}]{h['title']}[/]  [dim]{h.get('path') or h['id']}[/]")
+        console.print(f" [{SLATE}]{h['kind']:<8}[/] [{INK}]{escape(h['title'])}[/]  [dim]{escape(cite(h)) if h.get('path') else h['id']}[/]")
 
 
 @app.command()
@@ -975,6 +978,8 @@ def _system_view(root: Path, level: str, scope: str | None, as_json: bool, out: 
     if out is not None:
         return
     from rich.markup import escape
+
+    from .spans import annotate
     console.print(brand("system"))
     console.print(f"  [{INK}]{escape(desc['title'])}[/]  [{SLATE}]{escape(desc['scope'])}[/]")
     for e in desc["elements"]:
@@ -982,14 +987,14 @@ def _system_view(root: Path, level: str, scope: str | None, as_json: bool, out: 
         kind = e.get("kind") or e["type"]
         tech = f" · {e['tech']}" if e.get("tech") else ""
         console.print(f"  [{MOSS}]●[/] [{INK}]{mark}{escape(e['name'])}[/] "
-                      f"[{SLATE}]{escape(kind + tech)} — {escape(e['evidence'][0])}[/]")
+                      f"[{SLATE}]{escape(kind + tech)} — {escape(annotate(root, e['evidence'][0]))}[/]")
     names = {e["id"]: e["name"] for e in desc["elements"]}
     for r in desc["relationships"]:
         mark = {"declared": "◆ ", "inferred": "≈ ", "ambiguous": "? ", "stale": "⚠ "}.get(r["provenance"], "")
         label = " · ".join(x for x in (r.get("what"), f"[{r['how']}]" if r.get("how") else None) if x)
         ends = f"{names.get(r['from'], r['from'])} → {names.get(r['to'], r['to'])}"
         console.print(f"    [{INK}]{mark}{escape(ends)}[/]  [{SLATE}]{escape(label)} ({r['style']}) — "
-                      f"{escape(r['evidence'][0])}[/]")
+                      f"{escape(annotate(root, r['evidence'][0]))}[/]")
 
 
 @app.command("review-context")
