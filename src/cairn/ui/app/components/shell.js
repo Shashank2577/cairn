@@ -7,6 +7,34 @@ import { api, env } from "../api.js";
 import { link, citeHref, go } from "../router.js";
 import { ago, fmt, ROLE_LABEL, canRole, allowed, STEP_LABEL, failText } from "../lib/format.js";
 
+/* ------------------------------------------------------- server banner */
+/** One banner when the server fails: it says whether the server itself is stale or gone, or which request failed. */
+export function ServerBanner() {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    let last = 0;
+    const onError = async e => {
+      const now = Date.now();
+      if (now - last < 4000) return;  // one banner, not one per failing panel
+      last = now;
+      const { status, path, message } = e.detail || {};
+      let health = null;
+      try { health = await (await fetch("/api/health", { headers: { accept: "application/json" } })).json(); } catch (err) { /* unreachable */ }
+      if (!health) setInfo({ title: "Can't reach the Cairn server", body: "It may have stopped. Run `cairn up` in a terminal to start it.", fix: "cairn up" });
+      else if (health.code_root_exists === false || health.ui_ok === false)
+        setInfo({ title: "The Cairn server is running from files that no longer exist", body: "Its code or UI files were deleted or replaced, so pages and dropdowns fail.", fix: "cairn up" });
+      else setInfo({ title: "The server hit an error", body: `${path || "A request"} failed${status ? ` (${status})` : ""}${message ? `: ${message}` : ""}. The rest of the page still works.` });
+    };
+    window.addEventListener("cairn:api-error", onError);
+    return () => window.removeEventListener("cairn:api-error", onError);
+  }, []);
+  if (!info) return null;
+  return html`<div class="srv-banner" role="alert">
+    <div><b>${info.title}.</b> ${info.body}${info.fix ? html` Fix: run <code>${info.fix}</code> in a terminal (it restarts the server; other repositories are interrupted for a few seconds), then reload.` : null}</div>
+    <button class="btn ghost sm" onClick=${() => setInfo(null)}>Dismiss</button>
+  </div>`;
+}
+
 /* ---------------------------------------------------------------- top bar */
 export function TopBar({ onMenu }) {
   const { session, project, team } = useApp();

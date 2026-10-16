@@ -11,9 +11,9 @@ import asyncio
 import contextlib
 import copy
 import json
+import logging
 import os
 import threading
-import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -34,6 +34,7 @@ from .platform.web import (_me, _project_json, current_principal, get_config, ge
 from .project import Project
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
+log = logging.getLogger("cairn.server")
 MAX_EVENTS_BODY = 16 * 2**20  # one pushed batch of session events (the client halves its batch on 413)
 
 
@@ -215,8 +216,11 @@ def project_router(hub: Hub) -> APIRouter:
         cairn = c(pid)
         o = cairn.overview()
         o["syncing"] = pid in hub.syncing
+        deep = cairn.router.deep_state()
         o["models"] = {"available": cairn.router.available, "provider": cairn.router.provider,
-                       "deep": cairn.router.deep_enabled()}
+                       "deep": deep["enabled"], "deep_state": deep}
+        from .budgets import budgets
+        o["budgets"] = budgets(cairn.project, cairn.brain)
         from . import agents as agents_mod
         from .engines import journal
         o["capture"] = {"on": journal.installed(cairn.project),
@@ -444,6 +448,9 @@ def project_router(hub: Hub) -> APIRouter:
 
     @r.get("/graph/views", dependencies=read)
     def graph_views(pid: str):
+        from .engines.graph import api as graph_api
+        if not graph_api.graph_json(c(pid).project.root).is_file():
+            return []  # nothing to draw yet: the page says "run a sync" instead of showing blank frames
         return [{"kind": k, "title": t} for k, t in GRAPH_VIEWS.items()]
 
     @r.get("/graph/views/{kind}", dependencies=read)
@@ -1134,7 +1141,11 @@ def create_app(*, platform: Platform | None = None, config: ServerConfig | None 
 
     @app.get("/api/health")
     def health():
-        return {"ok": True, "version": __version__}
+        """Liveness plus where this server runs from, so a server whose files were removed can be told apart from
+        a healthy one: `ok` only means it answers."""
+        code_root = Path(__file__).resolve().parent
+        return {"ok": True, "version": __version__, "pid": os.getpid(), "code_root": str(code_root),
+                "code_root_exists": code_root.is_dir(), "ui_ok": (UI_DIR / "index.html").is_file()}
 
     @app.get("/api/session")
     def session(request: Request, optional: bool = False, principal=Depends(optional_principal)):
@@ -1169,8 +1180,22 @@ def create_app(*, platform: Platform | None = None, config: ServerConfig | None 
     app.mount("/mcp", mcp_endpoint)
 
     @app.get("/", response_class=HTMLResponse)
-    def index():
-        return FileResponse(UI_DIR / "index.html", media_type="text/html", headers={"Cache-Control": "no-cache"})
+    def index(request: Request):
+        page = UI_DIR / "index.html"
+        if not page.is_file():  # the files this server was started from are gone: say so instead of a bare 500
+            body = {"error": "the UI files are missing: this server runs from code that no longer exists",
+                    "path": "/", "cause": str(page), "fix": "run `cairn up` to replace the server"}
+            if "text/html" in request.headers.get("accept", ""):  # a person in a browser gets a page, not JSON
+                return HTMLResponse(
+                    "<!doctype html><meta charset=utf-8><title>Cairn server needs a restart</title>"
+                    "<body style=\"font:16px/1.5 system-ui;max-width:40rem;margin:12vh auto;padding:0 1rem\">"
+                    "<h1>This Cairn server needs a restart</h1>"
+                    "<p>It is running from files that no longer exist, so it cannot show the UI.</p>"
+                    "<p>In a terminal run <code>cairn up</code>. It replaces the server (other repositories on this "
+                    "machine are interrupted for a few seconds). Then reload this page.</p>"
+                    f"<p><small>Missing: {page}</small></p>", status_code=503)
+            return JSONResponse(body, status_code=503)
+        return FileResponse(page, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
     @app.middleware("http")
     async def revalidate_page_assets(request: Request, call_next):
@@ -1197,6 +1222,13 @@ def create_app(*, platform: Platform | None = None, config: ServerConfig | None 
     async def missing(_request, exc):
         return JSONResponse({"detail": str(exc)}, status_code=404)
 
+    @app.exception_handler(Exception)
+    async def failed(request, exc):
+        """Any other failure is a JSON body the page can show (what failed, where), never bare text."""
+        log.exception("unhandled error on %s", request.url.path)
+        return JSONResponse({"error": "the server hit an unexpected error", "path": request.url.path,
+                             "cause": f"{type(exc).__name__}: {exc}"}, status_code=500)
+
     return app
 
 
@@ -1213,8 +1245,8 @@ def serve(*, host: str | None = None, port: int | None = None, register: list[Pa
     state = daemon._state_file()
     if daemon.info() is None:
         state.parent.mkdir(parents=True, exist_ok=True)
-        state.write_text(json.dumps({"pid": os.getpid(), "host": config.host, "port": config.port,
-                                     "started": time.time()}), encoding="utf-8")
+        state.write_text(json.dumps({**daemon.new_record(os.getpid(), config.port), "host": config.host}),
+                         encoding="utf-8")
 
         def forget_state() -> None:
             if json.loads(state.read_text(encoding="utf-8")).get("pid") == os.getpid():

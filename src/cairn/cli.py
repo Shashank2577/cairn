@@ -13,6 +13,7 @@ from typing import Optional
 import typer
 from rich.console import Console, Group
 from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -323,6 +324,11 @@ def status(as_json: bool = typer.Option(False, "--json", help="Machine-readable 
         bits.append(f"[{ROSE}]{ov['drift']} drift findings[/] → cairn drift")
     bits.append(f"UI [{AMBER}]{srv['project_url']}[/]" if srv else "UI [dim]stopped[/] → cairn ui")
     console.print("   ".join(bits))
+    if srv and srv.get("stale"):  # the server answers but cannot be trusted: say why and the one fix
+        console.print(f"[{ROSE}]⚠ {escape(srv['stale']['reason'])}[/]\n  fix: {escape(srv['stale']['fix'])}")
+    for x in daemon.stray_servers():
+        console.print(f"[{ROSE}]⚠ another Cairn server is running on port {x['port']} (pid {x['pid']})[/]"
+                      "\n  fix: run `cairn down --all`, then `cairn up`")
 
 
 def _ago(ts: float) -> str:
@@ -368,8 +374,6 @@ def doctor():
     """Every capability, its state, and the exact command to enable it."""
     import shutil
 
-    from rich.markup import escape
-
     from . import daemon
     from .engines import specs
     c = _cairn()
@@ -396,6 +400,8 @@ def doctor():
         row(False, "Session capture", "off (config)", "set [sessions] capture = true in .cairn/config.toml")
     row(c.router.available, "Model", c.router.provider if c.router.available else "none (model features off)",
         "sign in to Claude Code (claude), or set ANTHROPIC_API_KEY / an OpenAI-compatible endpoint")
+    deep = c.router.deep_state()  # the same answer the API and the UI show
+    row(deep["enabled"], "Deep", ("on · " if deep["enabled"] else "off · ") + deep["reason"], deep["fix"])
     from .engines import vectors
     embedder = vectors.embedder_id()
     row(embedder != "hash-v1", "Local embeddings", embedder, "check network once to download the embedding model")
@@ -408,7 +414,15 @@ def doctor():
     row(store_ok or bool(graph_url), "Timeline store", graph_url or "embedded (.cairn/temporal)",
         "reinstall Cairn (the embedded graph database is missing)")
     srv = daemon.info()
-    row(bool(srv), "Local UI", srv["url"] if srv else "stopped", "cairn ui")
+    stale = srv.get("stale") if srv else None
+    row(bool(srv) and not stale, "Local UI",
+        (f"{srv['url']} · {stale['reason']}" if stale else srv["url"]) if srv else "stopped",
+        stale["fix"] if stale else "cairn ui")
+    strays = daemon.stray_servers()
+    row(not strays, "Other Cairn servers",
+        "none" if not strays else "; ".join(f"port {x['port']} (pid {x['pid']})" for x in strays)
+        + " · not the server `cairn up` manages, so it can serve old or deleted code",
+        "cairn down --all")
     row(bool(shutil.which("cairn")), "cairn on PATH", "yes" if shutil.which("cairn") else "no",
         "uv tool install --python 3.12 cairn-brain")
     from . import agents as agents_mod
@@ -441,6 +455,15 @@ def doctor():
         "" if global_wired else "cairn global install")
     console.print(brand("doctor"))
     console.print(t)
+    from .budgets import budgets
+    bt = Table(box=None, pad_edge=False, show_header=True, header_style=f"bold {INK}")
+    for col in ("Limit", "Value", "Used", "What it limits and what happens at the limit"):
+        bt.add_column(col, overflow="fold")
+    for b in budgets(c.project, c.brain):
+        used = "-" if b["used"] is None else f"{b['used']:,}" + (f" ({b['used_note']})" if b.get("used_note") else "")
+        bt.add_row(escape(b["name"]), f"{b['value']:,} {b['unit']}", used,
+                   escape(f"{b['meaning']} At the limit: {b['when_exceeded'][0].lower()}{b['when_exceeded'][1:]}"))
+    console.print(bt)
 
 
 # ---- sync --------------------------------------------------------------------------------------------
@@ -1026,12 +1049,20 @@ def sessions(ctx: typer.Context):
 
 
 # ---- servers & agents --------------------------------------------------------------------------------
+def _say_replaced(d: dict) -> None:
+    """`cairn up` / `cairn ui` replaced a server that could not be trusted: say what and why, and who it touched."""
+    if d.get("replaced"):
+        console.print(f"[{AMBER}]↻ replaced the old server[/]: {escape(d['replaced']['reason'])} "
+                      "(other repositories on this machine were interrupted for a few seconds)")
+
+
 @app.command()
 def ui(no_open: bool = typer.Option(False, "--no-open")):
     """Open the UI for this repository (starts the local server if needed; one server serves every repo)."""
     from . import daemon
     c = _cairn()
     d = daemon.start(c.project)
+    _say_replaced(d)
     console.print(f"[{MOSS}]✓[/] {d['project_url']}")
     if not no_open:
         webbrowser.open(d["project_url"])
@@ -1042,14 +1073,20 @@ def up():
     """Start the local server in the background and add this repository to it."""
     from . import daemon
     d = daemon.start(_cairn().project)
+    _say_replaced(d)
     console.print(f"[{MOSS}]✓[/] running at [{AMBER}]{d['project_url']}[/]")
 
 
 @app.command()
-def down():
+def down(all_servers: bool = typer.Option(False, "--all", help="Also stop leftover Cairn servers on other ports.")):
     """Stop the local server (it serves every registered repository)."""
     from . import daemon
     console.print(f"[{MOSS}]✓[/] stopped" if daemon.stop() else f"[{SLATE}]not running[/]")
+    if all_servers:
+        freed = daemon.stop_strays()
+        if freed:
+            console.print(f"[{MOSS}]✓[/] also stopped leftover servers on port{'s' if len(freed) > 1 else ''} "
+                          + ", ".join(str(p) for p in freed))
 
 
 @app.command()

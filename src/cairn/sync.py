@@ -165,7 +165,7 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
                 return res
             step("timeline", do_deep)
         elif deep:
-            say("timeline", "skip", "needs a model key (ANTHROPIC_API_KEY or models.provider)")
+            say("timeline", "skip", f"deep is off: {cairn.router.deep_state()['reason']}")
         brain.set_kv("sync.last", str(time.time()))
         brain.set_kv("sync.failed", json.dumps({k: v["error"] for k, v in results.items()
                                                  if isinstance(v, dict) and v.get("error")}))
