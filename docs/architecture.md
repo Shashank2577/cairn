@@ -183,3 +183,26 @@ supported providers are `anthropic`, `openai` (any OpenAI-compatible endpoint) a
 (the signed-in CLI), with `auto` picking the first that works. Each job maps to a tier. Syncs run
 under a budget, and every call lands in the ledger. The engines don't call a provider SDK directly.
 They use router-backed clients instead. See [models and cost](models-and-cost.md).
+
+## The system model
+
+`src/cairn/system/` computes a product's architecture from code, manifests and deploy files, with
+no model calls and every claim carrying evidence. It answers five levels: **context** (the system as
+one box with the people and outside systems around it), **containers** (deployable units, data
+stores, channels and libraries), **components** (the main parts inside one container, grouped from
+the code map's communities), **flows** (how one request or event moves, step by step, from an entry
+point) and **code** (the code-level claims behind a scope). Each level is a diagram description in
+the shared standard ([diagram-standard/](diagram-standard/)), so the checker, the renderer and the
+Mermaid exporter all read the same shape.
+
+The model is built on `cairn sync` (`build.py`), linked across repositories (`link.py`) and kept
+true by a staleness re-check (`recheck.py`) that marks a claim stale — with the reason and the time
+it was first seen — when the code that produced it no longer does. Stale claims appear as
+`stale-architecture` drift findings. Agents see where they are in the system through the brief's
+system line and the context pack's "System consumers" section ([spec 007](../specs/007-agent-system-context/)).
+
+`cairn docs export` writes the architecture document set from the model: one Markdown document per
+level with its Mermaid diagram, SVG and evidence table, empty sections omitted, and the commit
+recorded on every page. With `--narrate`, an optional fast-tier pass adds one-line names and
+descriptions, each labelled inferred and citing the computed elements it describes, capped by the
+`[system] narrate_tokens` budget. See [cli.md](cli.md#docs-export) and [multi-repo.md](multi-repo.md).

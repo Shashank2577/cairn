@@ -19,8 +19,8 @@ Every tool's schema is sent to the model on every agent turn, so the default is 
 
 | Setting | Tools | Schema size (name, description and input schema, estimated at 4 characters per token) |
 |---|---|---|
-| `[mcp] tools = "core"` (default) | 12 | about 1,600 tokens per turn |
-| `[mcp] tools = "all"` | 61 | about 8,600 tokens per turn |
+| `[mcp] tools = "core"` (default) | 13 | about 1,700 tokens per turn |
+| `[mcp] tools = "all"` | 63 | about 8,800 tokens per turn |
 
 Set it in `.cairn/config.toml`:
 
@@ -74,10 +74,17 @@ example from this repository, shortened:
 Every pack handed to an agent is logged with its size and the size of the files it cites. See
 [how savings are measured](models-and-cost.md#how-savings-are-measured).
 
+`cairn_context` also answers for the product: when the target file serves a route, handles a topic or
+defines a shared contract, the pack names the containers in other repositories that use it, with the
+evidence that says so. It needs a computed system model (`cairn sync` in each repository of the
+product, plus a `.cairn/system.yaml` naming the siblings); with no model it stays silent, and the
+session brief carries one line naming this repository's container and its neighbours.
+
 ## Everything else (`tools = "all"`)
 
 | Group | Tools |
 |---|---|
+| System model | `cairn_system`: the computed system model as text, one level deep, with evidence and 0 model calls. Use it when a task may reach outside this repository — a route, a topic handler or a shared contract other containers use. |
 | Sessions | `cairn_session_tool_uses` (raw tool input and output, a last resort), `cairn_session_context` (the exact session-start context), `cairn_session_workflow` (the search → timeline → details routine) |
 | Structural code reading | `cairn_smart_search`, `cairn_smart_outline`, `cairn_smart_unfold`: tree-sitter views of symbols and files, cheaper than reading whole files |
 | Knowledge corpora | `cairn_build_corpus`, `cairn_list_corpora`, `cairn_prime_corpus`, `cairn_query_corpus`, `cairn_rebuild_corpus`, `cairn_reprime_corpus`: focused knowledge agents built from session observations |
