@@ -127,3 +127,22 @@ def test_no_lsof_means_no_strays_not_an_error(home, monkeypatch):
         raise FileNotFoundError("lsof")
     monkeypatch.setattr(daemon.subprocess, "run", boom)
     assert daemon._listeners(4747, 4760) == {} and daemon.stray_servers() == []
+
+
+def test_a_replaced_server_keeps_its_port(home, monkeypatch):
+    """The old process needs a moment to release its port; the new server waits for it so bookmarks keep working."""
+    stopped, spawned, busy = [], [], [True, True]
+    stale = {"pid": 4242, "port": 4747, "url": "http://127.0.0.1:4747",
+             "stale": {"stale": "version-differs", "reason": "old", "fix": "cairn up"}}
+    monkeypatch.setattr(daemon, "info", lambda: None if stopped else stale)
+    monkeypatch.setattr(daemon, "stop", lambda: stopped.append(True) or True)
+    monkeypatch.setattr(daemon, "_free", lambda port: not (port == 4747 and busy and busy.pop()))
+    monkeypatch.setattr(daemon, "_health", lambda port: {"ok": True})
+    monkeypatch.setattr(daemon.time, "sleep", lambda s: None)
+
+    class _Proc:
+        pid = 99
+
+    monkeypatch.setattr(daemon.subprocess, "Popen", lambda argv, **k: spawned.append(argv) or _Proc())
+    out = daemon.start(None, wait=0.1)
+    assert out["port"] == 4747 and spawned[0][-1] == "4747"
