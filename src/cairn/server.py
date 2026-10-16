@@ -16,11 +16,12 @@ import threading
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -29,8 +30,16 @@ from . import drift as drift_mod
 from .core import Cairn
 from .engines import specs as specs_engine
 from .platform import Platform, ServerConfig
-from .platform.web import (_me, _project_json, current_principal, get_config, get_platform, install,
-                           optional_principal, require)
+from .platform.web import (
+    _me,
+    _project_json,
+    current_principal,
+    get_config,
+    get_platform,
+    install,
+    optional_principal,
+    require,
+)
 from .project import Project
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -185,6 +194,145 @@ class Hub:
         """Called by the platform after a webhook, manual refresh or new registration."""
         self.reconfigure(record.id)  # a fresh clone or pull may bring new settings
         self.run_sync(record.id)
+
+
+# ---- the system diagram: drawn once per model, not once per request -------------------------------------
+@lru_cache(maxsize=32)
+def _system_stamp(root: str) -> tuple:
+    """What the picture would look like right now, as a cheap comparable stamp.
+
+    Two parts: the stored model's own ``COUNT`` and ``MAX(updated_at)`` (the signal the session brief
+    uses), and the repository's HEAD. Both are needed. A repository whose sync has stored a model changes
+    when a claim changes; one that has not stored anything is rebuilt from the working tree on every read,
+    and that result cannot change until the commit does. Either way the stamp moves exactly when the
+    picture would.
+    """
+    from .project import Project
+    from .system.build import head_commit
+    proj = Project.discover(Path(root))
+    if proj is None:
+        return ()
+    try:
+        row = Cairn(proj).brain.one("SELECT COUNT(*) n, MAX(updated_at) t FROM sm_element")
+        stored = (row["n"], row["t"]) if row is not None else (0, None)
+    except Exception:
+        stored = (0, None)
+    return stored + (head_commit(proj.root),)
+
+
+@lru_cache(maxsize=32)
+def _map_stamp(root: str) -> tuple:
+    """What the code map would look like right now, as a cheap comparable stamp.
+
+    The layer map is rebuilt from the working tree on every read, so the result cannot change until the
+    commit does; the link count catches a sync that has not been committed yet.
+    """
+    from .project import Project
+    from .system.build import head_commit
+    proj = Project.discover(Path(root))
+    if proj is None:
+        return ()
+    try:
+        row = Cairn(proj).brain.one("SELECT COUNT(*) n FROM links")
+        stored = (row["n"],) if row is not None else (0,)
+    except Exception:
+        stored = (0,)
+    return stored + (head_commit(proj.root),)
+
+
+@lru_cache(maxsize=32)
+def _products_by_project_key(roots: tuple, heads: tuple) -> dict:
+    """Which declared product each project root belongs to, resolved across all of them at once.
+
+    Only the repository that owns a ``system.yaml`` declares the product, so this has to see every
+    project to answer for the siblings; a per-project read finds one member out of five. Members are
+    counted per product across every declaration that names it, so a product declared by two repositories
+    is not counted twice and a member that is not on this machine still counts. Keyed on the roots and
+    their HEADs because that is all it reads.
+    """
+    from .engines.graph.repos import _product
+    size: dict[str, set] = defaultdict(set)
+    desc: dict[str, str] = {}
+    system_of: dict[str, str] = {}          # member root -> product
+    anchor: dict[str, str] = {}             # product -> root that owns the declaration
+    for root in roots:
+        prod = _product(Path(root))
+        if not prod:
+            continue
+        system = prod["system"]
+        size[system].update(m["root"] for m in prod["members"])
+        if prod.get("description") and not desc.get(system):
+            desc[system] = prod["description"]
+        # The repository that owns system.yaml is where the linked product is stored and built, so it
+        # is the one to open when someone picks the product rather than a repository inside it.
+        anchor.setdefault(system, root)
+        for m in prod["members"]:
+            system_of.setdefault(m["root"], system)
+    return {r: {"system": s, "members": len(size[s]), "description": desc.get(s),
+                "anchor": anchor.get(s)}
+            for r, s in system_of.items()}
+
+
+def _products_by_project(records) -> dict:
+    """``{project id: {"system", "members"}}`` for the project switcher, so a product is one entry
+    rather than five unrelated repositories."""
+    roots = tuple(str(Path(r.root).resolve()) for r in records if r.root and Path(r.root).is_dir())
+    if not roots:
+        return {}
+    from .system.build import head_commit
+    try:
+        heads = tuple(head_commit(Path(r)) for r in roots)
+    except Exception:
+        heads = ()
+    try:
+        by_root = _products_by_project_key(roots, heads)
+    except Exception:
+        return {}
+    out = {}
+    for r in records:
+        if not r.root:
+            continue
+        hit = by_root.get(str(Path(r.root).resolve()))
+        if hit:
+            entry = {"system": hit["system"], "members": hit["members"], "description": hit.get("description")}
+            # Which repository to open for the product as a whole: the one that owns system.yaml.
+            for other in records:
+                if other.root and hit.get("anchor") and str(Path(other.root).resolve()) == hit["anchor"]:
+                    entry["anchor"] = other.id
+                    break
+            out[r.id] = entry
+    return out
+
+
+@lru_cache(maxsize=16)
+def _architecture_cached(root: str, stamp: tuple) -> dict:
+    """The dependency-layer map for one repository, cached on its stamp.
+
+    ``architecture()`` rebuilds the whole file graph and re-rolls it into layers — fifty seconds for a
+    repository this size, paid on every page load and every re-render. It is pure with respect to the
+    stamp, so a reader moving between Map tabs pays it once and then nothing.
+    """
+    from .project import Project
+    proj = Project.discover(Path(root))
+    if proj is None:
+        raise HTTPException(404, "no such project")
+    return Cairn(proj).architecture()
+
+
+@lru_cache(maxsize=64)
+def _system_diagram_cached(root: str, level: str, scope: str | None, stamp: tuple) -> tuple[str, str]:
+    """(svg, description json) for one level of one model.
+
+    Drawing a level runs the linker across every repository: seconds of work for a picture that cannot
+    change until the stamp does. Keying on the stamp means a reader moving between levels pays it once and
+    then nothing, and a sync or a commit that changes a claim invalidates every level at once.
+    """
+    from .system.diagram.svg import render_inline
+    from .system.views import view as system_view_fn
+    desc = system_view_fn(Path(root), level, scope)
+    if not desc.get("elements"):
+        raise ValueError("nothing to draw at this level yet; run a sync so the system model is built")
+    return render_inline(desc), json.dumps(desc, default=str)
 
 
 # ---- per-project routes ------------------------------------------------------------------------------------
@@ -391,7 +539,8 @@ def project_router(hub: Hub) -> APIRouter:
     # graph (code & document knowledge graph)
     @r.get("/graph/architecture", dependencies=read)
     def architecture(pid: str):
-        return c(pid).architecture()
+        root = c(pid).project.root
+        return _architecture_cached(str(root), _map_stamp(str(root)))
 
     @r.get("/graph/summary", dependencies=read)
     def graph_summary(pid: str):
@@ -442,12 +591,63 @@ def project_router(hub: Hub) -> APIRouter:
         communities = {i: cairn.map.nodes.get(i, {}).get("community") for i in ids}
         return {"summary": summary, "text": text, "nodes": ids, "node_communities": communities}
 
+    @r.get("/system/view", dependencies=read)
+    def system_view(pid: str, level: str = "containers", scope: str | None = None):
+        """One level of the computed system model as a diagram description (spec 002, T024)."""
+        root = str(c(pid).project.root)
+        try:
+            _svg, payload = _system_diagram_cached(root, level, scope, _system_stamp(root))
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+        return Response(payload, media_type="application/json",
+                        headers={"Cache-Control": "no-store"})
+
+    @r.get("/system/svg", dependencies=read)
+    def system_svg(pid: str, level: str = "containers", scope: str | None = None):
+        """The same view drawn by the diagram standard's own renderer, for the page to embed.
+
+        The page draws this rather than laying out its own: one renderer means the picture on screen and
+        the exported file cannot disagree. Colours resolve against the page's ``--dg-*`` tokens, so the
+        theme switch drives the diagram.
+        """
+        root = str(c(pid).project.root)
+        try:
+            svg, _ = _system_diagram_cached(root, level, scope, _system_stamp(root))
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+        return Response(svg, media_type="image/svg+xml",
+                        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+    @r.get("/system/flows", dependencies=read)
+    def system_flows(pid: str, scope: str | None = None):
+        """Every flow this product has, busiest first: the ids and titles the page picks between."""
+        from .system.flows import flows as all_flows
+        from .system.link import link
+        root = c(pid).project.root
+        try:
+            built = all_flows(root, link(root), scope=scope)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+        return [{"title": d["title"], "scope": d["scope"]} for d in built]
+
+    @r.get("/diagram/tokens", dependencies=read)
+    def diagram_tokens(pid: str):
+        """The canonical diagram tokens, so the UI's diagrams match the exports (spec 002, T024)."""
+        from .system.diagram import load_tokens
+        return load_tokens()
+
     @r.get("/graph/views", dependencies=read)
     def graph_views(pid: str):
         return [{"kind": k, "title": t} for k, t in GRAPH_VIEWS.items()]
 
     @r.get("/graph/views/{kind}", dependencies=read)
     def graph_view(pid: str, kind: str, limit: int | None = None):
+        """The graph engine's own interactive pages, for the page's Graph tab.
+
+        These are the engine's views of the code map — every node, not the system model's dozen — so they
+        answer "what is in here" where the System tab answers "what is this". They are self-contained
+        pages rendered by the engine and shown in a sandboxed frame; nothing is drawn here.
+        """
         from .engines.graph import api as graph_api
         root = c(pid).project.root
         render = {"graph": lambda: graph_api.graph_view_html(root, asset_base=GRAPH_ASSETS, node_limit=limit),
@@ -1147,8 +1347,13 @@ def create_app(*, platform: Platform | None = None, config: ServerConfig | None 
             raise HTTPException(401, "authentication required", headers={"WWW-Authenticate": "Bearer"})
         if principal.must_change_password:  # nothing else until the one-time password is replaced
             return {"signed_in": True, **_me(plat, principal, cfg), "projects": []}
-        return {"signed_in": True, **_me(plat, principal, cfg),
-                "projects": [_project_json(plat, principal, p, cfg) for p in plat.list_projects(principal)]}
+        records = plat.list_projects(principal)
+        products = _products_by_project(records)
+        projects = [_project_json(plat, principal, p, cfg) for p in records]
+        for payload in projects:
+            if payload.get("id") in products:
+                payload["product"] = products[payload["id"]]
+        return {"signed_in": True, **_me(plat, principal, cfg), "projects": projects}
 
     @app.get("/api/repos/map")
     def repos_map(request: Request, team: str | None = None, principal=Depends(current_principal)):

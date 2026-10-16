@@ -91,8 +91,14 @@ def cited_docs(root: Path, pack_text: str, question: str, *, max_files: int = 2,
     return ("\n\n## Cited repository documents\n" + "\n\n".join(out)) if out else ""
 
 
-SECTION_ORDER = ["Rationale", "Dependents", "Tests likely affected", "Changes together", "Historical warnings",
-                 "Origin", "Recent changes", "Intent", "Memory", "Agent sessions", "Facts", "Active work"]
+SECTION_ORDER = ["Rationale", "System consumers", "Dependents", "Tests likely affected", "Changes together",
+                 "Historical warnings", "Origin", "Recent changes", "Intent", "Memory", "Agent sessions", "Facts",
+                 "Active work"]
+
+# SC-007 caps what the system picture may cost the session brief: one line, and only when this
+# repository is part of a model with neighbours.
+BRIEF_SYSTEM_TOKENS = 40
+MAX_CONTEXT_CONSUMERS = 6
 
 
 def ago(ts: float | None) -> str:
@@ -359,6 +365,110 @@ class Cairn:
             out.append(Item("Facts", f"{f['fact']}{window}", 0.5 if f.get("invalid_at") else 0.65, f["id"]))
         return out
 
+    # ---- the system picture (spec 007) ------------------------------------------------------------
+    def system_model(self):
+        """This repository's linked product model, from the store only, or None when it has none.
+
+        ``link`` re-extracts a repository that has no stored model, and a session-start brief must not
+        do that work: a repository without a model gets no system line at all, which is what keeps the
+        brief the size it always was (principle V). The result is cached against the store's own stamp,
+        because the brief is also the cached prefix of every model call.
+        """
+        try:
+            stamp = self.brain.one("SELECT COUNT(*) n, MAX(updated_at) t FROM sm_element")
+        except sqlite3.Error:
+            return None
+        if not stamp or not stamp["n"]:
+            return None
+        key = (stamp["n"], stamp["t"])
+        if getattr(self, "_system_cache", None) and self._system_cache[0] == key:
+            return self._system_cache[1]
+        from .system import model as sm_model
+        from .system.link import link
+        with contextlib.suppress(Exception):
+            own = sm_model.load(self.brain, self.project.name) or sm_model.load(self.brain)
+            pm = link(self.project.root, own=own, repo=self.project.name)
+            self._system_cache = (key, pm)
+            return pm
+        return None
+
+    def system_line(self) -> str:
+        """One line naming this repository's container and its neighbours, or "" when it has neither.
+
+        Placed in the brief before the team knowledge so it survives a full briefing (FR-028, SC-007).
+        """
+        pm = self.system_model()
+        if pm is None:
+            return ""
+        mine = [e for e in pm.elements.values() if e.type in ("container", "library") and e.repo == self.project.name
+                and not e.meta.get("not_mapped")]
+        me = next((e for e in mine if e.name == self.project.name), None) or (mine[0] if mine else None)
+        if me is None:
+            return ""
+        inbound, outbound = [], []
+        for r in pm.relationships.values():
+            if r.level == "code" or r.stale_reason:
+                continue
+            other = None
+            if r.to_id == me.id and r.from_id != me.id:
+                other = pm.elements.get(r.from_id)
+            elif r.from_id == me.id and r.to_id != me.id:
+                other = pm.elements.get(r.to_id)
+            if other is None or not other.name or other.name in (inbound if r.to_id == me.id else outbound):
+                continue
+            (inbound if r.to_id == me.id else outbound).append(other.name)
+        if not inbound and not outbound:
+            return ""  # no neighbours: a name on its own is noise, not a place in a product
+        product = str(getattr(pm, "product", {}).get("system") or self.project.name)
+        head = f"System: {product} · this repository is {me.name}" + (f" ({me.kind})" if me.kind else "")
+        line = head
+        for side, names in (("inbound", inbound), ("outbound", outbound)):
+            while names and estimate_tokens(line + f" · {side}: " + ", ".join(names)) > BRIEF_SYSTEM_TOKENS:
+                names.pop()
+            if names:
+                line += f" · {side}: " + ", ".join(names)
+        return line
+
+    def _system_consumers(self, files: list[str]) -> list[tuple[str, str, str]]:
+        """(container name, claim, evidence ref) for the containers that use what ``files`` implement.
+
+        A route, a topic handler or a shared contract is served from one container and used from
+        another; this is the one fact an agent cannot see by reading its own repository (FR-028).
+        Only other repositories count: a container's own dependents are in the map already.
+        """
+        pm = self.system_model()
+        if pm is None or not files:
+            return []
+        repo, served = self.project.name, set()
+        wanted = {f.replace("\\", "/").lstrip("./") for f in files}
+        for e in pm.elements.values():
+            if not any(ev.repo == repo and ev.file in wanted for ev in e.evidence):
+                continue
+            if e.level == "code":
+                served.update(x for x in (e.parent,) if x)
+            else:
+                served.add(e.id)
+        # a repository that only provides a package is the contract its siblings implement against, so
+        # every one of its files is served by that library even where the model has no per-file evidence
+        served.update(e.id for e in pm.elements.values() if e.type == "library" and e.repo == repo
+                      and not e.meta.get("root"))
+        out, seen = [], set()
+        for r in pm.relationships.values():
+            if r.level == "code" or r.stale_reason or r.to_id not in served or r.from_id in served:
+                continue
+            src = pm.elements.get(r.from_id)
+            if src is None or src.repo == repo or src.type not in ("container", "library"):
+                continue
+            ev = next((x for x in r.evidence if x.repo != repo and x.file), None) \
+                or (r.evidence[0] if r.evidence else None)
+            ref = ev.ref() if ev else r.rule
+            claim = r.what or r.how or r.rule
+            if (src.name, ref) in seen:
+                continue
+            seen.add((src.name, ref))
+            out.append((src.name, claim, ref))
+        return out[:MAX_CONTEXT_CONSUMERS]
+
     # ---- impact -----------------------------------------------------------------------------------
     def impact(self, target: str, depth: int = 2, budget: int | None = None) -> Pack:
         t = self.resolve(target)
@@ -502,6 +612,10 @@ class Cairn:
             wy = self.why(raw, budget=per)
             evidence += imp.data.get("evidence_files", []) + wy.data.get("evidence_files", [])
             labels.append(imp.title.split(":", 1)[-1].strip())
+            # which containers serve the routes, handlers and contracts these files implement: the
+            # part of the blast radius the code map cannot see, because it lives in other repositories
+            for name, claim, ref in self._system_consumers(imp.data.get("files") or []):
+                items.append(Item("System consumers", f"{name} — {claim} ({ref})", 1.2))
             for it in imp.items + wy.items:
                 if it.section in ("Dependents", "Tests likely affected", "Historical warnings", "Changes together",
                                   "Rationale", "Intent", "Memory", "Agent sessions", "Facts"):
@@ -688,6 +802,11 @@ class Cairn:
         const = L["specs"].get("constitution")
         if const:
             lines.append("Principles: " + "; ".join(const["principles"][:6]))
+        # where this repository sits in its product, before the team knowledge: an agent that knows a
+        # change crosses a repository boundary behaves differently (FR-028)
+        place = self.system_line()
+        if place:
+            lines.append(place)
         mems = self.brain.memories(limit=200)
         # rules first (how the team works), then the newest facts someone chose to remember
         key_mems = [m for m in mems if m["kind"] in ("convention", "decision", "gotcha")][:6]

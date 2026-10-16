@@ -2,6 +2,9 @@
 
 Deterministic checks run on every sync. The semantic check (deep tier) asks a judgment model about
 a handful of requirements only — the ones whose code changed most recently — to bound cost.
+
+Architecture claims are drift too: a claim the re-check (``system/recheck.py``) marked stale is a picture
+that would be drawn as if it were still true, so it appears here as ``stale-architecture``.
 """
 from __future__ import annotations
 
@@ -12,8 +15,42 @@ import time
 
 from .engines import specs as specs_engine
 from .router import Budget
+from .system import recheck as system_recheck
 
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+SYSTEM_SPEC = "system-model"
+
+
+def _day(ts: float | None) -> str:
+    return time.strftime('%Y-%m-%d', time.localtime(ts)) if ts else "an earlier sync"
+
+
+def architecture(brain, spec: str | None = None) -> list[dict]:
+    """Findings for system-model claims the re-check marked stale.
+
+    A stale relationship is high: the diagram draws an interaction the code no longer has. A stale element
+    is medium: a box that vanished usually means a container was renamed or folded in, which the next
+    derivation already reflects. Titles carry no timestamp, so a finding keeps its id while the claim
+    stays stale and ``record`` keeps the time it was first seen.
+    """
+    if spec and not SYSTEM_SPEC.startswith(spec):
+        return []
+    out = []
+    for row in system_recheck.stale_rows(brain):
+        reason = row["stale_reason"] or "no longer derived"
+        if row["kind"] == "relationship":
+            label = f"{row['from']} → {row['to']}"
+            if row["what"]:
+                label += f" “{row['what']}”"
+            severity = "high"
+        else:
+            label = f"{row['name']} ({row['type']})"
+            severity = "medium"
+        out.append(_finding("stale-architecture", severity, SYSTEM_SPEC,
+                            f"{label} is stale: {reason}",
+                            [reason, *row["evidence"], f"stale since {_day(row['stale_since'])}"],
+                            f"claim:{row['repo']}:{row['id']}"))
+    return out
 
 
 def _finding(kind, severity, spec, title, evidence, cite=""):
@@ -80,7 +117,8 @@ def check(cairn, spec: str | None = None) -> list[dict]:
                 re.search(r"draft", f["status"], re.I):
             out.append(_finding("status", "low", f["id"], "All tasks are done but the spec is still marked Draft",
                                 [f"{f['path']}/spec.md: Status {f['status']}"], f"spec:{f['id']}"))
-    out.sort(key=lambda d: (SEVERITY_ORDER[d["severity"]], d["spec"]))
+    out += architecture(brain, spec)
+    out.sort(key=lambda d: (SEVERITY_ORDER[d["severity"]], d["spec"], d["title"]))
     return out
 
 
