@@ -108,6 +108,53 @@ http:
       ab: {data_flags: ["-p"], put_flags: ["-u"]}
       http: {method_args: true}
       https: {method_args: true}
+  - client: request
+    language: javascript
+    library: [request, request-promise]
+    import_required: true
+    match: ["request", "request.get", "request.post", "request.put", "request.patch", "request.del",
+            "request.delete", "request.head", "request.defaults", "request-promise", "request-promise-native"]
+    methods: {get: GET, post: POST, put: PUT, patch: PATCH, del: DELETE, delete: DELETE, head: HEAD}
+    default_methods: [GET]
+    url: [field.arg0.url, arg0, kwarg.uri]
+  - client: curl-php
+    language: php
+    detect: [curl_init]
+    match: ["curl_init"]
+    url: [arg0]
+    default_methods: [GET]
+  - client: grpc
+    language: go
+    library: [google.golang.org/grpc]
+    match: ["google.golang.org/grpc.NewClient", "google.golang.org/grpc.Dial", "grpc.NewClient", "grpc.Dial"]
+    url: [arg0]
+    default_methods: [ANY]
+  - client: grpc
+    language: python
+    library: [grpc]
+    match: ["grpc.insecure_channel", "grpc.secure_channel", "grpc.aio.insecure_channel",
+            "grpc.aio.secure_channel"]
+    url: [arg0]
+    default_methods: [ANY]
+  - client: grpc
+    language: java
+    library: [io.grpc]
+    match: ["*ManagedChannelBuilder().forAddress"]
+    url: [arg0]
+    default_methods: [ANY]
+  - client: grpc
+    language: csharp
+    library: [Grpc.Net.Client]
+    match: ["GrpcChannel.ForAddress", "grpc.net.client.GrpcChannel.ForAddress"]
+    url: [arg0]
+    default_methods: [ANY]
+
+# Reverse-proxy configuration files: a location that proxies to another service (an outbound edge
+# written in config, not in code). files: path globs; directive: the forwarding directive.
+proxies:
+  - proxy: nginx
+    files: ["**/*.conf", "**/*.conf.template", "**/nginx.conf", "**/*.template"]
+    directive: proxy_pass
 
 messaging:
   - client: redis-py
@@ -148,9 +195,11 @@ messaging:
       - {match: ["github.com/*redis*.LPop", "github.com/*redis*.RPop"], op: pop, key: [arg1], how: Redis list pop}
   - client: stackexchange-redis
     language: csharp
-    library: [StackExchange.Redis]
+    library: [StackExchange.Redis, Microsoft.Extensions.Caching.StackExchangeRedis]
     tech: redis
-    connect: ["ConnectionMultiplexer.Connect", "ConnectionMultiplexer.ConnectAsync", "*.ConnectionMultiplexer.Connect"]
+    connect: ["ConnectionMultiplexer.Connect", "ConnectionMultiplexer.ConnectAsync", "*.ConnectionMultiplexer.Connect",
+              "*.AddStackExchangeRedisCache"]
+    config: [REDIS_ADDR, REDIS_URL, REDIS_CONNECTION, REDIS_HOST, REDIS_CONNECTIONSTRING]
     target: [arg0]
     ops:
       - {loose: [ListLeftPush, ListRightPush, ListLeftPushAsync, ListRightPushAsync], op: push, key: [arg0], how: Redis list push}
@@ -410,6 +459,12 @@ stores:
     how: SQL · SqlClient
     connect: ["SqlConnection", "*.SqlConnection"]
     target: [arg0]
+  - client: pdo
+    language: php
+    library: [PDO]
+    tech: sql
+    how: SQL · PDO
+    connect: ["PDO"]
 
 services:
   - service: sendgrid

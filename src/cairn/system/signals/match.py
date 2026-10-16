@@ -288,6 +288,10 @@ def url(v: Val | None, ff: FileFacts, depth: int = 0) -> Url | None:
         return parse_url_text(v.text)
     if v.kind == "tmpl":
         parts = list(v.parts)
+        scheme = None
+        if parts and parts[0][0] == "lit" and parts[0][1].lower() in ("http://", "https://"):
+            scheme = parts[0][1].lower().rstrip(":/")
+            parts = parts[1:]
         base = None
         head = None
         if parts and parts[0][0] in ("var", "env", "config"):
@@ -303,8 +307,11 @@ def url(v: Val | None, ff: FileFacts, depth: int = 0) -> Url | None:
         if head is not None and head.host and not base:
             path = (head.path or "").rstrip("/") + rendered
             return Url(path=path or "/", host=head.host, scheme=head.scheme)
+        if rendered.startswith(":"):  # a port follows the configured host: the path starts at the slash
+            rendered = ("/" + rendered.split("/", 1)[1]) if "/" in rendered else "/"
         if base is not None or (rendered.startswith("/") and v.parts[0][0] != "lit"):
-            return Url(path=rendered or "/", base=base) if rendered.startswith("/") or not rendered else Url(base=base)
+            path = rendered if rendered.startswith("/") else (None if rendered else "/")
+            return Url(path=path, base=base, scheme=scheme or (head.scheme if head else None))
         return parse_url_text(rendered)
     return None
 
@@ -329,8 +336,8 @@ def parse_url_text(text: str) -> Url | None:
 
 
 def host_of(text: str | None) -> tuple[str | None, str | None]:
-    """(scheme, host) from a URL, a ``host:port``, a ``key=value;`` connection string or a JDBC URL.
-    Values are inspected transiently and never stored."""
+    """(scheme, host) from a URL, a ``host:port``, a ``key=value;`` connection string, a JDBC URL or a
+    PDO DSN (``mysql:host=db;dbname=x``). Values are inspected transiently and never stored."""
     if not text:
         return None, None
     t = str(text).strip()
@@ -343,6 +350,9 @@ def host_of(text: str | None) -> tuple[str | None, str | None]:
             return m.group(1).lower(), sp.hostname
         except ValueError:
             return m.group(1).lower(), None
+    pdo = re.match(r"^([a-z][a-z0-9+]*):(?=[a-z_]+=)(.+)$", t)   # mysql:host=db;dbname=x, pgsql:host=h
+    if pdo:
+        return pdo.group(1).lower(), host_of(pdo.group(2))[1]
     if ";" in t or "=" in t:
         for part in t.split(";"):
             k, _, val = part.partition("=")

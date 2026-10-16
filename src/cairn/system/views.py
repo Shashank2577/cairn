@@ -106,7 +106,6 @@ def _scope_line(product, commit: str, extra: str = "") -> str:
     line = f"{_boundary_name(product)} (software system, {n} repositor{'y' if n == 1 else 'ies'})"
     if commit:
         line += f" · commit {commit}"
-    line += " · 0 model calls"
     return line + (f" · {extra}" if extra else "")
 
 
@@ -132,7 +131,7 @@ def _containers(pm: Model, product, scope: str | None) -> dict:
     relationships = [_rel(r) for r in sorted(rels, key=lambda r: (r.from_id, r.to_id, r.rule, r.key))]
     nodes, edges = budget(), budget("relationships", 16)
     elements, relationships, collapsed = _collapse(elements, relationships, nodes)
-    while len(relationships) > edges and nodes > 4:  # over the arrow budget too: collapse further
+    while len(relationships) > edges + edges // 2 and nodes > 4:  # the arrow budget is soft the same way
         nodes -= 1
         elements, relationships, collapsed = _collapse([_el(e) for e in els], [_rel(r) for r in sorted(
             rels, key=lambda r: (r.from_id, r.to_id, r.rule, r.key))], nodes)
@@ -164,7 +163,9 @@ def _slug(text: str) -> str:
 
 
 def _collapse(elements: list[dict], relationships: list[dict], limit: int):
-    if len(elements) <= limit:
+    # the node budget is soft: up to half again as many elements stay legible, where collapsing (a
+    # 13-element product behind "+N more") would hide more than it saves
+    if len(elements) <= limit + limit // 2:
         return elements, relationships, 0
     degree: Counter = Counter()
     for r in relationships:
@@ -179,7 +180,9 @@ def _collapse(elements: list[dict], relationships: list[dict], limit: int):
     group = {"id": gid, "name": f"+{len(gone)} more", "type": types.most_common(1)[0][0],
              "tech": "several", "desc": "Collapsed: " + ", ".join(e["name"] for e in gone[:6]) + (" …" if len(gone) > 6 else ""),
              "provenance": "extracted" if all(e["provenance"] == "extracted" for e in gone) else "inferred",
-             "count": len(gone), "evidence": [ref for e in gone for ref in e["evidence"][:1]][:MAX_REFS]}
+             "count": len(gone), "evidence": [ref for e in gone for ref in e["evidence"][:1]][:MAX_REFS],
+             "members": [{"id": e["id"], "name": e["name"], "type": e["type"], "provenance": e.get("provenance")}
+                         for e in gone]}
     out_rels: dict[tuple, dict] = {}
     for r in relationships:
         a = r["from"] if r["from"] in keep else gid

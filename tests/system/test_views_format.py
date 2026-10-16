@@ -29,7 +29,7 @@ def test_containers_view_has_the_standard_shape(shop):
     reference strings; provenance on every claim; rank_reverse on consumer edges; one level only."""
     v = view(shop, "container")
     assert KEYS <= set(v) and v["diagram"] == "container" and v["title"] == "Containers of Shop"
-    assert "0 model calls" in v["scope"] and "commit " in v["scope"]
+    assert "commit " in v["scope"] and "0 model calls" in v["source_note"]  # once, beside the scope line
     for e in v["elements"]:
         assert {"id", "name", "type", "desc", "provenance", "evidence"} <= set(e)
         assert e["type"] not in ("code", "component")
@@ -77,10 +77,12 @@ def test_context_view(shop):
 
 
 def test_budget_collapses_and_says_so(tmp_path):
-    """FR-001: Very large products: beyond the token file's node budget, the least connected elements collapse
-    into one '+N more' element, relationships are redirected, and the scope line says so."""
+    """FR-001: Very large products: beyond the token file's node budget (soft: half again as many elements
+    stay legible, so a 13-element product is not hidden behind "+N"), the least connected elements collapse
+    into one '+N more' element that carries its members, relationships are redirected, and the scope line
+    says so."""
     units = {f"svc{i:02d}": {"Dockerfile": "FROM x\n", "a.py": f"import redis\nredis.Redis(host='bus').publish('t{i}', 1)\n"}
-             for i in range(16)}
+             for i in range(24)}
     files = {f"{u}/{k}": v for u, fs in units.items() for k, v in fs.items()}
     files["docker-compose.yml"] = "services:\n" + "".join(f"  {u}:\n    build: ./{u}\n" for u in units) + \
         "  bus:\n    image: redis\n"
@@ -89,7 +91,9 @@ def test_budget_collapses_and_says_so(tmp_path):
     v = view(root, "container")
     assert len(v["elements"]) <= budget()
     group = next(e for e in v["elements"] if e["id"] == "collapsed:more")
-    assert group["name"] == f"+{group['count']} more" and group["count"] == 17 - (budget() - 1)
+    assert group["name"] == f"+{group['count']} more" and group["count"] == 25 - (budget() - 1)
+    assert len(group["members"]) == group["count"]          # the group carries what it hides (T057)
+    assert {m["name"] for m in group["members"]} <= set(units)
     assert "collapsed" in v["scope"]
     ids = {e["id"] for e in v["elements"]}
     assert all(r["from"] in ids and r["to"] in ids for r in v["relationships"])

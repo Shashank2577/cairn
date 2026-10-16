@@ -115,13 +115,19 @@ def extract(facts: dict[str, FileFacts], cat: Catalog, idx: RepoIndex, files: Re
     for u in uses:
         for rule in cat.stores:
             if rule.get("client") == u.client and rule.get("config") and not u.config_keys:
-                u.config_keys = [k for k in rule["config"] if "." in k]
+                u.config_keys = _cfg_keys(rule["config"])
     return uses, services
+
+
+def _cfg_keys(keys) -> list:
+    """Configuration keys a store rule may resolve through: dotted framework keys (Spring) and
+    environment-style names (REDIS_ADDR, DATABASE_URL)."""
+    return [k for k in keys or [] if "." in k or k.isupper()]
 
 
 def _from_connect(c: Connect, rule) -> StoreUse:
     return StoreUse(c.file, c.line, rule["tech"], c.how, c.client, c.target, c.driver,
-                    config_keys=[k for k in rule.get("config") or [] if "." in k])
+                    config_keys=_cfg_keys(rule.get("config")))
 
 
 def _where(cond, c) -> bool:

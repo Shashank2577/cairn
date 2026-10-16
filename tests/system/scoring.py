@@ -12,6 +12,10 @@ Matching rules (stated here so the numbers can be audited):
   separately (their share of the view must stay at or below 10%); declared claims come from system.yaml
   and are neither counted as extracted nor as labelled.
 - People are scored only when the truth lists them (they can only be declared).
+- A view over its node budget collapses elements into one "+N more" group; the group carries its
+  ``members`` (id, name, type, provenance) and the score expands them, so accuracy measures the model
+  and not the layout budget. Relationships rewritten onto the group cannot be attributed to a member
+  and are dropped (they were invisible in the view).
 """
 from __future__ import annotations
 
@@ -31,6 +35,21 @@ def load_truth(path: Path) -> dict:
     return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
 
 
+def expand(view: dict) -> dict:
+    """Replace each collapsed group by its members; drop relationships that point at the group."""
+    gid = "collapsed:more"
+    if not any(e.get("id") == gid for e in view["elements"]):
+        return view
+    els: list[dict] = []
+    for e in view["elements"]:
+        if e.get("id") == gid:
+            els.extend(e.get("members") or [])
+        else:
+            els.append(e)
+    rels = [r for r in view["relationships"] if r["from"] != gid and r["to"] != gid]
+    return {**view, "elements": els, "relationships": rels}
+
+
 def _keys(el: dict, aliases: dict) -> set[str]:
     keys = {norm(el["name"]), norm(el["id"].rsplit(":", 1)[-1])}
     keys |= {norm(a) for a in aliases.get(el["id"], [])}
@@ -39,6 +58,7 @@ def _keys(el: dict, aliases: dict) -> set[str]:
 
 def score(view: dict, truth: dict, aliases: dict | None = None) -> dict:
     aliases = aliases or {}
+    view = expand(view)
     els = view["elements"]
     t_els = truth.get("elements") or []
     match: dict[str, str] = {}          # truth id -> view id

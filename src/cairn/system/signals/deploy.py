@@ -50,6 +50,7 @@ class Dockerfile:
     expose: list = field(default_factory=list)      # (port, line)
     cmd: tuple | None = None                        # (short command, line)
     env_names: list = field(default_factory=list)
+    env_values: dict = field(default_factory=dict)  # transient, never stored
     from_line: int | None = None
 
 
@@ -125,15 +126,28 @@ def dockerfile(rel: str, text: str | None) -> Dockerfile | None:
             if word == "ENTRYPOINT" or df.cmd is None:
                 df.cmd = stage_cmd
         elif word == "ENV":
-            df.env_names.extend(_env_names(rest))
+            for n, v in _env_pairs(rest):
+                df.env_names.append(n)
+                if v is not None and "${" not in v and "$" not in v:
+                    df.env_values.setdefault(n, v)
     return df
 
 
-def _env_names(rest: str) -> list[str]:
-    if "=" in rest:
-        return [m.group(1) for m in re.finditer(r"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=", rest)]
+def _env_pairs(rest: str) -> list[tuple[str, str | None]]:
+    """``ENV A=1 B=2`` -> [("A","1"),("B","2")]; ``ENV PATH`` (no value, from the base image) -> [("PATH", None)]."""
+    out: list[tuple[str, str | None]] = []
+    for m in re.finditer(r"([A-Za-z_][A-Za-z0-9_]*)=(\"[^\"]*\"|'[^']*'|[^\s]+)", rest):
+        out.append((m.group(1), m.group(2).strip("\"'")))
+    if out:
+        return out
     first = rest.split()[:1]
-    return [first[0]] if first and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", first[0]) else []
+    if first and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", first[0]):
+        return [(first[0], None)]
+    return []
+
+
+def _env_names(rest: str) -> list[str]:
+    return [n for n, _ in _env_pairs(rest)]
 
 
 def short_command(rest) -> str | None:

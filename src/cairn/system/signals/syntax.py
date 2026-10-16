@@ -24,25 +24,25 @@ from dataclasses import dataclass, field
 LANG_BY_EXT = {
     ".py": "python", ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript", ".jsx": "javascript",
     ".ts": "typescript", ".mts": "typescript", ".cts": "typescript", ".tsx": "tsx", ".java": "java", ".go": "go",
-    ".cs": "csharp", ".sh": "bash", ".bash": "bash",
+    ".cs": "csharp", ".sh": "bash", ".bash": "bash", ".php": "php",
 }
 # Catalog rules name a language family; TypeScript and TSX read like JavaScript.
 FAMILY = {"python": "python", "javascript": "javascript", "typescript": "javascript", "tsx": "javascript",
-          "java": "java", "go": "go", "csharp": "csharp", "bash": "shell"}
+          "java": "java", "go": "go", "csharp": "csharp", "bash": "shell", "php": "php"}
 _GRAMMAR = {
     "python": ("tree_sitter_python", "language"), "javascript": ("tree_sitter_javascript", "language"),
     "typescript": ("tree_sitter_typescript", "language_typescript"),
     "tsx": ("tree_sitter_typescript", "language_tsx"), "java": ("tree_sitter_java", "language"),
     "go": ("tree_sitter_go", "language"), "csharp": ("tree_sitter_c_sharp", "language"),
-    "bash": ("tree_sitter_bash", "language"),
+    "bash": ("tree_sitter_bash", "language"), "php": ("tree_sitter_php", "language_php"),
 }
 # How each language reads an environment variable (call forms; JS also reads ``process.env.X``).
 ENV_CALLS = {
     "python": {"os.environ.get", "os.getenv", "environ.get", "getenv", "os.environ.setdefault"},
-    "javascript": set(), "java": {"System.getenv"}, "go": {"os.Getenv", "os.LookupEnv"},
-    "csharp": {"Environment.GetEnvironmentVariable"}, "shell": set(),
+    "javascript": set(), "java": {"System.getenv", "getenv"}, "go": {"os.Getenv", "os.LookupEnv"},
+    "csharp": {"Environment.GetEnvironmentVariable"}, "shell": set(), "php": {"getenv"},
 }
-ENV_SUBSCRIPTS = {"os.environ", "environ", "process.env"}
+ENV_SUBSCRIPTS = {"os.environ", "environ", "process.env", "$_ENV", "$_SERVER"}
 _SQL = re.compile(r"^\s*\(?\s*(select|insert|update|delete|with|replace|merge|upsert)\s", re.I)  # SQL starts so
 MAX_STR = 400          # string literals kept for SQL scanning are cut to this
 MAX_CALLS = 20_000     # per file
@@ -117,6 +117,8 @@ class FileFacts:
     default_export: str | None = None
     bases: dict = field(default_factory=dict)       # class/interface -> ([base type names], line)
     env_reads: set = field(default_factory=set)     # (line, name) of environment / configuration reads
+    env_defaults: dict = field(default_factory=dict)  # name -> the literal fallback beside the read,
+    #                                                 # transient: used to resolve a host, never stored
     sql: list = field(default_factory=list)         # (line, text) of SQL-looking string literals
     commands: list = field(default_factory=list)    # shell: (line, name, [args])
     is_main: bool = False
@@ -167,7 +169,7 @@ def parse(path: str, text: str, lang: str | None = None) -> FileFacts:
         facts.error = f"parse failed: {type(exc).__name__}"
         return facts
     walker = {"python": _Py, "javascript": _Js, "typescript": _Js, "tsx": _Js, "java": _Java, "go": _Go,
-              "csharp": _Cs, "bash": _Sh}[lang](facts)
+              "csharp": _Cs, "bash": _Sh, "php": _Php}[lang](facts)
     try:
         walker.walk(tree.root_node)
     except RecursionError:
@@ -247,10 +249,29 @@ class _Walker:
             if len(vals) < 8:
                 vals.append(val)
 
-    def env(self, node, name: str) -> Val:
+    def env(self, node, name: str, default: str | None = None) -> Val:
         if name and len(self.f.env_reads) < 5000:
             self.f.env_reads.add((_line(node), name))
+        if default:
+            self.f.env_defaults.setdefault(name, default)
         return Val("env", name)
+
+    def deref(self, v: Val, depth: int = 0) -> Val:
+        """A name bound in this file to a literal, template, object, list or configuration -> that value."""
+        while v.kind == "name" and depth < 3:
+            cands = [b for b in self.f.binds.get(v.text, []) if b.kind in ("str", "tmpl", "obj", "list", "env", "config")]
+            if not cands:
+                break
+            v, depth = cands[0], depth + 1
+        return v
+
+    def env_or_literal(self, lv: Val, rv: Val) -> None:
+        """``os.getenv("X") or "host"`` / ``process.env.X || "host"``: remember the literal as the
+        configuration name's fallback, so a configured address can be resolved without storing values."""
+        if lv.kind == "env" and rv.kind == "str" and rv.text:
+            self.f.env_defaults.setdefault(lv.text, rv.text)
+        elif rv.kind == "env" and lv.kind == "str" and lv.text:
+            self.f.env_defaults.setdefault(rv.text, lv.text)
 
     def string(self, node, text: str) -> None:
         if text and _SQL.search(text[:300]) and len(self.f.sql) < 2000:
@@ -343,6 +364,23 @@ class _Py(_Walker):
                 args.append(self.val(c))
         return args, kwargs
 
+    def _format(self, fmt: str, kwargs: dict, args) -> Val:
+        """``"http://{host}/x".format(host=HOST, ...)`` -> a template; a placeholder takes its argument's
+        value, and a name bound in this file resolves to that binding (``HOST = getenv(..., "host")``)."""
+        pieces = re.split(r"\{(\w*)\}", fmt)
+        vals, i = [], 0
+        for j, p in enumerate(pieces):
+            if j % 2:
+                v = kwargs.get(p) if p else (args[i] if i < len(args) else None)
+                if v is None and p.isdigit() and int(p) < len(args):
+                    v = args[int(p)]
+                if not p:
+                    i += 1
+                vals.append(self.deref(v) if v is not None else Val("other"))
+            elif p:
+                vals.append(Val("str", p))
+        return _concat(vals) if vals else Val("str", fmt)
+
     def dotted(self, n) -> str:
         if n is None:
             return "?"
@@ -382,10 +420,17 @@ class _Py(_Walker):
         if t in ("identifier", "attribute"):
             return Val("name", self.dotted(n))
         if t == "call":
-            fn = self.dotted(n.child_by_field_name("function"))
+            fn_node = n.child_by_field_name("function")
+            fn = self.dotted(fn_node)
             args, kwargs = self.arglist(n.child_by_field_name("arguments"))
             if fn in self.env_calls and args and args[0].kind == "str":
-                return self.env(n, args[0].text)
+                d = args[1] if len(args) > 1 and args[1].kind == "str" else None
+                return self.env(n, args[0].text, d.text if d is not None and d.text else None)
+            if fn.rsplit(".", 1)[-1] == "format":
+                recv = fn_node.child_by_field_name("object") if fn_node is not None else None
+                rv = self.val(recv) if recv is not None else None
+                if rv is not None and rv.kind == "str":
+                    return self._format(rv.text, kwargs, args)
             return Val("call", fn, call=Call(_line(n), fn, args, kwargs, self.func))
         if t == "subscript":
             base = self.dotted(n.child_by_field_name("value"))
@@ -403,7 +448,9 @@ class _Py(_Walker):
                 if left.kind == "str":
                     return _printf(left.text, [self.val(n.child_by_field_name("right"))])
         if t == "boolean_operator":
-            return _prefer(self.val(n.child_by_field_name("left")), self.val(n.child_by_field_name("right")))
+            lv, rv = self.val(n.child_by_field_name("left")), self.val(n.child_by_field_name("right"))
+            self.env_or_literal(lv, rv)
+            return _prefer(lv, rv)
         if t == "dictionary":
             fields = {}
             for p in _named(n):
@@ -595,7 +642,9 @@ class _Js(_Walker):
             if ops == "+":
                 return _concat([self.val(n.child_by_field_name("left")), self.val(n.child_by_field_name("right"))])
             if ops in ("||", "??"):
-                return _prefer(self.val(n.child_by_field_name("left")), self.val(n.child_by_field_name("right")))
+                lv, rv = self.val(n.child_by_field_name("left")), self.val(n.child_by_field_name("right"))
+                self.env_or_literal(lv, rv)
+                return _prefer(lv, rv)
         if t == "object":
             fields = {}
             for p in _named(n):
@@ -783,7 +832,8 @@ class _Java(_Walker):
             callee = (self.dotted(obj) + "." if obj is not None else "") + _t(n.child_by_field_name("name"))
             args = self.args(n.child_by_field_name("arguments"))
             if callee in self.env_calls and args and args[0].kind == "str":
-                return self.env(n, args[0].text)
+                d = args[1] if len(args) > 1 and args[1].kind == "str" else None
+                return self.env(n, args[0].text, d.text if d is not None and d.text else None)
             if callee == "String.format" and args and args[0].kind == "str":
                 return _printf(args[0].text, args[1:])
             return Val("call", callee, call=Call(_line(n), callee, args, {}, self.func))
@@ -793,8 +843,18 @@ class _Java(_Walker):
                                                   self.func, new=True))
         if t in ("element_value_array_initializer", "array_initializer"):
             return Val("list", items=tuple(self.val(c) for c in _named(n)))
+        if t == "ternary_expression":
+            kids = [self.val(c) for c in _named(n) if c.type not in ("?", ":")]
+            for a in kids:      # any literal arm is the fallback of any environment arm
+                for b in kids:
+                    if a is not b:
+                        self.env_or_literal(a, b)
+            env = next((k for k in kids if k.kind == "env"), None)
+            if env is not None:
+                return env
+            return next((k for k in kids if k.kind == "str"), kids[0] if kids else Val("other"))
         if t == "parenthesized_expression":
-            return self.val(n.named_children[0]) if n.named_child_count else Val("other")
+            return self.val(n.named_children[0]) if n.named_children else Val("other")
         return Val("other", t)
 
 
@@ -1078,7 +1138,9 @@ class _Cs(_Walker):
             if op is not None and _t(op) == "+":
                 return _concat([self.val(n.child_by_field_name("left")), self.val(n.child_by_field_name("right"))])
             if op is not None and _t(op) == "??":
-                return _prefer(self.val(n.child_by_field_name("left")), self.val(n.child_by_field_name("right")))
+                lv, rv = self.val(n.child_by_field_name("left")), self.val(n.child_by_field_name("right"))
+                self.env_or_literal(lv, rv)
+                return _prefer(lv, rv)
         if t == "invocation_expression":
             callee = self.dotted(n.child_by_field_name("function"))
             args = self.args(n.child_by_field_name("arguments"))
@@ -1111,6 +1173,177 @@ class _Sh(_Walker):
             if name is not None and len(self.f.commands) < MAX_CALLS:
                 self.f.commands.append((_line(n), _t(name).rsplit("/", 1)[-1], args))
         return None
+
+
+# ---------------------------------------------------------------------------------------------- PHP
+class _Php(_Walker):
+    """PHP reduced to the same records. Variables are keyed without their ``$`` (``$this->dsn`` is
+    ``this.dsn``), so binds, receivers and selector patterns read like the other families. Heredocs and
+    interpolated strings become templates; ``getenv('X') ?: 'd'`` records ``d`` as the fallback."""
+    FUNCS = ("function_definition", "method_declaration")
+    CLASSES = ("class_declaration", "interface_declaration", "trait_declaration")
+    TYPES = frozenset({"function_call_expression", "member_call_expression", "scoped_call_expression",
+                       "object_creation_expression", "assignment_expression", "namespace_use_declaration",
+                       "function_definition", "method_declaration", "property_declaration",
+                       "conditional_expression", "coalesce_expression", "augmented_assignment_expression",
+                       "string", "encapsed_string", "subscript_expression", "array_creation_expression"})
+
+    def callee(self, n) -> str:
+        t = n.type
+        if t == "function_call_expression":
+            return self.dotted(n.child_by_field_name("function"))
+        if t == "member_call_expression":
+            obj = n.child_by_field_name("object")
+            return (self.dotted(obj) + "." if obj is not None else "") + _t(n.child_by_field_name("name"))
+        if t == "scoped_call_expression":
+            return self.dotted(n.child_by_field_name("scope")) + "::" + _t(n.child_by_field_name("name"))
+        return "?"
+
+    def on(self, n):
+        t = n.type
+        if t in ("function_call_expression", "member_call_expression", "scoped_call_expression"):
+            self.add_call(_line(n), self.callee(n), self.args(n.child_by_field_name("arguments")), {},
+                          end=n.end_point[0] + 1)
+        elif t == "object_creation_expression":
+            self.add_call(_line(n), self.ctor(n), self.args_of(n), {}, new=True, end=n.end_point[0] + 1)
+        elif t in ("assignment_expression", "augmented_assignment_expression"):
+            left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
+            if left is not None and right is not None:
+                key = _t(left).lstrip("$")
+                self.bind(key.replace("->$", "->").replace("->", "."), self.val(right))
+        elif t == "namespace_use_declaration":
+            for c in _named(n):
+                nm = c.named_children[-1] if c.type == "namespace_use_clause" and c.named_children else c
+                last = _t(nm).rsplit("\\", 1)[-1]
+                self.f.imports.setdefault(last, _t(nm).replace("\\", "."))
+        elif t in ("function_definition", "method_declaration"):
+            name = _t(n.child_by_field_name("name"))
+            params = []
+            ps = n.child_by_field_name("formal_parameters")
+            for p in _named(ps) if ps is not None else []:
+                pn = p.child_by_field_name("name")
+                params.append(_t(pn).lstrip("$") if pn is not None else "")
+            self.f.funcs.setdefault(name, (params, _line(n), self.cls))
+        elif t == "property_declaration":
+            for el in _named(n):
+                if el.type != "property_element":
+                    continue
+                vn = el.child_by_field_name("name")
+                d = next((c for c in _named(el) if c.type == "property_initializer"), None)
+                if vn is not None:
+                    self.bind(_t(vn).replace("->$", "->").replace("->", "."),
+                              self.val(d.named_children[-1]) if d is not None and d.named_children else None)
+        elif t in ("conditional_expression", "coalesce_expression"):
+            kids = [self.val(c) for c in _named(n) if c.type not in ("?", ":", "?:")]
+            for a in kids:      # any literal arm is the fallback of any environment arm
+                for b in kids:
+                    if a is not b:
+                        self.env_or_literal(a, b)
+        elif t in ("string", "encapsed_string"):
+            v = self.val(n)
+            self.string(n, v.text if v.kind == "str" else "".join(p[1] for p in v.parts if p[0] == "lit"))
+            return "skip"
+        return None
+
+    def ctor(self, n) -> str:
+        """``new PDO(...)`` -> ``PDO``: the created type and the arguments are ``name``/``arguments``
+        children, not fields, on this node."""
+        for c in _named(n):
+            if c.type in ("name", "qualified_name"):
+                return self.dotted(c)
+        return "?"
+
+    def args_of(self, n):
+        return self.args(next((c for c in _named(n) if c.type == "arguments"), None))
+
+    def args(self, node) -> list:
+        out = []
+        for a in _named(node) if node is not None else []:
+            if a.type == "argument":
+                inner = [c for c in _named(a) if c.type != "name"]
+                out.append(self.val(inner[-1]) if inner else Val("other"))
+        return out
+
+    def dotted(self, n) -> str:
+        if n is None:
+            return "?"
+        t = n.type
+        if t == "variable_name":
+            return _t(n.child_by_field_name("name") or n).lstrip("$")
+        if t in ("name",):
+            return _t(n)
+        if t in ("qualified_name", "namespace_name"):
+            return _t(n).replace("\\", ".")
+        if t == "member_access_expression":
+            return self.dotted(n.child_by_field_name("object")) + "." + _t(n.child_by_field_name("name"))
+        if t in ("function_call_expression", "member_call_expression", "scoped_call_expression"):
+            return self.callee(n) + "()"
+        if t == "object_creation_expression":
+            return self.dotted(n.child_by_field_name("name")) + "()"
+        if t in ("parenthesized_expression", "cast_expression"):
+            return self.dotted(n.named_children[0]) if n.named_children else "?"
+        return "?"
+
+    def val(self, n) -> Val:
+        if n is None:
+            return Val("other")
+        t = n.type
+        if t in ("string", "encapsed_string"):
+            parts = []
+            for c in n.children:
+                if c.type in ("string_content", "escape_sequence"):
+                    parts.append(("lit", _t(c)))
+                elif c.type == "interpolation":
+                    e = c.named_children[0] if c.named_children else None
+                    iv = self.val(e) if e is not None else Val("other")
+                    parts.append(("env", iv.text) if iv.kind == "env" else ("var", self.dotted(e)))
+                elif c.type == "variable_name":
+                    iv = self.val(c)
+                    parts.append(("env", iv.text) if iv.kind == "env" else ("var", self.dotted(c)))
+                elif c.type == "member_access_expression":
+                    parts.append(("var", self.dotted(c)))
+            if all(p[0] == "lit" for p in parts):
+                return Val("str", "".join(p[1] for p in parts))
+            return Val("tmpl", _render(parts), parts=tuple(parts))
+        if t in ("variable_name", "member_access_expression", "qualified_name", "name"):
+            return Val("name", self.dotted(n))
+        if t == "integer":
+            return Val("num", _t(n))
+        if t in ("function_call_expression", "member_call_expression", "scoped_call_expression"):
+            fn = self.callee(n)
+            args = self.args(n.child_by_field_name("arguments"))
+            if fn in self.env_calls and args and args[0].kind == "str":
+                return self.env(n, args[0].text)
+            if fn == "sprintf" and args and args[0].kind == "str":
+                return _printf(args[0].text, args[1:])
+            return Val("call", fn, call=Call(_line(n), fn, args, {}, self.func))
+        if t == "object_creation_expression":
+            callee = self.ctor(n)
+            return Val("call", callee, call=Call(_line(n), callee, self.args_of(n), {}, self.func, new=True))
+        if t == "subscript_expression":
+            obj, idx = n.child_by_field_name("object"), n.child_by_field_name("index")
+            iv = self.val(idx) if idx is not None else Val("other")
+            if obj is not None and _t(obj) in ENV_SUBSCRIPTS and iv.kind == "str":
+                return self.env(n, iv.text)
+            return Val("name", self.dotted(obj) + "[]")
+        if t == "array_creation_expression":
+            fields, items = {}, []
+            for el in _named(n):
+                if el.type == "array_element_initializer" and len(_named(el)) == 2:
+                    k, v = _named(el)
+                    fields[_t(k).lstrip("$")] = self.val(v)
+                elif el.type == "variable_name":
+                    items.append(self.val(el))
+            if fields and not items:
+                return Val("obj", fields=fields)
+            return Val("list", items=tuple(items))
+        if t == "binary_expression":
+            op = n.child_by_field_name("operator")
+            if op is not None and _t(op) == ".":
+                return _concat([self.val(n.child_by_field_name("left")), self.val(n.child_by_field_name("right"))])
+        if t in ("parenthesized_expression", "cast_expression"):
+            return self.val(n.named_children[0]) if n.named_children else Val("other")
+        return Val("other", t)
 
 
 # ---------------------------------------------------------------------------------------------- values

@@ -33,13 +33,14 @@ from .signals import entry as entry_mod
 from .signals import files as files_mod
 from .signals import http as http_mod
 from .signals import messaging as messaging_mod
+from .signals import proxy as proxy_mod
 from .signals import routes as routes_mod
 from .signals import stores as stores_mod
 from .signals import syntax
-from .signals.match import RepoIndex, Wrappers, host_of, imports_library, qualify
+from .signals.match import RepoIndex, Wrappers, host_of, imports_library, parse_url_text, qualify
 
 LANG_DISPLAY = {"python": "Python", "javascript": "Node.js", "java": "Java", "go": "Go", "csharp": ".NET",
-                "shell": "Shell"}
+                "shell": "Shell", "php": "PHP"}
 WEB_DIRS = ("templates", "static", "public", "views", "wwwroot", "assets")
 WEB_DEPS = frozenset({"react", "react-dom", "vue", "svelte", "@angular/core", "next", "nuxt", "socket.io",
                       "ejs", "pug", "handlebars", "express-handlebars", "spring-boot-starter-thymeleaf", "jinja2"})
@@ -221,6 +222,10 @@ class Builder:
         self.facts = parse_repo(self.files, self.cat)
         self.idx = RepoIndex(self.facts)
         self.wrappers = Wrappers(self.facts)
+        self.env_defaults: dict[str, str] = {}
+        for ff in self.facts.values():
+            for name, d in ff.env_defaults.items():
+                self.env_defaults.setdefault(name, d)
         self.units: list[Unit] = []
         self.refs: list[deploy_mod.Unit] = []
         self.stores: dict[str, StoreInfo] = {}
@@ -270,11 +275,17 @@ class Builder:
     def assemble_units(self) -> None:
         cat = self.cat
         # 1. compose services and Procfile processes built from this repository
+        self._store_builds: set[str] = set()
         for d in self.deploy.units:
             if d.source not in ("compose", "procfile") or d.build is None:
                 continue
             if d.build.startswith(".."):
                 self.refs.append(d)
+                continue
+            tech = self._build_store_tech(d)
+            if tech is not None:
+                self._store_builds.add(d.build or ".")
+                self._store_from_deploy(d, tech[0], tech[1])
                 continue
             u = next((x for x in self.units if x.root == d.build and d.name.lower() in x.names), None)
             if u is None:
@@ -283,6 +294,8 @@ class Builder:
             self._attach_deploy(u, d)
         # 2. Dockerfiles
         for df in self.deploy.dockerfiles:
+            if df.dir in getattr(self, "_store_builds", set()):
+                continue    # a store image configured by this repository (handled in step 1)
             u = next((x for x in self.units for d in x.deploys if getattr(d, "dockerfile", None) == df.file), None)
             u = u or self.at_root(df.dir)
             if u is None:
@@ -299,6 +312,8 @@ class Builder:
                 u.evidence.append(self.ev("dockerfile", df.file, df.cmd[1], f"CMD {df.cmd[0]}"))
             for name in df.env_names:
                 u.env_names.setdefault(name, self.ev("config", df.file, df.from_line, "ENV"))
+            for k, v in df.env_values.items():
+                u.env_values.setdefault(k, v)
         # 3. image-only services and Kubernetes workloads
         for d in self.deploy.units:
             if not ((d.source == "compose" and d.build is None) or d.source == "k8s"):
@@ -307,6 +322,15 @@ class Builder:
             u = self.find(d.name) or next((self.find(a) for a in d.aliases if self.find(a)), None)
             if u is None and d.image and tech is None:
                 u = self._by_image(d.image)
+            if u is None and tech is None:
+                # a workload with only an image whose name matches a directory SEGMENT of a code unit
+                # (Kubernetes "cartservice" and src/cartservice/src/Dockerfile): the deploy description
+                # names that unit, and its name wins (it is the product's service name)
+                u = next((x for x in self.units if not x.image_only and x.root and any(
+                    seg == d.name.lower() for seg in x.root.lower().split("/"))), None)
+                if u is not None:
+                    u.aliases.add(u.name)
+                    u.name = d.name
             if tech is not None and (u is None or u.image_only):
                 self._store_from_deploy(d, tech)
                 continue
@@ -406,7 +430,17 @@ class Builder:
         u.job = u.job or d.job
         u.replicas = u.replicas or d.replicas
 
-    def _store_from_deploy(self, d: deploy_mod.Unit, tech: str) -> None:
+    def _build_store_tech(self, d: deploy_mod.Unit) -> tuple[str, deploy_mod.Dockerfile] | None:
+        """A compose service built from a directory whose Dockerfile only configures a store image
+        (``FROM mysql:5.7`` plus init scripts, no command of its own) is that store, not an application:
+        name it from the compose service and its image's technology."""
+        df = next((x for x in self.deploy.dockerfiles if x.dir == (d.build or "")), None)
+        if df is None or not df.base or df.cmd is not None:
+            return None
+        tech = self.cat.image_tech(df.base)
+        return (tech, df) if tech else None
+
+    def _store_from_deploy(self, d: deploy_mod.Unit, tech: str, df: deploy_mod.Dockerfile | None = None) -> None:
         key = slug(d.name)
         s = self.stores.get(key)
         if s is None:
@@ -414,7 +448,10 @@ class Builder:
         s.aliases.add(d.name)
         s.aliases.update(d.aliases)
         what = f"services.{d.name}" if d.source == "compose" else d.entry
-        s.evidence.append(self.ev("image", d.file, d.line, f"{what} image {d.image}"))
+        if df is not None and df.from_line:
+            s.evidence.append(self.ev("image", df.file, df.from_line, f"FROM {df.base}"))
+        s.evidence.append(self.ev("image", d.file, d.line, f"{what} image {d.image}" if d.image
+                                  else f"{what} build {d.build}"))
 
     # -- dependencies, kinds, labels --------------------------------------------------------------------
     def deps(self, u: Unit) -> set[str]:
@@ -428,7 +465,8 @@ class Builder:
     def value(self, u: Unit | None, name: str) -> str | None:
         if u is not None and name in u.env_values:
             return u.env_values[name]
-        return self.values.lookup(u.root if u is not None and not u.image_only else "", name)
+        v = self.values.lookup(u.root if u is not None and not u.image_only else "", name)
+        return v if v is not None else self.env_defaults.get(name)
 
     def resolve_host(self, host: str | None) -> tuple[str | None, str | None]:
         """(local element id, host key) for a host: a deploy unit or store of this repository, else a key."""
@@ -526,11 +564,12 @@ class Builder:
             return
         routes = routes_mod.extract(self.facts, cat, self.idx, self.deps_for)
         calls = http_mod.extract(self.facts, cat, self.idx, self.wrappers)
+        proxies = proxy_mod.extract(self.files, cat)
         ops, conns = messaging_mod.extract(self.facts, cat, self.idx, self.wrappers)
         uses, services = stores_mod.extract(self.facts, cat, self.idx, self.files)
         by_unit: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
         for kind, items in (("route", routes), ("call", calls), ("op", ops), ("conn", conns), ("use", uses),
-                            ("service", services)):
+                            ("service", services), ("proxy", proxies)):
             for it in items:
                 u = self.owner(it.file)
                 if u is None:
@@ -558,6 +597,8 @@ class Builder:
         for u in self.units:
             sig = by_unit.get(u.key, {})
             self._code_elements(u, sig)
+            self._config_address_calls(u)
+        self._describe_stores()
         self._deploy_refs()
 
     def _no_units(self) -> bool:
@@ -776,6 +817,17 @@ class Builder:
         uses = sig.get("use", [])
         if not uses:
             return rels
+        dns = self._env_dns(u)
+        for use in uses:
+            if use.target is not None or not dns:
+                continue
+            for name, scheme in dns:
+                t = self.cat.scheme_tech(scheme) if scheme else None
+                if (t and use.tech in ("sql", t)) or (scheme is None and use.tech == "sql"):
+                    use.target = syntax.Val("env", name)
+                    if t:
+                        use.tech = t
+                    break
         by_store: dict[str, list] = defaultdict(list)
         for use in uses:
             tech = self.cat.drivers.get(str(use.driver or "").lower()) or use.tech
@@ -849,6 +901,32 @@ class Builder:
                        desc={"channel": "Carries messages", "data-store": "Stores data"}.get(etype),
                        built_at_commit=self.commit, evidence=evidence, meta=meta)
 
+    def _describe_stores(self) -> None:
+        """One-line responsibilities that say something (the checkpoint ruled bare "Stores data" and
+        "Carries messages" padding): a store names the containers that use it, a channel names what it
+        carries, and a deploy-declared store names its compose service. Runs once every use is known."""
+        users: dict[str, set[str]] = defaultdict(set)
+        topics: dict[str, list[str]] = defaultdict(list)
+        for r in self.model.relationships.values():
+            src = self.model.elements.get(r.from_id)
+            if src is None or src.type != "container":
+                continue
+            users[r.to_id].add(src.name)
+            topics[r.to_id].extend(r.meta.get("keys") or [])
+        for s in self.stores.values():
+            el = self.model.elements.get(self.sid(s))
+            if el is None:
+                continue
+            who = sorted(users.get(el.id) or [])
+            if self.stype(s) == "channel":
+                keys = sorted(set(topics.get(el.id) or []))
+                if keys:
+                    el.desc = fit("Carries", keys, noun="topics")
+            elif who:
+                el.desc = fit("Used by", who, noun="containers")
+            elif s.from_deploy and s.aliases:
+                el.desc = f"{self.cat.tech(s.tech).get('name', s.tech)} run as compose service {sorted(s.aliases)[0]}"
+
     def _code_elements(self, u: Unit, sig) -> None:
         uid = self.uid(u)
         for r in sig.get("route", []):
@@ -860,25 +938,146 @@ class Builder:
                                    built_at_commit=self.commit, evidence=[self.ev("route", r.file, r.line)],
                                    meta={"method": r.method, "path": r.path, "framework": r.framework,
                                          "handler": r.handler}))
+        for p in sig.get("proxy", []):
+            if len(self.model.elements) >= MAX_ELEMENTS:
+                self.stats["elements truncated"] += 1
+                return
+            target = hkey = None
+            if p.host:
+                target, hkey = self.resolve_host(p.host)
+            if target is None and p.config is not None:
+                _, h = host_of(self.value(u, p.config))
+                target, hkey = self.resolve_host(h)
+            base_d = config_mod.describe(p.config, self.cat) if p.config else {}
+            meta = {"method": "ANY", "path": routes_mod.norm_path(p.path), "base": base_d.get("name"),
+                    "target": target if target != uid else None, "self_target": target == uid,
+                    "host_key": hkey, "client": f"{p.proxy} proxy"}
+            self.model.add(Element(id=f"{self.repo}:http-call:{u.key}:{p.file}:{p.line}:ANY", type="code",
+                                   level="code", name=f"proxy {p.path}", repo=self.repo, kind="http-call",
+                                   parent=uid, built_at_commit=self.commit,
+                                   evidence=[self.ev("proxy", p.file, p.line,
+                                                     f"location {p.path} -> {p.host or '$' + (p.config or '')}")],
+                                   meta=meta))
         for c in sig.get("call", []):
             if len(self.model.elements) >= MAX_ELEMENTS:
                 self.stats["elements truncated"] += 1
                 return
             target, hkey = self.resolve_host(c.host)
+            inferred = False
             base = c.base
             if base and target is None:
                 scheme, host = host_of(self.value(u, base))
                 t2, h2 = self.resolve_host(host)
+                if t2 is None and host and "." in host and host.lower() not in http_mod.LOCAL_HOSTS:
+                    # a configured DOMAIN address leaves the product: an outside system, named after
+                    # the configuration key, inferred (T056). A single-label host may still name a
+                    # sibling repository's container and keeps the host-key path.
+                    t2, inferred = self._config_external(
+                        base, scheme, self.ev("call", c.file, c.line)), True
                 target, hkey = target or t2, hkey or h2
             base_d = config_mod.describe(base, self.cat) if base else {}
             meta = {"method": c.method, "path": c.path, "base": base_d.get("name"), "base_kind": base_d.get("kind"),
                     "target": target if target != uid else None, "self_target": target == uid,
-                    "host_key": hkey, "client": c.client}
+                    "inferred_target": inferred, "host_key": hkey, "client": c.client}
             evs = [self.ev("call", c.file, c.line)] + [self.ev("call", f, ln) for f, ln in c.via[:3]]
             self.model.add(Element(id=f"{self.repo}:http-call:{u.key}:{c.file}:{c.line}:{c.method}", type="code",
                                    level="code", name=f"{c.method} {c.path or '(dynamic URL)'}", repo=self.repo,
                                    kind="http-call", parent=uid, built_at_commit=self.commit, evidence=evs,
                                    meta=meta))
+
+    _ADDR_NAME = re.compile(r"(?i)(HOST|HOSTNAME|URL|URI|ADDR|ADDRESS|ENDPOINT|GATEWAY)$")
+
+    def _config_address_calls(self, u: Unit) -> None:
+        """Configured addresses (T054, T058): a configuration name that says it is one (…HOST, …ADDR,
+        …URL, …ENDPOINT), read by the unit's code with a literal fallback or wired to a value by its
+        deploy description, names a service the unit talks to. The value resolves the target and is
+        never stored. Links are made only when the address resolves to a deploy unit, or — for a
+        domain — to an inferred outside system (T056); store addresses belong to the driver rules, and
+        an address the product cannot resolve makes no claim at all."""
+        uid = self.uid(u)
+        reads: dict[str, tuple[str, int | None]] = {}      # name -> (file, line) of a code read
+        for path, ff in self.facts.items():
+            if self.owner(path) is not u:
+                continue
+            for line, name in ff.env_reads:
+                reads.setdefault(name, (path, line))
+        for name in sorted(set(reads) | set(u.env_names)):
+            if self.cat.sensitive_kind(name):
+                continue
+            value = self.value(u, name)
+            if not value or "$" in value:
+                continue
+            scheme, host = host_of(value)
+            if not host or host.lower() in http_mod.LOCAL_HOSTS:
+                continue
+            if scheme and self.cat.scheme_tech(scheme):
+                continue          # a store connection string: the store rules carry it
+            pu = parse_url_text(value)
+            if not (pu is not None or self._ADDR_NAME.search(name)):
+                continue          # a value that merely looks like a word (APP_ENV=dev) is not an address
+            if name in reads:
+                path, line = reads[name]
+                ev = self.ev("config", path, line, f"{name} address")
+            else:
+                d = u.env_names.get(name)
+                ev = self.ev("deploy-config", d.file if d else None, d.line if d else None, f"{name} address")
+            target, hkey = self.resolve_host(host)
+            inferred = False
+            if target == uid:
+                continue
+            if target is not None and self.model.elements[target].type in ("data-store", "channel"):
+                continue
+            if target is None and "." in host:   # a domain leaves the product (T056); a single label
+                target, inferred = self._config_external(name, scheme, ev), True   # may be a sibling
+            elif target is None:
+                continue
+            meta = {"method": "ANY", "path": routes_mod.norm_path(pu.path) if pu and pu.path else None,
+                    "base": name, "target": target, "inferred_target": inferred, "host_key": hkey,
+                    "client": "config default" if name in reads else "config wiring"}
+            self.model.add(Element(
+                id=f"{self.repo}:http-call:{u.key}:cfg:{name}", type="code", level="code",
+                name=f"ANY {pu.path if pu and pu.path else '(configured address)'}", repo=self.repo,
+                kind="http-call", parent=uid, built_at_commit=self.commit, evidence=[ev], meta=meta))
+
+    def _config_external(self, name: str, scheme: str | None, ev: Evidence) -> str:
+        """The outside system a configuration name points at (T056): inferred, named after the
+        configuration key — the product's own name for it — never after the address value."""
+        eid = f"{self.repo}:external:cfg:{slug(name)}"
+        el = self.model.elements.get(eid)
+        if el is None:
+            el = Element(id=eid, type="external-system", level="container",
+                         name=re.sub(r"[_\-]+", " ", name).strip().title() or name, repo=self.repo,
+                         tech=(scheme or "http").upper(), desc="Outside system at a configured address",
+                         provenance="inferred", built_at_commit=self.commit, evidence=[ev],
+                         meta={"external": True, "merge": f"config:{name.upper()}"})
+            self.model.add(el)
+        else:
+            el.add_evidence(ev)
+        return eid
+
+    def _env_dns(self, u: Unit) -> list[tuple[str, str | None]]:
+        """(name, scheme) of configuration reads whose literal fallback is a store connection string
+        (``PDO_URL=mysql:host=mysql``) or a store host (``DB_HOST=mysql``, when that host is a store this
+        product already knows): the target a driver use could not name statically."""
+        out: list[tuple[str, str | None]] = []
+        seen: set[str] = set()
+        aliases = {a.lower() for s in self.stores.values() for a in s.aliases} | {s.key for s in self.stores.values()}
+        for path, ff in self.facts.items():
+            if self.owner(path) is not u:
+                continue
+            for name, default in ff.env_defaults.items():
+                if name in seen or self.cat.sensitive_kind(name):
+                    continue
+                scheme, host = host_of(default)
+                if not host or host.lower() in http_mod.LOCAL_HOSTS:
+                    continue
+                if scheme and self.cat.scheme_tech(scheme):
+                    seen.add(name)
+                    out.append((name, scheme))
+                elif host.strip().lower().split(".")[0] in aliases:
+                    seen.add(name)
+                    out.append((name, None))
+        return out
 
     def _deploy_refs(self) -> None:
         """Compose services this repository builds from another directory (a sibling repository): record

@@ -34,8 +34,8 @@ each with its own spec, plan and tasks, shippable on its own. Ids for requiremen
 | Slice | Goal | Requirements | Tasks | Depends on | Size | State at checkpoint |
 |---|---|---|---|---|---|---|
 | 002 foundation | Store migrations, model, limits, safe YAML, tokens, traceability, constitution 1.1.1 | (shared) | T000, T001, T004, T004a, T005 | none | done | 5/5 done |
-| [003 diagram standard](../003-diagram-standard/spec.md) | Checker, layout, SVG, Mermaid (US2) | FR-020 to 023, 024a, 031 to 033, SC-006 | 14 | 002 | M | 11 done, 2 partial, 1 open |
-| [004 system extraction](../004-system-extraction/spec.md) | Extraction, linking, containers view (US1) | FR-001 to 015, 029a/b/c, 034, SC-001 to 003, SC-008 | 17 | 002 (003 for `--svg`) | L | 11 done, 6 partial |
+| [003 diagram standard](../003-diagram-standard/spec.md) | Checker, layout, SVG, Mermaid (US2) | FR-020 to 023, 024a, 031 to 033, SC-006 | 14 | 002 | M | 12 done, 2 partial (updated 2026-10-13) |
+| [004 system extraction](../004-system-extraction/spec.md) | Extraction, linking, containers view (US1) | FR-001 to 015, 029a/b/c, 034, SC-001 to 003, SC-008 | 25 | 002 (003 for `--svg`) | L | 20 done, 5 partial (third product online-boutique: blind 0.92/0.79 and 0.00/0.00 gRPC → 0.92/0.86 and 0.94/0.84 after T058/T059) |
 | [005 staleness](../005-architecture-staleness/spec.md) | Re-check and drift (US3) | FR-018, 019, SC-004 | 3 | 004 | S | open |
 | [006 Map views](../006-map-views/spec.md) | Five views, dependency layers (US5) | FR-016, 017, 024 to 027, SC-005 | 9 | 003, 004 | L | 1 done, 1 partial, 7 open |
 | [007 agent context](../007-agent-system-context/spec.md) | Brief line, consumers in context (US4) | FR-028, SC-007 | 4 | 004 | S | open |

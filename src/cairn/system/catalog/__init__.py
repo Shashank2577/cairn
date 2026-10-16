@@ -16,16 +16,17 @@ from ..safeyaml import UnsafeYAML, load_file
 
 HERE = Path(__file__).parent
 BUNDLED = ("frameworks.yaml", "clients.yaml", "infrastructure.yaml")
-LANGUAGES = frozenset({"python", "javascript", "java", "go", "csharp", "shell"})
+LANGUAGES = frozenset({"python", "javascript", "java", "go", "csharp", "shell", "php"})
 ROUTE_KINDS = frozenset({"decorator", "annotation", "call", "file-route", "config"})
 OPS = frozenset({"publish", "subscribe", "push", "pop"})
-LIST_KEYS = ("frameworks", "http", "messaging", "stores", "services")
+LIST_KEYS = ("frameworks", "http", "messaging", "stores", "services", "proxies")
 MAP_KEYS = ("techs", "services_info", "images", "schemes", "drivers", "config_keys")
 ENV_TRIGGERS = {"python": ("environ", "getenv"), "javascript": ("process.env", "import.meta.env"),
-                "go": ("Getenv", "LookupEnv"), "java": ("getenv", "@Value"), "csharp": ("GetEnvironmentVariable",)}
+                "go": ("Getenv", "LookupEnv"), "java": ("getenv", "@Value"), "csharp": ("GetEnvironmentVariable",),
+                "php": ("getenv",)}
 MARKERS = {"javascript": ("fetch(",), "java": ("Mapping", "Listener", "FeignClient", "Repository", "RestTemplate",
                                                "WebClient", "DriverManager"),
-           "python": ("urlpatterns", "DATABASES"), "go": ("net/http",)}
+           "python": ("urlpatterns", "DATABASES"), "go": ("net/http",), "php": ("curl_init",)}
 
 
 def _import_word(lib: str, family: str) -> str:
@@ -42,6 +43,7 @@ class Catalog:
     messaging: list = field(default_factory=list)
     stores: list = field(default_factory=list)
     services: list = field(default_factory=list)
+    proxies: list = field(default_factory=list)
     techs: dict = field(default_factory=dict)
     services_info: dict = field(default_factory=dict)
     images: dict = field(default_factory=dict)
@@ -175,6 +177,10 @@ def _langs(rule) -> list[str]:
 def _invalid(key: str, rule, cat: Catalog) -> str | None:
     if not isinstance(rule, dict):
         return "not a mapping"
+    if key == "proxies":
+        if not isinstance(rule.get("files"), list) or not rule.get("files"):
+            return "files globs required"
+        return None
     langs = _langs(rule)
     if not langs or any(x not in LANGUAGES for x in langs):
         return f"language must be one of {sorted(LANGUAGES)}"

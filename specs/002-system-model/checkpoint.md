@@ -2,6 +2,23 @@
 
 Branch `002-system-model`. Nothing merged to `main`.
 
+> **Update 2026-10-13.** The robot-shop blind fixes (T052 to T057) are in: nginx `proxy_pass` config
+> rules, PHP (curl, PDO), environment-fallback resolution, build-context stores, inferred outside
+> systems from configured domains, and soft view budgets whose collapse carries its members. robot-shop
+> re-scores **1.00/0.86 elements, 1.00/1.00 relationships, 6% labelled**; shop, orders and voting-app stay
+> at 1.00/1.00; the system suite passes (547 tests) and ruff is clean on the changed files. Because the
+> rules were developed against robot-shop, it is now a regression floor, not a blind measure — the
+> unbiased SC-001 number still needs a third unseen product (T002). Quality items 3 (partially: budgets),
+> 4, 5 and the "Mermaid exports rendered in CI" part of 6 are closed; the rest below still stands.
+>
+> **Update 2026-10-15.** The third product ran blind (T002): Google's Online Boutique, ground truth from
+> docs committed on its own (7beab4d) before extraction — **elements 0.92/0.79, relationships 0.00/0.00**:
+> every call in the product is gRPC. T058 (gRPC client rules + configured-address wiring) and T059
+> (image-with-source attribution, the ASP.NET Redis registration) then took it to **0.92/0.86 and
+> 0.94/0.84**; its "false" extras are real code the docs misdescribe (a Postgres catalogue and an AlloyDB
+> cart store behind a README that says JSON files). Three products have now run the full protocol
+> (doc-truth, blind record, fixes, floor); the next unbiased round needs a fourth product.
+
 ## Tests
 
 | Run | Result |

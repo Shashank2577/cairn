@@ -297,8 +297,10 @@ class _Linker:
             cands = self._route_candidates(m.get("method"), m.get("path"), src)
             if pinned and pinned in self.out.elements and self.out.elements[pinned].type in (
                     "data-store", "channel", "external-system"):
-                # a store reached over HTTP (Elasticsearch, MinIO): the configuration names it directly
-                self._add(groups, src, pinned, "http-config", "extracted", call, [], [])
+                # a store reached over HTTP (Elasticsearch, MinIO): the configuration names it directly;
+                # a target that only configuration's fallback suggests is inferred (T056)
+                prov = "inferred" if m.get("inferred_target") else "extracted"
+                self._add(groups, src, pinned, "http-config", prov, call, [], [])
                 continue
             if pinned and pinned in self.out.elements and self.out.elements[pinned].type != "container":
                 pinned = None
@@ -316,8 +318,15 @@ class _Linker:
             else:
                 self._unresolved(groups, src, call)
         for (src, tgt, prov), g in sorted(groups.items()):
-            paths = sorted({f"{c.meta.get('method')} {c.meta.get('path') or '(dynamic URL)'}" for c in g["calls"]})
-            how = clip("HTTP · " + _summarise(paths), 36)
+            paths = sorted({_call_label(c) for c in g["calls"]})
+            # the protocol claim comes from real client call sites only: configured-address wiring
+            # (no code call) knows the target, not the protocol
+            proto_calls = [str(c.meta.get("client", "")) for c in g["calls"]
+                           if not str(c.meta.get("client", "")).startswith("config")]
+            grpc = sum(1 for x in proto_calls if "grpc" in x)
+            proto = ("gRPC" if grpc == len(proto_calls) else "HTTP/gRPC" if grpc else
+                     "HTTP" if proto_calls else "")
+            how = clip((proto + " · " if proto else "") + _summarise(paths), 36)
             what = _http_what(g["calls"]) if prov != "inferred" else None
             evs = [ev for c in g["calls"] for ev in c.evidence[:2]] + [ev for r in g["routes"] for ev in r.evidence[:1]]
             rule = "http-route-match" if "http-route-match" in g["rules"] else sorted(g["rules"])[0]
@@ -482,6 +491,15 @@ def _slug(text: str) -> str:
 
 
 _METHOD_ORDER = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "ANY")
+
+
+def _call_label(c: Element) -> str:
+    """``GET /api/orders/{}``; a call with no literal path but a base configuration names it:
+    ``ANY via CART_HOST``; neither -> ``(dynamic URL)``."""
+    method, path, base = c.meta.get("method"), c.meta.get("path"), c.meta.get("base")
+    if path:
+        return f"{method} {path}"
+    return f"{method} via {base}" if base else f"{method} (dynamic URL)"
 
 
 def _summarise(paths: list[str]) -> str:

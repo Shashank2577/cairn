@@ -13,7 +13,7 @@ description: "Tasks for the system model and diagram standard"
 ## Status (checkpoint 2026-10-08)
 
 Ticked = code and passing tests exist. **partial** = some of it exists, with what is missing. open = not started.
-Counts at this checkpoint: 28 ticked, 9 partial, 20 open (57 tasks).
+Counts at this checkpoint: 28 ticked, 9 partial, 20 open (57 tasks). After the 2026-10-13 update: 35 ticked (T050, T052 to T057), 8 partial, 20 open (63 tasks). The T052–T057 fixes took robot-shop from 0.69/0.82 elements and 0.30/0.86 relationships to 1.00/0.86 and 1.00/1.00 — but the rules were developed against that fixture, so an unbiased SC-001 still needs the third unseen product (T002). After the 2026-10-15 update: 38 ticked (T002, T058, T059), 7 partial, 20 open (65 tasks). The third product (online-boutique) ran blind: elements 0.92/0.79, relationships 0.00/0.00 (all calls gRPC); T058/T059 then took it to 0.92/0.86 and 0.94/0.84, unblinding it in turn — the next unbiased round needs a fourth product.
 
 Split into slices 003 to 008 (see the spec's umbrella index); each slice's tasks.md carries the same ids and ticks.
 
@@ -27,7 +27,7 @@ Split into slices 003 to 008 (see the spec's umbrella index); each slice's tasks
 - [x] T000 Constitution PATCH amendment: provenance vocabulary adds declared, ambiguous, stale (principle II) in `.cairn/workflow/memory/constitution.md` — done: constitution 1.1.1 (doc change, no test needed)
 
 - [x] T001 Create the `src/cairn/system/` package skeleton (`model.py`, `signals/`, `catalog/`, `diagram/`, `link.py`, `views.py`, `recheck.py`) and `tests/system/` — done
-- [ ] T002 [P] Fixture products in `tests/system/fixtures/`: shop (from `specs/002-system-model/prototype/sandbox`), spring (Java), gonet (Go), a monorepo with several deploy units, and one real open-source multi-service product; each `GROUND_TRUTH.yaml` committed before extraction is first run on it — **partial**: shop, orders (Spring+Go) and example-voting-app (real, pinned, fetched not vendored); voting-app truth committed before extraction, orders truth written in the same uncommitted batch as the extractor so its 'before' cannot be proven; the voting app is no longer blind (shell-client rule added while it was visible); a second unseen real product is still needed
+- [x] T002 [P] Fixture products in `tests/system/fixtures/`: shop (from `specs/002-system-model/prototype/sandbox`), spring (Java), gonet (Go), a monorepo with several deploy units, and one real open-source multi-service product; each `GROUND_TRUTH.yaml` committed before extraction is first run on it — done: shop, orders (Spring+Go), example-voting-app and robot-shop (real, pinned, fetched not vendored; robot-shop's fixes unblinded it), and online-boutique (the third product, truth from docs committed on its own at 7beab4d before extraction): blind elements 0.92/0.79, relationships 0.00/0.00 (all calls gRPC), honestly recorded, then T058/T059 took it to 0.92/0.86 and 0.94/0.84
 - [x] T003 [P] Move canonical tokens to `src/cairn/system/diagram/tokens.json`; generate `docs/diagram-standard/tokens.json` from it in `scripts/sync_tokens.py` — done: test_foundation::test_generated_token_copies_are_in_sync
 
 ## Phase 2: Foundational (blocks every story)
@@ -63,6 +63,24 @@ Split into slices 003 to 008 (see the spec's umbrella index); each slice's tasks
 - [ ] T021 [US1] Cross-repo linking (route match, topic match, shared store, sibling package, existing cross-repo call and type passes), with ambiguity and "unresolved HTTP target", reading siblings read-only, in `src/cairn/system/link.py` — **partial**: links within and across repositories, ambiguity and unresolved targets done; the existing cross-repo call and shared-type passes are not integrated
 - [ ] T022 [US1] View queries with budgets and collapsing in `src/cairn/system/views.py`; `cairn system --view context|containers` text and `--svg` output in `src/cairn/cli.py` — **partial**: views and `cairn system --view/--scope/--json/--out` done; no `--svg` (use `cairn diagram render` on the --out file)
 - [x] T023 [US1] Golden tests: fixture views versus ground truth (at least 90% recall, no unlabelled false positives), evidence on 100% of claims, 0 ledger calls, in `tests/system/test_containers.py` — done: shop, orders, voting-app all at 1.00 (see checkpoint note on fixture blindness)
+
+## Phase 3b: Blind-accuracy fixes from robot-shop (SC-001)
+
+From [blind-accuracy.md](004-system-extraction/blind-accuracy.md) (run 2026-10-08, rules frozen): elements 0.69/0.82, relationships 0.30/0.86 — below SC-001. These tasks close the misses without re-fitting to the fixture; a third unseen product (T002) validates the result.
+
+- [x] T052 [P] [US1] Reverse-proxy `config` catalog rule: nginx `location … proxy_pass http://<service>:<port>` yields the proxying container's element and a relationship to each proxied service, evidence the conf file and line, in `src/cairn/system/signals/` + `src/cairn/system/catalog/` — done: `proxies` catalog section and `signals/proxy.py`; `tests/system/test_extract_proxies.py`
+- [x] T053 [P] [US1] PHP framework and client catalog rules (framework detection, HTTP client, MySQL client; grammar already bundled), same rule shape as the other languages, in `src/cairn/system/catalog/` — done: `_Php` walker in `signals/syntax.py`, `curl_init` http rule and `PDO` store rule in `clients.yaml`; no inbound-route framework rule for PHP yet (next PHP framework)
+- [x] T054 [US1] Resolve an outbound HTTP host built from an environment or config variable when the variable's default value or its compose value names a compose service, in `src/cairn/system/signals/http.py` / `link.py` — done: `env_defaults` beside every read across Python, JS, Java and PHP, `url()` scheme/port templates, `Builder.value` fallback; `tests/system/test_extract_config_defaults.py`
+- [x] T055 [US1] Name a store from the compose service name when the service's build context is a directory whose image is a database image, in `src/cairn/system/signals/deploy.py` — done: `_build_store_tech` in `build.py` (store image + no own command); Dockerfile ENV values also feed resolution
+- [x] T056 [US1] Config-URL rule for hosts that appear only in configuration: an outside-system element marked inferred plus the relationship, never a guessed container, in `src/cairn/system/signals/` — done: `_config_external` in `build.py`, named after the configuration key, DOMAIN hosts only; single-label hosts keep the sibling path
+- [x] T057 [P] [US1] Scoring expands collapsed groups before comparing to ground truth, and the containers view does not collapse a view only marginally over budget, in `tests/system/scoring.py` + `src/cairn/system/views.py` — done: soft node and arrow budgets, the group carries `members`, `scoring.expand` restores them
+
+## Phase 3c: Blind-accuracy fixes from online-boutique (gRPC)
+
+From [blind-accuracy-online-boutique.md](004-system-extraction/blind-accuracy-online-boutique.md) (run 2026-10-15, rules frozen): elements 0.92/0.79, relationships 0.00/0.00 — every service-to-service call is gRPC.
+
+- [x] T058 [US1] gRPC as an outbound edge: client rules (Go, Python, Java, C#) over the `http` rule shape, plus configured-address wiring from deploy descriptions; protocol label only from a real call site — done: boutique relationships 0.00/0.00 blind → 0.94/0.84
+- [x] T059 [US1] A Kubernetes image-only workload whose name matches a path segment of a code unit adopts that unit's code and name; the ASP.NET Redis registration joins the stackexchange-redis rule with env-style config keys — done: `cartservice -> redis-cart` found; the PostgreSQL edges it surfaces are real (AlloyDB cart store, pgx catalogue)
 
 ## Phase 4: User Story 2, one diagram standard everywhere (P1)
 
@@ -108,7 +126,7 @@ Split into slices 003 to 008 (see the spec's umbrella index); each slice's tasks
 
 - [x] T048 [P] [US2] Mermaid export of any view (flowchart; sequence diagram for flows), token-driven theme line, `%% cairn` facts, evidence table beside it in exports, in `src/cairn/system/diagram/mermaid_out.py` (size S–M, 2–3 days) — done
 - [x] T049 [US2] Mermaid flowchart import (nodes, shapes, labelled, chained and `&` edges, subgraphs, short and JSON `%% cairn` comments, warnings for ignored syntax) feeding `cairn diagram check|render`, in `src/cairn/system/diagram/mermaid_in.py` (size M, 4–6 days) — done
-- [ ] T050 [P] [US2] Golden tests: round-trip of every example and fixture view; a corpus of real Mermaid files imports with warnings, not errors; exports render with Mermaid in CI, in `tests/system/test_mermaid.py` — **partial**: round trips and malformed-Mermaid tests done; exports are not rendered with Mermaid in CI
+- [x] T050 [P] [US2] Golden tests: round-trip of every example and fixture view; a corpus of real Mermaid files imports with warnings, not errors; exports render with Mermaid in CI, in `tests/system/test_mermaid.py` — done: round trips and malformed-Mermaid tests in the suite; a separate Diagrams workflow (`.github/workflows/diagrams.yml`, commit 04ee8d6) exports every docs example and the shop and orders fixture views in light and dark and renders each with mermaid-cli 11.4.1, failing on parse error; 13 of 13 render locally, workflow not yet observed on a pushed run
 - [x] T051 [US2] Optional: Mermaid `sequenceDiagram` import for flows (M, 3–4 days) and Mermaid C4 syntax import (S–M, 2–3 days); decide after T049 — done: sequenceDiagram and Mermaid C4 import both done
 
 ## Phase 10: Polish

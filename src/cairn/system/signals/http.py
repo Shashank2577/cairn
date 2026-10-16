@@ -89,6 +89,11 @@ def _calls(rule, ff: FileFacts, idx, wrappers) -> list[HttpCall]:
     anyrx = compiled([pat for _, pat, _ in pats])
     loose = set(rule.get("loose") or [])
     lib_ok = imports_library(ff, rule.get("library")) if loose else False
+    # a bare-name pattern ("request") may name the library itself; a local definition of that name, or
+    # (for fetch) any import of it, shadows the rule's target instead
+    bare = {pat for _, pat, _ in pats if "." not in pat and "(" not in pat}
+    if rule.get("import_required") and not imports_library(ff, rule.get("library")):
+        return out
     for c in ff.calls:
         q = qualify(ff, c.callee, idx)
         matched = None
@@ -97,7 +102,8 @@ def _calls(rule, ff: FileFacts, idx, wrappers) -> list[HttpCall]:
             continue
         for rx, pat, m in pats:
             if rx.match(q):
-                if pat in ("fetch",) and (c.callee in ff.funcs or c.callee in ff.binds or c.callee in ff.imports):
+                if pat in bare and (c.callee in ff.funcs or c.callee in ff.binds
+                                    or (pat == "fetch" and c.callee in ff.imports)):
                     continue
                 hit, matched = True, m
                 break
