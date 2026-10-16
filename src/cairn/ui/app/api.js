@@ -191,6 +191,10 @@ export const api = {
       impact: (target, depth = 2, budget) => get(P + "/impact", { target, depth, budget }),
       why: (target, budget) => get(P + "/why", { target, budget }),
 
+      systemView: (level = "containers", scope) => get(P + "/system/view", { level, scope }),
+      systemFlows: scope => get(P + "/system/flows", { scope }),
+      diagramTokens: () => get(P + "/diagram/tokens"),
+
       graphSummary: () => get(P + "/graph/summary"),
       graphData: (scope = "all", limit = 600) => get(P + "/graph/data", { scope, limit }),
       architecture: () => get(P + "/graph/architecture"),
