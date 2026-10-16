@@ -318,17 +318,19 @@ class _Linker:
             else:
                 self._unresolved(groups, src, call)
         for (src, tgt, prov), g in sorted(groups.items()):
-            paths = sorted({_call_label(c) for c in g["calls"]})
             # the protocol claim comes from real client call sites only: configured-address wiring
             # (no code call) knows the target, not the protocol
-            proto_calls = [str(c.meta.get("client", "")) for c in g["calls"]
-                           if not str(c.meta.get("client", "")).startswith("config")]
+            coded = [c for c in g["calls"] if not str(c.meta.get("client", "")).startswith("config")]
+            proto_calls = [str(c.meta.get("client", "")) for c in coded]
             grpc = sum(1 for x in proto_calls if "grpc" in x)
-            proto = ("gRPC" if grpc == len(proto_calls) else "HTTP/gRPC" if grpc else
-                     "HTTP" if proto_calls else "")
+            proto = ("" if not proto_calls else "gRPC" if grpc == len(proto_calls) else
+                     "HTTP/gRPC" if grpc else "HTTP")
+            # a configured address with a code call beside it adds no path of its own
+            paths = sorted({_call_label(c) for c in (coded or g["calls"])})
             how = clip((proto + " · " if proto else "") + _summarise(paths), 36)
             what = _http_what(g["calls"]) if prov != "inferred" else None
-            evs = [ev for c in g["calls"] for ev in c.evidence[:2]] + [ev for r in g["routes"] for ev in r.evidence[:1]]
+            ordered = coded + [c for c in g["calls"] if c not in coded]     # call sites before configuration lines
+            evs = [ev for c in ordered for ev in c.evidence[:2]] + [ev for r in g["routes"] for ev in r.evidence[:1]]
             rule = "http-route-match" if "http-route-match" in g["rules"] else sorted(g["rules"])[0]
             meta = {"calls": len(g["calls"]), "rules": sorted(g["rules"])}
             if g["candidates"]:
@@ -502,11 +504,19 @@ def _call_label(c: Element) -> str:
     return f"{method} via {base}" if base else f"{method} (dynamic URL)"
 
 
+def _shared_prefix(paths: list[str]) -> bool:
+    segs = [p.split(" ", 1)[1].strip("/").split("/") for p in paths]
+    return bool(segs[0][0]) and len({x[0] for x in segs}) == 1 and segs[0][0] != "{}"
+
+
 def _summarise(paths: list[str]) -> str:
     """``GET /api/orders/{}`` and ``POST /api/orders`` -> ``GET, POST /api/orders``: the methods and the
     longest common path, within the standard's "how" budget."""
     if len(paths) == 1:
         return paths[0]
+    listed = ", ".join(paths)
+    if len(listed) <= 36 and not _shared_prefix(paths):
+        return listed          # distinct calls with nothing in common: say each, not a vague root
     methods = sorted({p.split(" ", 1)[0] for p in paths},
                      key=lambda m: _METHOD_ORDER.index(m) if m in _METHOD_ORDER else 99)
     segs = [p.split(" ", 1)[1].strip("/").split("/") for p in paths]

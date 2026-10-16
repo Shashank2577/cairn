@@ -649,14 +649,14 @@ class Builder:
             if lang and not files_mod.is_test_path(p) and self.owner(p) is u:
                 counts[syntax.FAMILY[lang]] += 1
         cmd = (u.command or "").split(" ")[0]
-        if cmd.endswith(".sh") and counts.get("shell"):
-            return "shell"
         if u.dockerfile and u.dockerfile.base:
             base = u.dockerfile.base.lower()
             for key, fam in (("dotnet", "csharp"), ("node", "javascript"), ("python", "python"), ("golang", "go"),
                              ("openjdk", "java"), ("temurin", "java"), ("maven", "java"), ("gradle", "java")):
                 if key in base and counts.get(fam):
-                    return fam
+                    return fam           # the real runtime beats the wrapper script that starts it
+        if cmd.endswith(".sh") and counts.get("shell"):
+            return "shell"
         if counts:
             return counts.most_common(1)[0][0]
         return getattr(self, "_fallback_lang", None)
@@ -666,6 +666,9 @@ class Builder:
         frameworks = sorted({r.framework for r in routes})
         lang = self._language(u)
         tech_parts = [LANG_DISPLAY.get(lang, lang.title()) if lang else None, *frameworks]
+        image = self._runtime_image(u) if lang in (None, "shell") else None
+        if image:
+            tech_parts = [image]     # nginx, Fluentd: the image is the technology, the wrapper script is not
         if u.image_only and u.image:
             tech_parts = [u.image.rsplit("/", 1)[-1].split(":", 1)[0]]
         consumers = [o for o in ops if o.op in CONSUMER_OPS]
@@ -689,9 +692,25 @@ class Builder:
                        tech=" · ".join(x for x in tech_parts if x) or "unknown", desc=desc, provenance=provenance,
                        evidence=evidence, built_at_commit=self.commit, meta=meta)
 
+    # base images that ARE the technology (a server or daemon the repository only configures)
+    RUNTIME_IMAGES = {"nginx": "nginx", "httpd": "Apache httpd", "caddy": "Caddy", "haproxy": "HAProxy",
+                      "traefik": "Traefik", "fluentd": "Fluentd", "fluent-bit": "Fluent Bit",
+                      "logstash": "Logstash", "envoy": "Envoy", "prometheus": "Prometheus",
+                      "grafana": "Grafana"}
+
+    def _runtime_image(self, u: Unit) -> str | None:
+        base = u.dockerfile.base if u.dockerfile and u.dockerfile.base else None
+        if not base:
+            return None
+        name = base.rsplit("/", 1)[-1].split(":", 1)[0].split("@", 1)[0].lower()
+        return self.RUNTIME_IMAGES.get(name)
+
     def _kind(self, u: Unit, routes, consumers, sig) -> str | None:
         if "none" in u.entries:
             return None
+        if self._runtime_image(u) in ("nginx", "Apache httpd", "Caddy") and u.ports and not (
+                u.job or any(d.job for d in u.deploys)):
+            return "web-app" if self._web(u, sig) else "service"
         if u.job or any(d.job for d in u.deploys):
             return "job"
         if routes:
@@ -1025,7 +1044,8 @@ class Builder:
                 continue          # a value that merely looks like a word (APP_ENV=dev) is not an address
             if name in reads:
                 path, line = reads[name]
-                ev = self.ev("config", path, line, f"{name} address")
+                site = self._use_site(path, line)
+                ev = (self.ev("call", path, site) if site else self.ev("config", path, line, f"{name} address"))
             else:
                 d = u.env_names.get(name)
                 ev = self.ev("deploy-config", d.file if d else None, d.line if d else None, f"{name} address")
@@ -1046,6 +1066,26 @@ class Builder:
                 id=f"{self.repo}:http-call:{u.key}:cfg:{name}", type="code", level="code",
                 name=f"ANY {pu.path if pu and pu.path else '(configured address)'}", repo=self.repo,
                 kind="http-call", parent=uid, built_at_commit=self.commit, evidence=[ev], meta=meta))
+
+    _BOUND = re.compile(r"(\w+)\s*(?::\s*[\w.\[\]]+\s*)?=(?!=)")
+    _CALLISH = re.compile(r"(?i)https?:|request|fetch|\.(?:get|post|put|delete|send)\b|\bnew\s|client|connect")
+
+    def _use_site(self, path: str, line: int | None) -> int | None:
+        """The line that USES the variable a configured address was read into, so a relationship cites the
+        call and not the line that names the host (``var host = process.env.X || 'y'`` -> where ``host``
+        builds the request). None when the read is not bound to a name or the name is never used."""
+        text = self.files.read(path)
+        if not text or not line:
+            return None
+        lines = text.splitlines()
+        if line > len(lines):
+            return None
+        m = self._BOUND.search(lines[line - 1])
+        if not m:
+            return None
+        use = re.compile(r"\b" + re.escape(m.group(1)) + r"\b")
+        hits = [i for i in range(line + 1, len(lines) + 1) if use.search(lines[i - 1])]
+        return next((i for i in hits if self._CALLISH.search(lines[i - 1])), hits[0] if hits else None)
 
     def _config_external(self, name: str, scheme: str | None, ev: Evidence) -> str:
         """The outside system a configuration name points at (T056): inferred, named after the
