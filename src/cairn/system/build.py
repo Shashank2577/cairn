@@ -261,6 +261,14 @@ class Builder:
         return u
 
     def owner(self, path: str) -> Unit | None:
+        """The unit whose code ``path`` belongs to (cached: the per-unit passes below each walk every
+        parsed file, and the naive loop is O(units x files) per pass — the SC-008 budget caught it)."""
+        cache = getattr(self, "_owner_cache", None)
+        if cache is None:
+            cache = self._owner_cache = {p: self._owner_of(p) for p in self.files.paths}
+        return cache.get(path)
+
+    def _owner_of(self, path: str) -> Unit | None:
         best = None
         for u in self.units:
             if u.primary and not u.image_only and _ancestor(u.root, path):
