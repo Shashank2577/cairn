@@ -186,10 +186,15 @@ def start(project: Project | None = None, wait: float = 10.0) -> dict:
     replaced = None
     if cur and not cur.get("stale"):
         return {**cur, "project_id": pid, "project_url": project_url(cur["url"], pid)}
+    old_port = 0
     if cur:  # running but untrustworthy: replace it rather than reuse it
         replaced = cur["stale"]
+        old_port = int(cur.get("port") or 0)
         stop()
-    port = ServerConfig.load().port
+        deadline = time.time() + 8  # the old process needs a moment to let go of its port
+        while old_port and not _free(old_port) and time.time() < deadline:
+            time.sleep(0.2)
+    port = old_port if old_port and _free(old_port) else ServerConfig.load().port  # keep the address bookmarks use
     while not _free(port):
         port += 1
     home = cairn_home()
