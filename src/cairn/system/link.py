@@ -9,6 +9,8 @@ links containers by the same rules inside one repository and across repositories
 - shared stores, channels and outside services merge into one element (same compose service or host,
   the configuration a sibling's compose file sets, or a single instance of that technology);
 - ``package-dep``: a container's dependency on a library a sibling provides (build time);
+- ``cross-repo-call`` and ``cross-repo-type``: what the graph engine's own cross-repo passes already
+  resolved in the merged graph, restated between the containers that own the two files;
 - ``declared``: actors and relationships from ``system.yaml``.
 
 More than one candidate gives one relationship per candidate marked ``ambiguous`` with every candidate
@@ -26,11 +28,103 @@ from collections import defaultdict
 from pathlib import Path
 
 from ..engines import systems
+from .limits import MAX_EVIDENCE_PER_CLAIM
 from .model import Element, Evidence, Model, Relationship, clip
 
 UNRESOLVED_ID = "product:external:unresolved-http"
 METHOD_VERB = {"POST": "creates", "GET": "reads", "PUT": "updates", "PATCH": "updates", "DELETE": "deletes"}
 _GENERIC_SEGMENTS = frozenset({"api", "v1", "v2", "v3", "v4", "rest", "public", "internal", "{}", ""})
+# The graph engine's own cross-repo passes (``cross_repo_calls``, ``cross_repo_types``) answer two
+# questions the system layer cannot answer from deploy files: which call reaches a type declared in
+# another repository, and which contract type two repositories both declare. Their edges are read
+# here and re-stated as container relationships; nothing is recomputed.
+CROSS_CALL_RELATION = "calls"
+CROSS_TYPE_RELATION = "same_type_as"
+MAX_CROSS_EDGES = 20_000          # cross-repo edges read from a merged graph, as a bound on the work
+
+
+def _line_of(location) -> int | None:
+    """``"L529"`` -> 529; a location that is not a line number is no evidence line."""
+    m = re.fullmatch(r"L?(\d+)", str(location or "").strip())
+    return int(m.group(1)) if m else None
+
+
+def merged_graph_roots(graph_json: Path) -> dict[str, Path]:
+    """Which of this product's repositories the merged (global) graph covers, by reading the manifest
+    it ships with. The tag a repository was added under is not its name, so membership is decided by
+    the graph file the manifest points at, which is the repository's own ``.cairn/graph/graph.json``."""
+    from ..engines.graph.paths import cairn_home, graph_root
+    manifest = Path(cairn_home()) / "graph" / "global-manifest.json"
+    try:
+        doc = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, Path] = {}
+    for tag, entry in (doc.get("repos") or {}).items():
+        raw = str((entry or {}).get("source_path") or "")
+        if not raw:
+            continue
+        try:
+            out[str(tag)] = graph_root(raw).resolve()
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def cross_repo_edges(graph: Path, wanted: set[Path]) -> list[dict]:
+    """The cross-repo edges of a merged graph that speak about ``wanted`` (repository roots).
+
+    Only edges the engine's own cross-repo passes emitted are read: ``calls`` with
+    ``context: cross_repo`` and ``same_type_as``. Direction comes from the ``_src``/``_tgt`` markers
+    when present, because the merged graph is undirected. Read-only and bounded.
+    """
+    from ..engines.graph.security import check_graph_file_size_cap
+    if not wanted or not graph.is_file():
+        return []
+    try:
+        check_graph_file_size_cap(graph)
+        doc = json.loads(graph.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return []
+    if not isinstance(doc, dict):
+        return []
+    nodes = {n.get("id"): n for n in doc.get("nodes") or [] if isinstance(n, dict) and n.get("id")}
+    tags = merged_graph_roots(graph)
+    roots: dict[str, Path] = {}
+    for tag, root in tags.items():
+        for path in wanted:
+            if _same_root(root, path):
+                roots[tag] = path.resolve()
+    if len(roots) < 2:
+        return []
+    out: list[dict] = []
+    for link in doc.get("links") or doc.get("edges") or []:
+        if not isinstance(link, dict) or len(out) >= MAX_CROSS_EDGES:
+            continue
+        rel = link.get("relation")
+        if rel == CROSS_TYPE_RELATION:
+            rule = "cross-repo-type"
+        elif rel == CROSS_CALL_RELATION and link.get("context") == "cross_repo":
+            rule = "cross-repo-call"
+        else:
+            continue
+        src, dst = link.get("_src") or link.get("source"), link.get("_tgt") or link.get("target")
+        a, b = nodes.get(src) or {}, nodes.get(dst) or {}
+        ta, tb = roots.get(str(a.get("repo") or "")), roots.get(str(b.get("repo") or ""))
+        if ta is None or tb is None or ta == tb:
+            continue
+        out.append({"rule": rule, "from_root": ta, "to_root": tb, "from": a, "to": b, "link": link})
+    out.sort(key=lambda e: (str(e["from_root"]), str(e["to_root"]), e["rule"],
+                            str(e["from"].get("source_file") or ""), _line_of(e["link"].get("source_location")) or 0,
+                            str(e["to"].get("source_file") or "")))
+    return out
+
+
+def _same_root(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
 
 
 def host_key(label: str) -> str:
@@ -101,6 +195,7 @@ class _Linker:
         self.models: dict[str, Model] = {repo: own}
         self.roots: dict[str, Path] = {repo: self.root}
         self.alias: dict[str, str] = {}
+        self._route_index: tuple[dict[str, list[Element]], dict[str, list[Element]]] | None = None
         self.product: dict = {"system": repo, "repos": [repo], "skipped": [], "declared_in": None,
                               "declared_skipped": []}
 
@@ -329,16 +424,32 @@ class _Linker:
                                          provenance=prov, evidence=list(dict.fromkeys(evs)), meta=meta,
                                          key=prov))
 
+    def _routes(self) -> tuple[dict[str, list[Element]], dict[str, list[Element]]]:
+        """The model's routes indexed by path and by owning container, built once.
+
+        Both candidate scans run once per outbound HTTP call, so scanning every element each
+        time makes linking quadratic in the size of the model: the same repository took 17.9s
+        at 8,000 elements before this index. A call's path is a key, not something to search for.
+        """
+        if self._route_index is None:
+            by_path: dict[str, list[Element]] = defaultdict(list)
+            by_parent: dict[str, list[Element]] = defaultdict(list)
+            for e in self.out.elements.values():
+                if e.kind != "route" or not e.parent:
+                    continue
+                by_path[e.meta.get("path")].append(e)
+                by_parent[e.parent].append(e)
+            self._route_index = (dict(by_path), dict(by_parent))
+        return self._route_index
+
     def _route_candidates(self, method, path, src) -> list[tuple[str, Element]]:
         if path is None:
             return []
         out = []
-        for e in self.out.elements.values():
-            if e.kind != "route" or not e.parent or e.parent == src:
+        for e in self._routes()[0].get(path, ()):
+            if e.parent == src:
                 continue
-            rm, rp = e.meta.get("method"), e.meta.get("path")
-            if rp != path:
-                continue
+            rm = e.meta.get("method")
             if method and rm and method != "ANY" and rm != "ANY" and rm != method:
                 continue
             out.append((self.alias.get(e.parent, e.parent), e))
@@ -349,9 +460,7 @@ class _Linker:
         if not path:
             return []
         out = []
-        for e in self.out.elements.values():
-            if e.kind != "route" or e.parent != container:
-                continue
+        for e in self._routes()[1].get(container, ()):
             rp, rm = e.meta.get("path") or "", e.meta.get("method")
             if method and rm and "ANY" not in (method, rm) and rm != method:
                 continue
@@ -399,7 +508,96 @@ class _Linker:
                 self.out.relate(Relationship(from_id=c.id, to_id=lib.id, rule="package-dep", how=clip(f"package {dep}", 36),
                                              style="build", repo=c.repo, evidence=[ev], key=dep))
 
-    # -- 7. declarations
+    # -- 7. the graph engine's own cross-repo passes, restated as container relationships
+    def link_cross_repo(self) -> None:
+        """``cross-repo-call`` and ``cross-repo-type`` from the merged graph's cross-repo edges.
+
+        The engine already resolved which member call reaches a type declared in another repository
+        and which contract type two repositories both declare. This maps each end onto the container
+        that owns the file the edge names and records the edge's own evidence; it resolves nothing
+        new. A repository whose graph was never added contributes nothing, and nothing is written
+        anywhere.
+        """
+        roots = {p: name for name, p in self.roots.items()}
+        if len(roots) < 2:
+            return
+        edges = cross_repo_edges(self.global_graph(), set(roots))
+        by_file = self._files_by_container()
+        groups: dict[tuple[str, str], dict] = {}
+        for e in edges:
+            repo_a = roots.get(e["from_root"])
+            repo_b = roots.get(e["to_root"])
+            if repo_a is None or repo_b is None:
+                continue
+            src = self._owner(by_file, repo_a, e["from"].get("source_file"))
+            dst = self._owner(by_file, repo_b, e["to"].get("source_file"))
+            if src is None or dst is None or src == dst:
+                continue
+            key = (src, dst, e["rule"])
+            g = groups.setdefault(key, {"edges": [], "labels": set()})
+            g["edges"].append(e)
+            label = str(e["to"].get("label") or "").strip()
+            if label:
+                g["labels"].add(label)
+        for (src, dst, rule), g in sorted(groups.items()):
+            evs = []
+            for e in g["edges"][:MAX_EVIDENCE_PER_CLAIM]:
+                evs.append(Evidence(repo=self.out.elements[src].repo if src in self.out.elements else "",
+                                    kind="call" if rule == "cross-repo-call" else "type",
+                                    file=e["from"].get("source_file"),
+                                    line=_line_of(e["link"].get("source_location"))))
+            evs = [x for x in dict.fromkeys(evs) if x.file or x.line][:MAX_EVIDENCE_PER_CLAIM]
+            labels = sorted(g["labels"])[:3]
+            how = clip(f"calls {labels[0]}" if rule == "cross-repo-call" and labels else
+                       ("member call across repositories" if rule == "cross-repo-call" else
+                        (f"shares type {labels[0]}" if labels else "same declared type")), 36)
+            self.out.relate(Relationship(from_id=src, to_id=dst, rule=rule, how=how,
+                                         style="sync" if rule == "cross-repo-call" else "build",
+                                         repo=self.out.elements[src].repo if src in self.out.elements else "",
+                                         provenance="inferred", evidence=evs,
+                                         meta={"calls": len(g["edges"]), "labels": labels,
+                                               "resolution": "cross-repo graph edge"}))
+
+    def global_graph(self) -> Path:
+        """Where the merged multi-repo graph lives, read-only (``CAIRN_HOME`` is honoured at call time)."""
+        from ..engines.graph.paths import cairn_home
+        return Path(cairn_home()) / "graph" / "global-graph.json"
+
+    def _files_by_container(self) -> dict[str, dict[str, list[str]]]:
+        """repo -> container id -> the files whose code that container owns (routes and outbound calls)."""
+        out: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+        for e in self.out.elements.values():
+            if e.level != "code" or not e.repo or not e.parent:
+                continue
+            for ev in e.evidence:
+                if ev.file and ev.file not in out[e.repo][e.parent]:
+                    out[e.repo][e.parent].append(ev.file)
+        return out
+
+    def _owner(self, by_file: dict[str, dict[str, list[str]]], repo: str, file) -> str | None:
+        """The container of ``repo`` that owns ``file``: the one with code evidence in it, else the
+        container whose root directory contains it, else the repository's single container."""
+        if not file:
+            return None
+        rel = str(file).replace("\\", "/")
+        hits = [cid for cid, files in sorted(by_file.get(repo, {}).items())
+                if any(f == rel or f.endswith("/" + rel) for f in files)]
+        if len(hits) == 1:
+            return hits[0]
+        if hits:
+            return None                      # a file inside several containers decides nothing
+        deepest: tuple[int, str] | None = None
+        own = [e.id for e in self.containers() if e.repo == repo and not e.meta.get("not_mapped")]
+        for cid in own:
+            root = str(self.out.elements[cid].meta.get("root") or "").strip("/")
+            if root and (rel == root or rel.startswith(root + "/")):
+                if deepest is None or len(root) > deepest[0]:
+                    deepest = (len(root), cid)
+        if deepest is not None:
+            return deepest[1]
+        return own[0] if len(own) == 1 else None
+
+    # -- 8. declarations
     def apply_declared(self) -> None:
         d = self.decl
         if d is None:
@@ -538,6 +736,7 @@ def link(root: Path, own: Model | None = None, *, repo: str | None = None, brain
     lk.rewrite()
     lk.link_http(targets)
     lk.link_packages()
+    lk.link_cross_repo()
     lk.apply_declared()
     lk.out.product = lk.product  # type: ignore[attr-defined]
     return lk.out

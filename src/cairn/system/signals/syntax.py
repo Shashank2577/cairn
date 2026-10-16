@@ -635,28 +635,49 @@ class _Java(_Walker):
         kind = "interface" if node.type == "interface_declaration" else "class"
         decos = self.annotations(node, name, kind, None, None)
         self.f.decos.extend(decos)
+        if node.type == "record_declaration":
+            self.f.decos.extend(self.record_components(node, name, kind, decos))
         self.cls_stack.append((name, kind, decos))
         return self.cls_stack.pop
+
+    def record_components(self, node, cls, kind, cls_decos) -> list:
+        """A record controller carries its mappings on its components (Spring 6 reads them as the
+        accessor's), so each annotated component is a method target named after the accessor."""
+        out = []
+        for params in (c for c in node.children if c.type == "formal_parameters"):
+            for p in _named(params):
+                mods = next((c for c in p.children if c.type == "modifiers"), None)
+                if mods is None:
+                    continue
+                nm = p.child_by_field_name("name") or next(
+                    (c for c in p.named_children if c.type == "identifier"), None)
+                out.extend(self.modifier_annotations(mods, _t(nm), "method", cls, cls_decos))
+        return out
 
     def annotations(self, node, target, kind, cls, cls_decos):
         out = []
         for m in node.children:
             if m.type != "modifiers":
                 continue
-            for a in m.children:
-                if a.type not in ("annotation", "marker_annotation"):
-                    continue
-                args, kwargs = [], {}
-                al = a.child_by_field_name("arguments")
-                for x in _named(al) if al is not None else []:
-                    if x.type == "element_value_pair":
-                        kwargs[_t(x.child_by_field_name("key"))] = self.val(x.child_by_field_name("value"))
-                    else:
-                        args.append(self.val(x))
-                name = _t(a.child_by_field_name("name"))
-                out.append(Deco(line=_line(a), name=name, args=args, kwargs=kwargs, target=target, target_kind=kind,
-                                cls=cls, cls_decos=list(cls_decos or []),
-                                cls_kind=self.cls_stack[-1][1] if self.cls_stack else None))
+            out.extend(self.modifier_annotations(m, target, kind, cls, cls_decos))
+        return out
+
+    def modifier_annotations(self, mods, target, kind, cls, cls_decos) -> list:
+        out = []
+        for a in mods.children:
+            if a.type not in ("annotation", "marker_annotation"):
+                continue
+            args, kwargs = [], {}
+            al = a.child_by_field_name("arguments")
+            for x in _named(al) if al is not None else []:
+                if x.type == "element_value_pair":
+                    kwargs[_t(x.child_by_field_name("key"))] = self.val(x.child_by_field_name("value"))
+                else:
+                    args.append(self.val(x))
+            name = _t(a.child_by_field_name("name"))
+            out.append(Deco(line=_line(a), name=name, args=args, kwargs=kwargs, target=target, target_kind=kind,
+                            cls=cls, cls_decos=list(cls_decos or []),
+                            cls_kind=self.cls_stack[-1][1] if self.cls_stack else None))
         return out
 
     def on(self, n):

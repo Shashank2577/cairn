@@ -119,11 +119,13 @@ class _Meta:
             self._short(body[5:].strip(), n)
 
     def _json(self, kind: str, rest: str, n: int) -> None:
+        target, _, payload = rest.partition(" ")
+        if kind == "diagram":
+            target, payload = "", rest
+        if not payload.strip():
+            self.warn.add(f"line {n}: %% cairn:{kind} comment carries no JSON object, ignored")
+            return
         try:
-            if kind == "diagram":
-                target, payload = "", rest
-            else:
-                target, _, payload = rest.partition(" ")
             data = json.loads(payload)
             if not isinstance(data, dict):
                 raise ValueError("not an object")
@@ -376,7 +378,7 @@ def _parse_link(s: str, pos: int) -> tuple[dict, int] | None:
     m = _LINK_TEXT.match(s, pos)
     if m:
         body = m.group("a") + m.group("b")
-        info = {"dotted": "." in body, "bidir": bool(m.group("l")), "label": m.group("t").strip()}
+        info = {"dotted": "." in body, "bidir": bool(m.group("l")), "label": _unquote(m.group("t").strip())}
         return info, m.end()
     m = _LINK.match(s, pos)
     if not m:
@@ -429,6 +431,7 @@ def _parse_flowchart(lines: list[tuple[int, str]], kind: str, warn: _Warn) -> di
                 if stack:
                     warn.add(f"line {n}: nested subgraph {sid!r} flattened (boundaries do not nest)", once=True)
                 if sid in els or sid in sub_ids:
+                    warn.add(f"line {n}: subgraph id {sid!r} is used twice; the second one is renamed", once=True)
                     sid = f"{sid}_{len(subs) + 1}"
                 name, _, btype = title.partition(" · ")
                 sub = {"id": sid, "name": clean(unescape(_TAG.sub("", name))) or sid, "contains": []}
@@ -450,7 +453,10 @@ def _parse_flowchart(lines: list[tuple[int, str]], kind: str, warn: _Warn) -> di
             if word in _CLICK_WORDS:
                 warn.add(f"line {n}: '{word}' ignored (interactions and callbacks are never evaluated)")
                 continue
-            if word in ("direction", "acctitle", "accdescr", "title"):
+            if word in ("direction", "acctitle", "accdescr"):
+                continue
+            if word == "title":
+                warn.add(f"line {n}: 'title' in the body is not Mermaid here; put it in the --- title: --- front matter", once=True)
                 continue
             if not _chain(stmt, n, touch, edges, sub_ids, warn):
                 warn.add(f"line {n}: ignored: {stmt[:80]}")
@@ -584,6 +590,9 @@ def _finish_rels(edges: list[dict], meta: _Meta, idmap: dict[str, str], warn: _W
             _apply(e, facts, REL_KEYS, ("from", "to", "__json"), warn, key)
         e["from"], e["to"] = idmap.get(e["from"], e["from"]), idmap.get(e["to"], e["to"])
         out.append(e)
+    for key, facts in pending.items():
+        if facts:
+            warn.add(f"%% cairn comment for relationship {key} ignored (the chart has no such arrow)", once=True)
     return out
 
 
@@ -620,6 +629,8 @@ def _parse_sequence(lines: list[tuple[int, str]], warn: _Warn) -> dict:
 
     def part(pid: str) -> None:
         parts.setdefault(pid, {"id": pid, "name": pid})
+
+    title: str | None = None
 
     for n, line in lines:
         if line.startswith("%%") or line.lower().startswith("sequencediagram"):
@@ -658,7 +669,7 @@ def _parse_sequence(lines: list[tuple[int, str]], warn: _Warn) -> dict:
                 if rest:
                     fr["label"] = _plain(rest)
                 stack.append(fr)
-            elif word == "rect":
+            elif word in ("rect", "box"):
                 stack.append(None)
             elif word in ("else", "and", "option"):
                 top = stack[-1] if stack else None
@@ -679,11 +690,14 @@ def _parse_sequence(lines: list[tuple[int, str]], warn: _Warn) -> dict:
                         frags.append(top)
                     else:
                         warn.add(f"line {n}: empty {top['type']} fragment dropped")
-            elif word in ("activate", "deactivate", "autonumber", "title", "box", "links", "link"):
-                if word == "title":
-                    continue
-                if word in ("links", "link"):
-                    warn.add(f"line {n}: '{word}' ignored (never evaluated)")
+            elif word == "title":
+                # A sequence diagram's title is a fact about the diagram, not a comment on it, so it is
+                # kept rather than dropped. Front matter and %% cairn comments still win over it.
+                title = title or (_plain(rest) or None)
+            elif word in ("activate", "deactivate", "autonumber"):
+                pass
+            elif word in ("links", "link"):
+                warn.add(f"line {n}: '{word}' ignored (never evaluated)")
             elif word == "note":
                 warn.add("notes are ignored", once=True)
             else:
@@ -691,7 +705,7 @@ def _parse_sequence(lines: list[tuple[int, str]], warn: _Warn) -> dict:
     for _ in [s for s in stack if s is not None]:
         warn.add("a fragment is never closed; it is dropped", once=True)
     frags.sort(key=lambda f: (f["start"], -f["end"]))
-    return {"elements": list(parts.values()), "messages": msgs, "fragments": frags}
+    return {"elements": list(parts.values()), "messages": msgs, "fragments": frags, "title": title}
 
 
 # ------------------------------------------------------------------ C4 syntax
@@ -825,6 +839,9 @@ def _parse_c4(lines: list[tuple[int, str]], header: str, warn: _Warn) -> tuple[s
     else:
         desc["relationships"] = rels
         if subs:
+            empty = [s["id"] for s in subs if not s["contains"]]
+            if empty:
+                warn.add("boundary " + ", ".join(repr(b) for b in empty) + " holds no element and is dropped")
             desc["boundaries"] = [s for s in subs if s["contains"]]
     return kind, desc, title
 
@@ -868,7 +885,7 @@ def parse(text: str | bytes, kind: str | None = None) -> Imported:
         return Imported(_finalize(doc), warn.done())
     if head == "sequencediagram":
         raw = _parse_sequence(body[1:], warn)
-        d = _diagram_head(meta, front_title, "flow" if kind is None else kind, "flow", warn)
+        d = _diagram_head(meta, front_title or raw["title"], "flow" if kind is None else kind, "flow", warn)
         d["diagram"] = "flow"
         sub: set[str] = set()
         idmap = _finish_elements(raw["elements"], meta, warn, sub)
@@ -877,6 +894,8 @@ def parse(text: str | bytes, kind: str | None = None) -> Imported:
             if 1 <= n <= len(msgs):
                 _replace_if_json(msgs[n - 1], facts)
                 _apply(msgs[n - 1], facts, REL_KEYS, ("from", "to", "__json"), warn, f"message {n}")
+            else:
+                warn.add(f"%% cairn comment for message {n} ignored (there are {len(msgs)} messages)", once=True)
         for m in msgs:
             m["from"], m["to"] = idmap.get(m["from"], m["from"]), idmap.get(m["to"], m["to"])
         doc = {**d, "elements": raw["elements"],

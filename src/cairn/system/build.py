@@ -930,13 +930,20 @@ def head_commit(root: Path) -> str:
 
 
 def sync_step(cairn) -> dict:
-    """Build and store this repository's model (the sync step). Returns counts for the progress line."""
+    """Build and store this repository's model (the sync step). Returns counts for the progress line.
+
+    The build comes first and the re-check second: staleness is a statement about what the code no longer
+    derives, so it can only be decided once this sync's derivation exists (FR-018). The re-check is
+    incremental and never deletes (FR-019).
+    """
     from .model import save
+    from .recheck import recheck
     project = cairn.project
     commit = head_commit(project.root)
-    model = build_repo(project.root, project.name, commit)
+    fresh = build_repo(project.root, project.name, commit)
+    model, recheck_stats = recheck(cairn.brain, project.root, project.name, fresh)
     counts = save(cairn.brain, model, project.name, commit)
     stats = getattr(model, "stats", {})
-    containers = sum(1 for e in model.elements.values() if e.type == "container")
+    containers = sum(1 for e in model.elements.values() if e.type == "container" and not e.stale_reason)
     return {**counts, "containers": containers, "parsed": stats.get("parsed", 0), "files": stats.get("files", 0),
-            "commit": commit[:12]}
+            "stale": recheck_stats.get("stale", 0), "recheck": recheck_stats, "commit": commit[:12]}

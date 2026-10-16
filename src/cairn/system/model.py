@@ -25,12 +25,20 @@ PROVENANCE = ("extracted", "declared", "inferred", "ambiguous", "stale")
 
 
 def posix(path: str | None) -> str | None:
-    """A repository-relative path in POSIX form, whatever OS produced it; never absolute, never '..'."""
+    """A repository-relative path in POSIX form, whatever OS produced it.
+
+    Handles the two things a Windows path brings that a POSIX one cannot: ``\\`` separators and a
+    drive letter or UNC share. Line endings and NUL bytes are removed because a path is stored in one
+    line of a store row and printed in one line of a diagram. Never absolute, never ``..``: a
+    traversal climbs no higher than the root and is dropped when there is nothing to climb against.
+    """
     if path is None:
         return None
-    p = str(path).replace("\\", "/")
-    if PureWindowsPath(p).drive:
-        p = p.split(":", 1)[1]
+    p = str(path).replace("\\", "/").replace("\x00", "")
+    p = "".join(ch for ch in p if ch >= " " and ch != "\x7f").strip()
+    drive = PureWindowsPath(p).drive
+    if drive:
+        p = p.split(":", 1)[1] if ":" in p else p[len(drive):]
     out: list[str] = []
     for x in PurePosixPath(p).parts:
         if x in ("/", "", "."):

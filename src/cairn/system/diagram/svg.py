@@ -270,6 +270,28 @@ def _mini_shape(shape: str, x: float, y: float, fill: str, stroke: str, dash: st
     return out
 
 
+# ------------------------------------------------------------------ inline (the page)
+_INLINE_VARS = re.compile(r"var\(--(?!dg-)([a-z0-9-]+)\)")
+
+
+def render_inline(desc: dict, geometry: dict | None = None, tokens: dict | None = None) -> str:
+    """``render`` for embedding in the page: same drawing, the page's colours instead of a copy.
+
+    A standalone file has to carry its own ``--paper``, ``--ink`` and the rest, or it would render in
+    whatever the viewer defaults to. Embedded in Cairn's own page those names are already defined —
+    ``scripts/sync_tokens.py`` writes every diagram role into ``tokens.css`` as ``--dg-*`` from the same
+    ``tokens.json`` — so this drops the embedded stylesheet and points each colour role at the page's
+    copy. One source of truth either way: a token edited once moves the export and the page together,
+    and the page's own theme switch drives the diagram with no second theme path to keep in step.
+
+    Still a self-contained drawing otherwise: geometry, shapes, label masks and the legend are all
+    ``render``'s, so what the page shows is what the exported file shows.
+    """
+    svg = render(desc, geometry, tokens)
+    svg = re.sub(r"<style>.*?</style>", "", svg, count=1, flags=re.S)
+    return _INLINE_VARS.sub(lambda m: f"var(--dg-{m.group(1)})", svg)
+
+
 # ------------------------------------------------------------------ page
 def render(desc: dict, geometry: dict | None = None, tokens: dict | None = None, theme: str = "auto") -> str:
     """One self-contained SVG. ``theme`` is ``auto`` (follows the viewer), ``light`` or ``dark``."""
