@@ -5,7 +5,7 @@ name: Diagrams
 
 on:
   pull_request:
-    paths: ["src/cairn/system/**", "docs/diagram-standard/**", ".github/workflows/diagrams.yml"]
+    paths: ["src/cairn/system/**", "docs/diagram-standard/**", "tests/system/fixtures/mermaid/**", ".github/workflows/diagrams.yml"]
   workflow_dispatch:
 
 permissions:
@@ -39,6 +39,7 @@ jobs:
             done
           done
           python scripts/export_fixture_views.py out
+          cp tests/system/fixtures/mermaid/*.mmd out/
           ls out | wc -l
       - name: Render each with the Mermaid CLI (fails on any parse error)
         run: |

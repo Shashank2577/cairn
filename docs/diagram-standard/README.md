@@ -1,16 +1,29 @@
 # Cairn diagram standard
 
-Version 1.0 (draft, feature `002-system-model`). One grammar and one data source for every architecture
+Version 1.0 (feature `003-diagram-standard`). One grammar and one data source for every architecture
 diagram: the Map UI, `cairn docs export`, and diagrams people draw by hand.
 
-- **One grammar.** The rules below, enforced by a checker (`cairn diagram check`, planned; prototype in the
-  feature's scratch work). Every diagram in `examples/` passes it.
+- **One grammar.** The rules below, enforced by the checker (`cairn diagram check`). Every diagram in
+  `examples/` passes it. The same rules as a checklist are in [`rules.md`](rules.md), generated from the
+  checker so the two cannot disagree.
 - **One token file.** [`tokens.json`](tokens.json) holds colour roles (light and dark), type, grid, strokes,
   dashes, budgets, element types and diagram kinds. The UI and the export both read it; hand-made diagrams
   use it too. Roles are the contract: a value may change, a role may not.
 - **One data source.** Diagrams Cairn draws come from the system model, which is computed from code,
   manifests, deploy files and `system.yaml` with **no model calls**. Hand-made diagrams cite their sources
   the same way.
+- **One grammar for Mermaid too.** [`mermaid.md`](mermaid.md) documents the export, the import, what the
+  importer refuses to read, and what a Mermaid rendering cannot guarantee.
+
+| Page | What it is |
+|---|---|
+| [`README.md`](README.md) | the standard, in prose |
+| [`rules.md`](rules.md) | R1 to R13 as a checklist, plus budgets, kinds, styles and marks (generated) |
+| [`mermaid.md`](mermaid.md) | the Mermaid export and import contract (generated) |
+| [`tokens.json`](tokens.json) | the token file, copied from the canonical one (generated) |
+| [`examples/`](examples/) | nine worked examples; each `.svg` has its evidence table beside it as `.md` |
+| [`taazaa.md`](taazaa.md) | the five defects of the Taazaa templates and what replaces them (generated) |
+| [`taazaa-original/`](taazaa-original/) | the Taazaa templates, transcribed so the defects could be counted |
 
 It merges the C4 model, Structurizr's one-model-many-views idea, C4-PlantUML's element shapes, and the
 editorial rules of diagram-design and archify, with Cairn's own addition: **every box and arrow carries
@@ -131,10 +144,10 @@ Overlays add one fact to a container diagram without a new level:
 - **Description rules (checker, `cairn diagram check`)**: R1 title and scope, R2 one level, R3 element
   fields, R4 labels, R5 line styles, R6 one direction per arrow, R7 evidence and provenance (references
   resolved when possible), R8 budgets, R9 boundaries, R10 legend on, R11 accents, R12 references to known
-  elements, R13 text alternative.
+  elements, R13 text alternative. [`rules.md`](rules.md) states each one and how to comply.
 - **Layout rules (renderer self-test, every render)**: no label overlapping another label or a box, no line
   behind a box, rendered text at least 7.5 px at the default size, contrast of every colour role against the
-  paper.
+  paper. These cannot be written in a description, so they are not checker rules.
 
 ## 8. Accessibility
 
@@ -156,18 +169,19 @@ the legend.
 **What Mermaid cannot guarantee.** Mermaid's own layout and theme decide the picture: no legend inside it,
 labels can crowd, no line-style difference between asynchronous and build-time links on GitHub, no hover
 evidence, one theme per file. Use it where native rendering on GitHub matters; use Cairn's renderer where the
-standard must hold exactly. One diagram written both ways: `specs/002-system-model/mermaid/README.md`.
+standard must hold exactly. The full list, and the shape of what the importer will and will not read, is
+[`mermaid.md`](mermaid.md). One diagram written both ways: `specs/002-system-model/mermaid/README.md`.
 
 A diagram description is the same structure the model emits: `diagram`, `title`, `scope`, `description`,
 `elements`, `boundaries`, `relationships` (or `flow.participants` and `flow.messages`). See `examples/`.
 
 ## 10. Replacements for the Taazaa documentation templates
 
-The Taazaa documentation skill's 18 Mermaid diagrams share five defects: one layered shape forced on every
+The Taazaa documentation skill's Mermaid diagrams share five defects: one layered shape forced on every
 system, unlabelled arrows, levels mixed in one picture, no boundary, legend or element types, and nothing
 tying a box to code. Transcribed into the description format, the two headline templates fail this
-standard with 47 and 53 violations (transcriptions in [`taazaa-original/`](taazaa-original/), reproducible
-with the prototype checker in `specs/002-system-model/prototype/code`). Each replacement below passes with none.
+standard with 47 and 53 violations (transcriptions in [`taazaa-original/`](taazaa-original/)). Each
+replacement below passes with none. [`taazaa.md`](taazaa.md) has the measured counts and the full mapping.
 
 | Taazaa template diagram | Replacement | Why it changes |
 |---|---|---|

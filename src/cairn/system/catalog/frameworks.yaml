@@ -66,6 +66,11 @@ frameworks:
         match: ["express().{method}", "express.Router().{method}", "express.express().{method}"]
         methods: {get: GET, post: POST, put: PUT, patch: PATCH, delete: DELETE, all: ANY, head: HEAD, options: OPTIONS}
         path: [arg0]
+      - kind: call
+        match: ["express().*{method}", "express.Router().*{method}"]
+        methods: {get: GET, post: POST, put: PUT, patch: PATCH, delete: DELETE, all: ANY, head: HEAD, options: OPTIONS}
+        path: [arg0]
+        path_in_chain: true
     prefixes:
       - {kind: mount, match: ["express().use", "express.Router().use"], path: [arg0], target: arg1}
 

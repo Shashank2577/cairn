@@ -58,3 +58,39 @@ def test_build_time_scales_near_linearly(tmp_path, base):
     print("\nscaling", {k: round(v, 3) for k, v in times.items()})
     assert times[2] <= 2 * times[1] * 1.6 + 0.05
     assert times[4] <= 4 * times[1] * 1.6 + 0.05
+
+
+def test_layout_time_stays_within_budget(tmp_path):
+    """SC-008: diagram layout on a computed view stays under 2 s (interactive use)."""
+    from cairn.system.diagram.layout import layout
+    from cairn.system.views import view
+    from .util import product
+    root = product(tmp_path, "shop", "shop-api", ["shop-web", "shop-api", "shop-worker", "shop-contracts"])
+    desc = view(root, "containers")
+    seconds = _best(lambda: layout(desc), runs=3)
+    print(f"\nlayout(containers) {seconds:.3f}s")
+    assert seconds <= 2.0
+
+
+def test_memory_stays_within_budget(tmp_path):
+    """SC-008: building the model on a 1k-file synthetic repo stays under 200 MB."""
+    import os
+    import resource
+    root = _synthetic(tmp_path / "big", 1000)
+    before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    build_repo(root, "s")
+    after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    used_mb = (after - before) / (1024 * 1024)
+    print(f"\nmemory delta {used_mb:.1f} MB")
+    assert used_mb <= 200
+
+
+def test_5k_files_20_repos_stays_within_budget(tmp_path):
+    """SC-008: a 5k-file product across 20 repositories builds within the budget."""
+    repos = []
+    for i in range(20):
+        root = _synthetic(tmp_path / f"repo-{i:02d}", 250)  # 250 files each
+        repos.append(root)
+    seconds = _best(lambda: [build_repo(r, r.name) for r in repos], runs=1)
+    print(f"\n20 repos x 250 files: {seconds:.2f}s")
+    assert seconds <= BUDGET * 20  # 20x the single-repo budget

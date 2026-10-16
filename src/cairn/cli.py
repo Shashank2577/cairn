@@ -943,12 +943,15 @@ def standup(days: int = typer.Option(1, help="How far back: 1 = the last 24h, 2 
 # ---- systems & review context ------------------------------------------------------------------------
 @app.command("system")
 def system_cmd(view: Optional[str] = typer.Option(None, "--view",
-                                                  help="Draw a level of the system model: context or containers."),
-               scope: Optional[str] = typer.Option(None, "--scope", help="Containers view: one container or "
-                                                   "repository and its neighbours."),
+                                                  help="Draw one level of the system model: context, containers, "
+                                                  "components, flows or code."),
+               scope: Optional[str] = typer.Option(None, "--scope", help="Narrow the view: a container or "
+                                                   "repository for containers and components, an entry point "
+                                                   "for flows."),
                as_json: bool = typer.Option(False, "--json", help="The view's diagram description as JSON."),
                out: Optional[Path] = typer.Option(None, "--out", help="Write the diagram description to a file "
-                                                  "(.yaml, or .json).")):
+                                                   "(.yaml, or .json)."),
+               svg: bool = typer.Option(False, "--svg", help="Write the SVG rendering to <out>.svg too.")):
     """Sibling repos of this product, from system.yaml; with --view, the computed system model (0 model calls)."""
     from .engines import systems
     from .project import Project
@@ -957,7 +960,7 @@ def system_cmd(view: Optional[str] = typer.Option(None, "--view",
         err.print("[bold red]Not inside a project folder.[/]")
         raise typer.Exit(3)
     if view is not None or as_json or out is not None:
-        _system_view(proj.root, view or "containers", scope, as_json, out)
+        _system_view(proj.root, view or "containers", scope, as_json, out, svg)
         return
     ctx = systems.system_context(proj.root)
     console.print(brand("system"))
@@ -977,17 +980,28 @@ def system_cmd(view: Optional[str] = typer.Option(None, "--view",
                        style=f"dim {SLATE}"))
 
 
-def _system_view(root: Path, level: str, scope: str | None, as_json: bool, out: Path | None) -> None:
-    """``cairn system --view``: the stored model when this repository has one, else built now; read-only."""
+def _system_view(root: Path, level: str, scope: str | None, as_json: bool, out: Path | None,
+                 svg: bool = False) -> None:
+    """``cairn system --view``: the stored model when this repository has one, else built now; read-only.
+
+    Every level returns one diagram description, so ``--json`` and ``--out`` always write something the
+    renderer and the checker take. ``flows`` has more than one; text mode prints them all.
+    """
+    from .system.views import LEVEL_NAMES
     from .system.views import view as system_view
-    if level not in ("context", "containers", "container"):
-        err.print(f"[bold red]Unknown view {level!r}[/] — use context or containers.")
+    if level not in LEVEL_NAMES and level not in ("container", "component", "flow"):
+        err.print(f"[bold red]Unknown view {level!r}[/] — use {', '.join(LEVEL_NAMES)}.")
         raise typer.Exit(2)
     try:
-        desc = system_view(root, level, scope)
+        descs = [system_view(root, level, scope)]
+        if level in ("flows", "flow") and not as_json and out is None:
+            from .system.flows import flows as all_flows
+            from .system.link import link
+            descs = all_flows(root, link(root), scope=scope)
     except ValueError as exc:
         err.print(f"[bold red]{exc}[/]")
         raise typer.Exit(2)
+    desc = descs[0]
     if out is not None:
         import yaml
         text = json.dumps(desc, indent=2) if out.suffix == ".json" else yaml.safe_dump(
@@ -995,29 +1009,39 @@ def _system_view(root: Path, level: str, scope: str | None, as_json: bool, out: 
         out.write_text(text, encoding="utf-8")
         if not as_json:
             console.print(f"[{MOSS}]✓[/] {desc['title']} → {out}")
+        if svg:
+            from .system.diagram.svg import render as svg_render
+            svg_path = out.with_suffix(".svg")
+            svg_path.write_text(svg_render(desc), encoding="utf-8")
+            if not as_json:
+                console.print(f"[{MOSS}]✓[/] {desc['title']} → {svg_path}")
     if as_json:
         _emit_json(desc)
         return
     if out is not None:
         return
     from rich.markup import escape
-
     from .spans import annotate
-    console.print(brand("system"))
-    console.print(f"  [{INK}]{escape(desc['title'])}[/]  [{SLATE}]{escape(desc['scope'])}[/]")
-    for e in desc["elements"]:
-        mark = {"declared": "◆ ", "inferred": "≈ ", "ambiguous": "? ", "stale": "⚠ "}.get(e["provenance"], "")
-        kind = e.get("kind") or e["type"]
-        tech = f" · {e['tech']}" if e.get("tech") else ""
-        console.print(f"  [{MOSS}]●[/] [{INK}]{mark}{escape(e['name'])}[/] "
-                      f"[{SLATE}]{escape(kind + tech)} — {escape(annotate(root, e['evidence'][0]))}[/]")
-    names = {e["id"]: e["name"] for e in desc["elements"]}
-    for r in desc["relationships"]:
-        mark = {"declared": "◆ ", "inferred": "≈ ", "ambiguous": "? ", "stale": "⚠ "}.get(r["provenance"], "")
-        label = " · ".join(x for x in (r.get("what"), f"[{r['how']}]" if r.get("how") else None) if x)
-        ends = f"{names.get(r['from'], r['from'])} → {names.get(r['to'], r['to'])}"
-        console.print(f"    [{INK}]{mark}{escape(ends)}[/]  [{SLATE}]{escape(label)} ({r['style']}) — "
-                      f"{escape(annotate(root, r['evidence'][0]))}[/]")
+    for i, one in enumerate(descs):
+        if i:
+            console.print()
+        console.print(brand("system"))
+        console.print(f"  [{INK}]{escape(one['title'])}[/]  [{SLATE}]{escape(one['scope'])}[/]")
+        for e in one["elements"]:
+            mark = {"declared": "◆ ", "inferred": "≈ ", "ambiguous": "? ", "stale": "⚠ "}.get(e["provenance"], "")
+            kind = e.get("kind") or e["type"]
+            tech = f" · {e['tech']}" if e.get("tech") else ""
+            console.print(f"  [{MOSS}]●[/] [{INK}]{mark}{escape(e['name'])}[/] "
+                          f"[{SLATE}]{escape(kind + tech)} — {escape(annotate(root, e['evidence'][0]))}[/]")
+        names = {e["id"]: e["name"] for e in one["elements"]}
+        for r in ((one.get("flow") or {}).get("messages") or one.get("relationships") or []):
+            mark = {"declared": "◆ ", "inferred": "≈ ", "ambiguous": "? ", "stale": "⚠ "}.get(r["provenance"], "")
+            label = " · ".join(x for x in (r.get("what"), f"[{r['how']}]" if r.get("how") else None) if x)
+            ends = f"{names.get(r['from'], r['from'])} → {names.get(r['to'], r['to'])}"
+            console.print(f"    [{INK}]{mark}{escape(ends)}[/]  [{SLATE}]{escape(label)} ({r['style']}) — "
+                          f"{escape(annotate(root, r['evidence'][0]))}[/]")
+    if len(descs) > 1:
+        console.print(Text(f" {len(descs)} flows; --scope picks one, --out writes one", style=f"dim {SLATE}"))
 
 
 @app.command("review-context")
@@ -1046,6 +1070,32 @@ def sessions(ctx: typer.Context):
     """What agents did here: recent sessions (no arguments), search, timeline, context, worker, transcripts, settings."""
     from .engines.recall.cli import main
     raise typer.Exit(main(list(ctx.args) or ["sessions"]))
+
+
+# ---- docs export --------------------------------------------------------------------------------------
+docs_app = typer.Typer(help="Architecture documents from the system model.")
+app.add_typer(docs_app, name="docs")
+
+
+@docs_app.command("export")
+def docs_export(out: Path = typer.Option(Path("docs/architecture"), "--out",
+                                         help="Directory to write the documents into."),
+                narrate: bool = typer.Option(False, "--narrate",
+                                             help="Opt in to model-written names and descriptions "
+                                                  "(fast tier, ledgered, capped by [system] narrate_tokens).")):
+    """Write the architecture document set (context, containers, components, flows, code) from the computed
+    system model. Every statement cites evidence or is marked inferred; empty sections are omitted; each
+    document records the commit it describes. Zero model calls unless --narrate is passed."""
+    from .project import Project
+    from .system.export import export
+    proj = Project.discover()
+    if proj is None:
+        err.print("[bold red]Not inside a project folder.[/]")
+        raise typer.Exit(3)
+    result = export(proj.root, proj.root / out, narrate=narrate)
+    console.print(f"[{MOSS}]✓[/] {len(result['written'])} files written to [bold]{out}[/] "
+                  f"(commit [{SLATE}]{result['commit'][:12]}[/])"
+                  + (f", narrative on ([{SLATE}]{result['narrated']} files narrated[/])" if narrate else ""))
 
 
 # ---- servers & agents --------------------------------------------------------------------------------

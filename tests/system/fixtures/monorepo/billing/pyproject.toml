@@ -1,0 +1,5 @@
+[project]
+name = "billing"
+version = "1.0.0"
+description = "Creates and reads invoices for the Plate product"
+dependencies = ["fastapi", "psycopg[binary]", "kafka-python", "stripe"]

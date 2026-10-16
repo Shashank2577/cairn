@@ -1,0 +1,24 @@
+C4Container
+    title Containers of Shop
+
+    Person(customer, "Customer", "Places and tracks orders")
+
+    System_Boundary(shop, "Shop") {
+        Container(web, "Storefront", "Node.js", "Serves the catalogue and the basket")
+        Container(api, "Orders API", "Python, FastAPI", "Creates and reads orders")
+        ContainerDb(db, "Orders", "PostgreSQL 16", "One row per order")
+        ContainerQueue(bus, "Events", "Redis pub/sub", "order.created and order.paid")
+        Container(worker, "Order worker", "Python", "Sends confirmations and receipts")
+    }
+
+    System_Ext(mail, "SendGrid", "Delivers transactional email")
+
+    Rel(customer, web, "Browses and places orders", "HTTPS")
+    Rel(web, api, "Creates and reads orders", "JSON over HTTP")
+    Rel(api, db, "Reads and writes orders", "SQL")
+    Rel(api, bus, "Publishes order.created", "PUBLISH")
+    Rel(worker, bus, "Consumes order.paid", "SUBSCRIBE")
+    Rel_U(worker, mail, "Sends confirmations", "HTTPS")
+    Rel(api, web, "Returns the order", "JSON over HTTP")
+    UpdateRelStyle(customer, web, $offsetY="-40px")
+    UpdateElementStyle(web, $bgColor="#eef")
