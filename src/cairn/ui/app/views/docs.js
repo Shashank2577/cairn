@@ -39,6 +39,13 @@ function Freshness({ list, sync, startSync, canSync }) {
 /** A relative link between exported documents ("flows.md") opens that document in this view. */
 const docLink = pid => href => /^[\w.-]+\.md$/.test(href) ? link.project(pid, "docs", [href.slice(0, -3)]) : null;
 
+/** A document from the repository's docs/ folder: its styled page in a sandboxed frame, else its Markdown. */
+function WrittenDoc({ pid, doc }) {
+  const res = useFetch(() => doc.html ? Promise.resolve(null) : api.p(pid).docsFile(doc.name), [pid, doc.name]);
+  if (doc.html) return html`<article class="docs-doc written"><iframe class="docs-frame" title=${doc.title} sandbox="allow-same-origin" src=${api.p(pid).docsFileUrl(doc.html)}></iframe></article>`;
+  return html`<${Load} res=${res} rows="10" what="this document">${d => html`<article class="docs-doc"><${Markdown} src=${d.md} links=${docLink(pid)} linksKey=${pid}/></article>`}</${Load}>`;
+}
+
 function Doc({ pid, slug }) {
   const res = useFetch(() => api.p(pid).docsOne(slug), [pid, slug]);
   return html`<${Load} res=${res} rows="10" what="this document">${d => {
@@ -92,10 +99,13 @@ export function Docs() {
 
   return html`<div class="page view-in docs-page">
     <div class="page-h"><div><h1>Docs</h1>
-      <p class="lede">The architecture documents Cairn writes from the system model: context, containers, flows and code, each with its diagram and the evidence behind every claim. Computed live; nothing calls a model unless you ask.</p></div></div>
+      <p class="lede">The documentation in this repository's <code>docs/</code> folder, then the architecture diagrams Cairn computes from the system model, each with the evidence behind every claim. Nothing calls a model unless you ask.</p></div></div>
     <${Load} res=${res} rows="8" what="the documents">${list => {
-      const slug = route.rest[0] && list.docs.some(d => d.slug === route.rest[0]) ? route.rest[0] : list.docs[0]?.slug;
-      if (!list.docs.length) return html`<${Empty} title="Nothing to write yet">The system model is empty. Run a sync so Cairn can read the code, manifests and deploy files, then come back.</${Empty}>`;
+      const written = list.written || [];
+      const wname = route.rest[0] === "file" ? route.rest[1] : !route.rest[0] && written.length ? written[0].name : null;
+      const wdoc = written.find(d => d.name === wname);
+      const slug = !wdoc && route.rest[0] && list.docs.some(d => d.slug === route.rest[0]) ? route.rest[0] : list.docs[0]?.slug;
+      if (!list.docs.length && !written.length) return html`<${Empty} title="Nothing to write yet">The system model is empty. Run a sync so Cairn can read the code, manifests and deploy files, then come back.</${Empty}>`;
       const groups = LEVELS.map(([k, label]) => [label, list.docs.filter(d => d.level === k)]).filter(([, ds]) => ds.length);
       return html`
         <${Freshness} list=${list} sync=${sync} startSync=${startSync} canSync=${can.sync}/>
@@ -108,9 +118,14 @@ export function Docs() {
           <span><b>Narrate (opt-in, uses a model).</b> Add model-written names and short descriptions to the files you export or download, each labelled inferred. Capped at ${fmt(list.narrate_tokens)} tokens per export on the fast model, and recorded in the ledger.
           ${modelsOn ? " Off by default: without it nothing here calls a model." : " Unavailable: no model is set up (Settings)."}</span></label></div>
         <div class="docs" style="margin-top:16px">
-          <nav class="docs-list" aria-label="Documents">${groups.map(([label, ds]) => html`<h4>${label}</h4>
-            ${ds.map(d => html`<a href=${link.project(pid, "docs", [d.slug])} aria-current=${d.slug === slug ? "page" : undefined}>${d.title}</a>`)}`)}</nav>
-          <${Doc} key=${slug + ":" + rev} pid=${pid} slug=${slug}/>
+          <nav class="docs-list" aria-label="Documents">
+            <h4>Documentation</h4>
+            ${written.length ? written.map(d => html`<a href=${link.project(pid, "docs", ["file", d.name])} aria-current=${wdoc?.name === d.name ? "page" : undefined}>${d.index ? "Overview" : d.title}</a>`)
+              : html`<p class="sub" style="margin:0 10px 8px">Nothing in <code>docs/</code> yet. Documents written there by a documentation run show up here.</p>`}
+            <h4 style="margin-top:18px">Computed from the model</h4>
+            ${groups.map(([label, ds]) => html`<h4 class="sub2">${label}</h4>
+            ${ds.map(d => html`<a href=${link.project(pid, "docs", [d.slug])} aria-current=${!wdoc && d.slug === slug ? "page" : undefined}>${d.title}</a>`)}`)}</nav>
+          ${wdoc ? html`<${WrittenDoc} key=${wdoc.name} pid=${pid} doc=${wdoc}/>` : html`<${Doc} key=${slug + ":" + rev} pid=${pid} slug=${slug}/>`}
         </div>`;
     }}</${Load}>
   </div>`;

@@ -205,6 +205,8 @@ export const api = {
       systemView: (level = "containers", scope) => get(P + "/system/view", { level, scope }),
       systemFlows: scope => get(P + "/system/flows", { scope }),
       docs: () => get(P + "/docs"),
+      docsFile: name => get(`${P}/docs/files/${enc(name)}`),
+      docsFileUrl: name => `${P}/docs/files/${enc(name)}`,
       docsOne: slug => get(`${P}/docs/${enc(slug)}`),
       docsExport: narrate => post(P + "/docs/export", { narrate: !!narrate }),
       docsZipUrl: P + "/docs/zip",

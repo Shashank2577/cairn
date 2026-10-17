@@ -1,0 +1,53 @@
+---
+title: "Containers of ui-docs-view-58f22d"
+---
+%%{init: {"theme":"base","themeVariables":{"edgeLabelBackground":"#F4F5F0","lineColor":"#464B45","primaryTextColor":"#1F2328","clusterBkg":"transparent","clusterBorder":"#767B72"},"flowchart":{"curve":"linear"}}}%%
+flowchart LR
+%% cairn:diagram {"diagram":"container","title":"Containers of ui-docs-view-58f22d","scope":"ui-docs-view-58f22d (software system, 1 repository) \u00b7 commit 39b9ad74657b \u00b7 0 model calls","description":"Computed by Cairn from code, manifests and deploy files with no model calls: 7 elements and 6 relationships, each with evidence; 2 marked inferred or ambiguous.","source_note":"computed, 0 model calls"}
+  %% cairn:element n1 {"id":"ui-docs-view-58f22d:container:cairn","name":"cairn","type":"container","kind":"web-app","tech":"Python \u00b7 FastAPI","desc":"Institutional memory for coding agents: map, specs, timeline, memory and sessions behind one command.","provenance":"extracted","kind_provenance":"inferred","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/deploy/docker-compose.yml:7","ui-docs-view-58f22d/deploy/Dockerfile:10","ui-docs-view-58f22d/deploy/Dockerfile:32","ui-docs-view-58f22d/deploy/Dockerfile:36","ui-docs-view-58f22d/pyproject.toml:103"]}
+  n1["<small>WEB APP</small><br/><b>cairn</b><br/>[Python · FastAPI]<br/>Institutional memory for coding agents: map, specs, timeline, memory and sessions behind one command."]
+  %% cairn:element n2 {"id":"ui-docs-view-58f22d:data-store:mongodb","name":"MongoDB","type":"data-store","tech":"MongoDB","desc":"Used by cairn","provenance":"extracted","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/mongodb.py:52"]}
+  n2[("<small>DATA STORE</small><br/><b>MongoDB</b><br/>[MongoDB]<br/>Used by cairn")]
+  %% cairn:element n3 {"id":"ui-docs-view-58f22d:data-store:postgresql","name":"PostgreSQL","type":"data-store","tech":"PostgreSQL","desc":"Used by cairn","provenance":"extracted","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/src/cairn/engines/graph/pg_introspect.py:22","ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/pgvector.py:205"]}
+  n3[("<small>DATA STORE</small><br/><b>PostgreSQL</b><br/>[PostgreSQL]<br/>Used by cairn")]
+  %% cairn:element n4 {"id":"ui-docs-view-58f22d:data-store:redis","name":"Redis","type":"data-store","tech":"Redis","desc":"Used by cairn","provenance":"extracted","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/redis.py:77"]}
+  n4[("<small>DATA STORE</small><br/><b>Redis</b><br/>[Redis]<br/>Used by cairn")]
+  %% cairn:element n5 {"id":"ui-docs-view-58f22d:data-store:sqlite","name":"SQLite","type":"data-store","tech":"SQLite","desc":"Used by cairn","provenance":"extracted","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/specs/002-observation-token-cost/measure/ledger_report.py:19","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/replay.py:136"]}
+  n5[("<small>DATA STORE</small><br/><b>SQLite</b><br/>[SQLite]<br/>Used by cairn")]
+  %% cairn:element n6 {"id":"ui-docs-view-58f22d:external:anthropic","name":"Anthropic API","type":"external-system","tech":"Anthropic API","desc":"Hosted language models","provenance":"extracted","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/src/cairn/router.py:314"]}
+  n6["<small>EXTERNAL SYSTEM</small><br/><b>Anthropic API</b><br/>[Anthropic API]<br/>Hosted language models"]
+  %% cairn:element n7 {"id":"product:external:unresolved-http","name":"Unresolved HTTP target","type":"external-system","desc":"Call target could not be decided from code, configuration or routes","provenance":"inferred","evidence":["ui-docs-view-58f22d/install.sh:13","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/replay.py:62","ui-docs-view-58f22d/src/cairn/router.py:467","ui-docs-view-58f22d/src/cairn/ui/app/api.js:51","ui-docs-view-58f22d/src/cairn/ui/app/api.js:56"]}
+  n7["<small>EXTERNAL SYSTEM ≈</small><br/><b>Unresolved HTTP target</b><br/>Call target could not be decided from code, configuration or routes"]
+  subgraph n1_1["ui-docs-view-58f22d · software system"]
+    %% cairn:boundary n1_1 {"id":"system:ui-docs-view-58f22d","name":"ui-docs-view-58f22d","type":"software system","contains":["ui-docs-view-58f22d:container:cairn","ui-docs-view-58f22d:data-store:mongodb","ui-docs-view-58f22d:data-store:postgresql","ui-docs-view-58f22d:data-store:redis","ui-docs-view-58f22d:data-store:sqlite"]}
+    n1
+    n2
+    n3
+    n4
+    n5
+  end
+  %% cairn:rel n1->n7 {"from":"ui-docs-view-58f22d:container:cairn","to":"product:external:unresolved-http","how":"HTTP \u00b7 GET, POST /","style":"sync","provenance":"inferred","rule":"http-unresolved","computed":true,"evidence":["ui-docs-view-58f22d/install.sh:13","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/replay.py:62","ui-docs-view-58f22d/src/cairn/router.py:467","ui-docs-view-58f22d/src/cairn/ui/app/api.js:51","ui-docs-view-58f22d/src/cairn/ui/app/api.js:56"]}
+  n1 -->|"<br/>[HTTP · GET, POST /]"| n7
+  %% cairn:rel n1->n2 {"from":"ui-docs-view-58f22d:container:cairn","to":"ui-docs-view-58f22d:data-store:mongodb","how":"MongoDB driver","style":"sync","provenance":"extracted","rule":"store-use","computed":true,"evidence":["ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/mongodb.py:52"]}
+  n1 -->|"<br/>[MongoDB driver]"| n2
+  %% cairn:rel n1->n3 {"from":"ui-docs-view-58f22d:container:cairn","to":"ui-docs-view-58f22d:data-store:postgresql","what":"Reads pg_extension (+3)","how":"SQL \u00b7 psycopg","style":"sync","provenance":"extracted","rule":"store-use","computed":true,"evidence":["ui-docs-view-58f22d/src/cairn/engines/graph/pg_introspect.py:22","ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/pgvector.py:205","ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/pgvector.py:214","ui-docs-view-58f22d/src/cairn/engines/graph/pg_introspect.py:34","ui-docs-view-58f22d/src/cairn/engines/graph/pg_introspect.py:43"]}
+  n1 -->|"Reads pg_extension #40;+3#41;<br/>[SQL · psycopg]"| n3
+  %% cairn:rel n1->n4 {"from":"ui-docs-view-58f22d:container:cairn","to":"ui-docs-view-58f22d:data-store:redis","how":"Redis","style":"sync","provenance":"extracted","rule":"store-use","computed":true,"evidence":["ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/redis.py:77"]}
+  n1 -->|"<br/>[Redis]"| n4
+  %% cairn:rel n1->n5 {"from":"ui-docs-view-58f22d:container:cairn","to":"ui-docs-view-58f22d:data-store:sqlite","what":"Reads and writes 44 tables","how":"SQL \u00b7 sqlite3","style":"sync","provenance":"extracted","rule":"store-use","computed":true,"evidence":["ui-docs-view-58f22d/specs/002-observation-token-cost/measure/ledger_report.py:19","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/replay.py:136","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/replay.py:173","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/skip_escalate.py:30","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/tool_share.py:26"]}
+  n1 -->|"Reads and writes 44 tables<br/>[SQL · sqlite3]"| n5
+  %% cairn:rel n1->n6 {"from":"ui-docs-view-58f22d:container:cairn","to":"ui-docs-view-58f22d:external:anthropic","what":"Calls a language model","how":"HTTPS \u00b7 Anthropic SDK","style":"sync","provenance":"extracted","rule":"catalog-sdk","computed":true,"evidence":["ui-docs-view-58f22d/src/cairn/router.py:314"]}
+  n1 -->|"Calls a language model<br/>[HTTPS · Anthropic SDK]"| n6
+  classDef base fill:#FFFFFF,stroke:#1F2328,color:#1F2328,stroke-width:1.2px
+  classDef store fill:#EEEFE9,stroke:#1F2328,color:#1F2328
+  classDef ext fill:#F4F5F0,stroke:#767B72,color:#1F2328,stroke-dasharray:4 3
+  classDef focus fill:#F6E6DA,stroke:#B4531C,color:#1F2328,stroke-width:1.8px
+  class n1 base
+  class n2 store
+  class n3 store
+  class n4 store
+  class n5 store
+  class n6 ext
+  class n7 ext
+  style n1_1 fill:transparent,stroke:#767B72,stroke-dasharray:6 4
+  linkStyle default stroke:#464B45

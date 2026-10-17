@@ -19,3 +19,6 @@
 .docs-narrate { margin-top: 10px; padding: 10px 14px; border: 1px dashed var(--rule-strong); border-radius: 8px; font-size: 13px; color: var(--ink-2); }
 .docs-narrate label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
 .docs-doc .prose th { white-space: nowrap; }
+.docs-list h4.sub2 { margin: 8px 10px 2px; font-size: 11px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.docs-doc.written { padding: 0; overflow: hidden; }
+.docs-frame { display: block; width: 100%; height: 78vh; border: 0; background: #fff; }

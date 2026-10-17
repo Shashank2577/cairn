@@ -13,6 +13,7 @@ import copy
 import json
 import logging
 import os
+import re
 import threading
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -343,6 +344,28 @@ def _system_diagram_cached(root: str, level: str, scope: str | None, stamp: tupl
     if not desc.get("elements"):
         raise ValueError("nothing to draw at this level yet; run a sync so the system model is built")
     return render_inline(desc), json.dumps(desc, default=str)
+
+
+_DOC_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.(md|html)")
+
+
+def _written_docs(root: Path) -> list[dict]:
+    """The documentation already in the repository's ``docs/`` folder (what a documentation run left there).
+
+    Each Markdown file is listed once, with its styled HTML twin when there is one (``DATA_FLOW.md`` and
+    ``data-flow.html``). Nothing here is computed: Cairn shows what is in the folder.
+    """
+    folder = root / "docs"
+    if not folder.is_dir():
+        return []
+    out = []
+    for md in sorted(folder.glob("*.md")):
+        text = md.read_text(encoding="utf-8", errors="replace")
+        title = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), md.stem)
+        twin = "index.html" if md.stem.lower() == "readme" else md.stem.lower().replace("_", "-") + ".html"
+        out.append({"name": md.name, "title": title, "html": twin if (folder / twin).is_file() else None,
+                    "bytes": md.stat().st_size, "index": md.stem.lower() == "readme"})
+    return sorted(out, key=lambda d: (not d["index"], d["name"]))
 
 
 @lru_cache(maxsize=8)
@@ -691,9 +714,24 @@ def project_router(hub: Hub) -> APIRouter:
                 "system": b.product.get("system"), "flow_entries": b.flow_entries, "flow_shapes": b.flow_shapes,
                 "max_flow_docs": MAX_FLOW_DOCS,
                 "narrate_tokens": int(c(pid).project.cfg("system.narrate_tokens", 4000)),
-                "export_dir": "docs/architecture",
+                "export_dir": "docs/architecture", "written": _written_docs(root),
                 "docs": [{"slug": d.slug, "title": d.title, "level": d.level, "summary": d.summary,
                           "diagram": d.desc is not None} for d in b.docs]}
+
+    @r.get("/docs/files/{name}", dependencies=read)
+    def docs_file(pid: str, name: str):
+        """One file of the repository's ``docs/`` folder: the styled HTML page for a frame, or the Markdown."""
+        folder = (c(pid).project.root / "docs").resolve()
+        path = (folder / name).resolve()
+        if not _DOC_FILE.fullmatch(name) or path.parent != folder or not path.is_file():
+            raise HTTPException(404, "no such document")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if name.endswith(".html"):   # the page is data: no script, nothing fetched, shown in a sandboxed frame
+            return Response(text, media_type="text/html; charset=utf-8", headers={
+                "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; "
+                                           "frame-ancestors 'self'",
+                "X-Frame-Options": "SAMEORIGIN", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+        return {"name": name, "md": text}
 
     @r.get("/docs/{slug}", dependencies=read)
     def docs_one(pid: str, slug: str):
