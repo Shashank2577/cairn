@@ -70,14 +70,22 @@ def normalize_stored_prompt_text(prompt: str) -> str:
 
 
 # High-precision credential shapes. Each row: (id, prefilter keywords, pattern). A row is only tried when
-# one of its keywords occurs in the text (cheap substring test), so ordinary text costs almost nothing.
-# Values are masked whole.
+# one of its keywords occurs in the text (cheap, case-insensitive substring test), so ordinary text costs
+# almost nothing. A pattern with one capturing group keeps that group (a label) and masks the rest.
 _B = r"(?<![A-Za-z0-9_])"
 SECRET_PATTERNS: tuple[tuple[str, tuple[str, ...], re.Pattern], ...] = tuple(
-    (pid, kws, re.compile(rx)) for pid, kws, rx in (
+    (pid, tuple(k.lower() for k in kws), re.compile(rx)) for pid, kws, rx in (
         ("private-key", ("-----BEGIN",),
          r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\Z)"),
-        ("url-credentials", ("://",), r"(?<=://)[^\s/:@'\"<>]+:[^\s/@'\"<>]+(?=@[^\s/'\"<>]+)"),
+        # userinfo runs to the LAST '@' before the host, so a password may itself contain '@'
+        ("url-credentials", ("://",),
+         r"(?<=://)[^\s/:@'\"<>]+:[^\s/'\"<>]*(?=@[^@\s/'\"<>]+(?:[/:?#\s'\"<>]|$))"),
+        ("basic-auth", ("authorization",), r"(?i)(authorization\s*[:=]\s*['\"]?(?:basic|digest)\s+)[A-Za-z0-9+/=_-]{8,}"),
+        ("aws-secret-key", ("aws",),
+         r"(?i)(aws[_-]?secret[_-]?(?:access[_-]?)?key[\"']?\s*[:=]\s*[\"']?)[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])"),
+        ("slack-webhook", ("hooks.slack.com",),
+         r"https://hooks\.slack\.com/(?:services|workflows|triggers)/[A-Za-z0-9/_-]{16,}"),
+        ("huggingface-token", ("hf_",), _B + r"hf_[A-Za-z0-9]{34,}"),
         ("github-token", ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"),
          _B + r"(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{50,255})"),
         ("gitlab-token", ("glpat-",), _B + r"glpat-[A-Za-z0-9_-]{20,}"),
@@ -90,30 +98,67 @@ SECRET_PATTERNS: tuple[tuple[str, tuple[str, ...], re.Pattern], ...] = tuple(
         ("npm-token", ("npm_",), _B + r"npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])"),
         ("pypi-token", ("pypi-",), _B + r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{20,}"),
         ("sendgrid-key", ("SG.",), _B + r"SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"),
-        ("twilio-key", ("SK", "AC"), _B + r"(?:SK|AC)[0-9a-f]{32}(?![A-Za-z0-9])"),
+        # a Twilio SID is a two-letter prefix plus exactly 32 lowercase hex digits, never part of a longer word
+        ("twilio-key", ("SK", "AC"), _B + r"(?:SK|AC)(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{32}(?![A-Za-z0-9])"),
         ("google-api-key", ("AIza",), _B + r"AIza[0-9A-Za-z_-]{35}(?![A-Za-z0-9_-])"),
         ("azure-storage-key", ("AccountKey=",), r"(?<=AccountKey=)[A-Za-z0-9+/]{60,}={0,2}"),
     ))
 
-# Values that look like credentials are masked in anything recorded from tool input.
-SECRET_RE = re.compile(
-    r"(?i)\b([\w-]*(?:token|secret|password|passwd|api[_-]?key)[\w-]*)(\s*[=:]\s*)(['\"]?)[^\s'\"]+\3"
-    r"|\b(bearer)\s+[\w.~+/-]+=*|(--[\w-]*(?:token|secret|password|api-key)[\w-]*)\s+\S+")
+# ``name = value`` / ``"name": "value"`` / ``--flag value`` for credential-looking names. Whether the value is
+# masked depends on what it looks like (see _value_is_secret), so prose and code are left alone.
+_NAME = r"[\w-]*(?:token|secret|password|passwd|api[_-]?key|private[_-]?key|credential)[\w-]*"
+KV_RE = re.compile(
+    r"(?i)\b(?P<key>" + _NAME + r")(?P<kq>[\"']?)(?P<sep>\s*[=:]\s*)(?P<vq>[\"']?)(?P<val>[^\s'\"]+)(?P=vq)")
+FLAG_RE = re.compile(r"(?i)(?P<flag>--[\w-]*(?:token|secret|password|api-key)[\w-]*)(?P<sep>\s+)(?P<val>[^\s'\"]+)")
+BEARER_RE = re.compile(r"(?i)\b(bearer)\s+[\w.~+/-]+=*")
+SENSITIVE_KEY_RE = re.compile(
+    r"(?i)^(?:authorization|proxy-authorization|" + _NAME + r"|[\w-]*cookie)$")
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z_]*(?:\.[A-Za-z_][A-Za-z_]*)+$")
+_PLACEHOLDER_RE = re.compile(r"^(?:\$|<|\{\{|\*{3}|\[redacted\]|%\w)", re.I)
+_NOT_VALUES = {"true", "false", "none", "null", "nil", "undefined", "str", "string", "int", "bool"}
 
 
-def _mask_pairs(m: re.Match) -> str:
-    if m.group(4):
-        return f"{m.group(4)} ***"
-    if m.group(5):
-        return f"{m.group(5)} ***"
-    return f"{m.group(1)}{m.group(2)}***"
+def _value_is_secret(val: str, tight: bool) -> bool:
+    """Does ``val`` look like a credential? ``tight`` means ``key=value`` or a quoted value (no prose spacing)."""
+    if not val or val.lower() in _NOT_VALUES or val.isdigit() or _PLACEHOLDER_RE.match(val):
+        return False
+    if "(" in val or ")" in val or _IDENT_RE.match(val):
+        return False  # a call or an attribute chain is code, not a value
+    if tight:
+        return True
+    has_digit = any(c.isdigit() for c in val)
+    has_symbol = any(not (c.isalnum() or c in "_-") for c in val)
+    return len(val) >= 8 and (has_digit or has_symbol) and any(c.isalpha() for c in val)
+
+
+def _mask_kv(m: re.Match) -> str:
+    tight = not any(c.isspace() for c in m.group("sep")) or bool(m.group("vq"))
+    if not _value_is_secret(m.group("val"), tight):
+        return m.group(0)
+    return f"{m.group('key')}{m.group('kq')}{m.group('sep')}{m.group('vq')}***{m.group('vq')}"
+
+
+def _mask_flag(m: re.Match) -> str:
+    if not _value_is_secret(m.group("val"), True):
+        return m.group(0)
+    return f"{m.group('flag')} ***"
+
+
+def _apply(rx: re.Pattern, text: str) -> str:
+    return rx.sub((lambda m: m.group(1) + "***") if rx.groups else "***", text)
+
+
+def _candidates(text: str):
+    low = text.lower()
+    return [(pid, rx) for pid, kws, rx in SECRET_PATTERNS if any(k in low for k in kws)]
 
 
 def redact_hits(text: str) -> list[str]:
     """Ids of every pattern that matches ``text`` (never the matched value)."""
     text = text or ""
-    hits = [pid for pid, kws, rx in SECRET_PATTERNS if any(k in text for k in kws) and rx.search(text)]
-    if SECRET_RE.search(text):
+    hits = [pid for pid, rx in _candidates(text) if rx.search(text)]
+    if any(_mask_kv(m) != m.group(0) for m in KV_RE.finditer(text)) \
+            or any(_mask_flag(m) != m.group(0) for m in FLAG_RE.finditer(text)) or BEARER_RE.search(text):
         hits.append("key-value")
     return hits
 
@@ -121,25 +166,30 @@ def redact_hits(text: str) -> list[str]:
 def redact_shapes(text: str) -> str:
     """Mask only the high-precision token shapes (for prose, where ``name: value`` is ordinary wording)."""
     text = text or ""
-    for _pid, kws, rx in SECRET_PATTERNS:
-        if any(k in text for k in kws):
-            text = rx.sub("***", text)
+    for _pid, rx in _candidates(text):
+        text = _apply(rx, text)
     return text
 
 
 def redact(text: str) -> str:
-    return SECRET_RE.sub(_mask_pairs, redact_shapes(text))
+    text = KV_RE.sub(_mask_kv, redact_shapes(text))
+    text = FLAG_RE.sub(_mask_flag, text)
+    return BEARER_RE.sub(lambda m: f"{m.group(1)} ***", text)
 
 
-def redact_value(value, _depth: int = 0, _fn=None):
-    """Redact every string inside a JSON-shaped value (dicts, lists), leaving its structure intact."""
+def redact_value(value, _depth: int = 0, _fn=None, _key: str | None = None):
+    """Redact every string inside a JSON-shaped value (dicts, lists), leaving its structure intact.
+    Under a credential-looking dict key (``password``, ``API_KEY``, ``Authorization``...) the whole string
+    value is masked. Passing ``_fn=redact_shapes`` is the prose mode: shapes only, keys are not consulted."""
     fn = _fn or redact
     if _depth > 12:
         return value
     if isinstance(value, str):
+        if _fn is None and _key and SENSITIVE_KEY_RE.match(_key) and _value_is_secret(value, True):
+            return "***"
         return fn(value)
     if isinstance(value, list):
-        return [redact_value(v, _depth + 1, fn) for v in value]
+        return [redact_value(v, _depth + 1, _fn, _key) for v in value]
     if isinstance(value, dict):
-        return {k: redact_value(v, _depth + 1, fn) for k, v in value.items()}
+        return {k: redact_value(v, _depth + 1, _fn, k if isinstance(k, str) else None) for k, v in value.items()}
     return value

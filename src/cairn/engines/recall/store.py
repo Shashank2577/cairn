@@ -97,7 +97,7 @@ def _mask(v, prose: bool = False):
     if isinstance(v, str):
         return fn(v)
     if isinstance(v, (list, dict)):
-        return redact_value(v, 0, fn)
+        return redact_value(v, 0, fn if prose else None)
     return v
 
 
@@ -148,7 +148,9 @@ class Store:
     def create_sdk_session(self, content_session_id: str, project: str, user_prompt: str = "",
                            custom_title: str | None = None, platform_source: str | None = None,
                            cwd: str | None = None) -> int:
-        """Find-or-create the session row for an agent session id; fills a missing project/title."""
+        """Find-or-create the session row for an agent session id; fills a missing project/title.
+        The prompt and title are captured text, so they are fully masked here whichever caller supplies them."""
+        user_prompt, custom_title = _mask(user_prompt), _mask(custom_title)
         src = normalize_platform_source(platform_source) if platform_source else DEF
         existing = self.db.execute(
             f"SELECT id, custom_title FROM sdk_sessions WHERE {psrc('sdk_sessions')} = ? AND content_session_id = ?",
@@ -362,7 +364,8 @@ class Store:
                            discovery_tokens: int = 0, override_epoch: int | None = None,
                            model: str | None = None) -> dict:
         """Insert observations (deduplicated per session by title+narrative) and an optional summary,
-        in one transaction. Observations without a title are skipped."""
+        in one transaction. Observations without a title are skipped.
+        Model-written memory gets token-shape masking only (see ``_mask``), not the ``name: value`` rule."""
         observations = [_mask_fields(o) for o in observations]
         summary = _mask_fields(summary) if summary else summary
         ts = int(override_epoch) if override_epoch else schema.now_ms()
@@ -441,6 +444,10 @@ class Store:
             " WHERE content_session_id=? AND prompt_number IS ? ORDER BY id", (content_session_id, prompt_number))]
 
     def update_observation(self, obs_id: int, fields: dict) -> None:
+        """Update an observation. It is model-written memory, so its text fields get token-shape masking only
+        (prose such as "the token: refresh logic" is kept); ``concepts`` and file lists are not text."""
+        fields = {k: (v if k in ("concepts", "files_read", "files_modified") else _mask(v, True))
+                  for k, v in fields.items()}
         cols = {k: (json.dumps(v) if k in ("facts", "concepts", "files_read", "files_modified") and isinstance(v, list)
                     else v) for k, v in fields.items()}
         if "title" in fields or "narrative" in fields:
