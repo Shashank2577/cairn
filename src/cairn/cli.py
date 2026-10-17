@@ -498,6 +498,38 @@ def sync_cmd(deep: Optional[bool] = typer.Option(None, "--deep/--no-deep", help=
         console.print(Text(f"   done in {res.get('seconds', 0)}s", style=f"dim {SLATE}"))
 
 
+@app.command("redaction-test")
+def redaction_test(file: Path = typer.Argument(..., exists=True, dir_okay=False, help="Text file to check.")):
+    """Show which lines Cairn would mask when recording this text, and why (never the value itself)."""
+    from .engines.recall.tags import redact_hits
+    found = 0
+    for n, line in enumerate(file.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        ids = redact_hits(line)
+        if ids:
+            found += 1
+            console.print(f"line {n}: would be masked ({', '.join(ids)})")
+    console.print(f"{found} line(s) would be masked." if found else "No line would be masked.")
+
+
+@app.command("redaction-scan")
+def redaction_scan(as_json: bool = typer.Option(False, "--json")):
+    """Count already-stored rows that still hold a credential shape (read-only; never shows values)."""
+    from .engines.recall.projects import find_store_root
+    from .engines.recall.redaction_scan import scan_store
+    from .engines.recall.schema import store_path
+    root = find_store_root(None)
+    if root is None or not store_path(root).exists():
+        err.print("No session store found here.")
+        raise typer.Exit(3)
+    counts = scan_store(store_path(root))
+    if as_json:
+        return _emit_json(counts)
+    if not counts:
+        console.print("No stored row holds a recognised credential shape.")
+    for pid, tables in sorted(counts.items()):
+        console.print(f"{pid}: " + ", ".join(f"{t} {n}" for t, n in sorted(tables.items())))
+
+
 # ---- questions ---------------------------------------------------------------------------------------
 @app.command()
 def impact(target: str = typer.Argument(..., help="File path, symbol, Class.method, or an id like task:001/T004"),
