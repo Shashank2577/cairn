@@ -137,7 +137,11 @@ Each sync mirrors them into the read model as `obs:` and `session:` entities, li
 they read and modified. That's how `cairn impact` and `cairn why` show recent agent work on the code.
 
 **Privacy.** Anything inside `<private>…</private>` is never stored. Values that look like
-credentials (`API_KEY=…`, `--password …`, `Bearer …`) are masked before they're written. Cairn's
+credentials are masked before they're written: well-known token shapes (cloud, Git host, chat and payment keys,
+JWTs, private keys, passwords inside URLs, Basic/Bearer headers) and values of credential-named settings such as
+`API_KEY=…`, `"password": "…"` or `--token …`. Wording like `token: bucket algorithm` or `max_tokens=1024` is left
+alone. Memory a model writes from a session (observations, summaries) is masked for token shapes only, so ordinary
+prose is not rewritten; `cairn redaction-test <file>` shows what would be masked. Cairn's
 own model calls (which run with `CAIRN_INTERNAL=1`) are never recorded. Everything stays in the
 repository's `.cairn/` folder.
 
