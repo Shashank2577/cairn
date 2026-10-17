@@ -68,3 +68,18 @@ def test_sanitize_removes_private_blocks_and_masks_credentials():
     out = sanitize(text)
     assert "do not send" not in out and "hunter2hunter2" not in out and "keep" in out
     assert sanitize({"a": ["token: abc12345xyz"]}) == {"a": ["token: ***"]}
+
+
+def test_diff_secrets_never_survive_sanitize():
+    """T006 / SC-008: a GitHub token, a PEM block and a credential URL in a diff are masked before any model sees them."""
+    token = "ghp_" + "a1B2c3D4e5" * 4
+    pem_body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"
+    pem = "-----BEGIN " + "RSA PRIVATE KEY-----\n" + pem_body + "\n-----END " + "RSA PRIVATE KEY-----"
+    url = "https://" + "alice" + ":" + "hunter2xyz99" + "@example.com/repo.git"
+    diff = "\n".join(f"+{line}" for line in
+                     [f'TOKEN = "{token}"', *pem.splitlines(), f'remote = "{url}"', "keep = 1"])
+    out = sanitize(diff)
+    assert token not in out and pem_body not in out and "hunter2xyz99" not in out
+    assert "keep = 1" in out
+    nested = sanitize({"files": [{"patch": diff}]})
+    assert token not in str(nested) and pem_body not in str(nested)

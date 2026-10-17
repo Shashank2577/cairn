@@ -23,7 +23,7 @@ description: "Task list for Cairn Review"
 
 - [x] T004 Add tables `reviews`, `review_findings`, `review_rules` exactly as in `data-model.md` (severity in high|medium|low|note; state in open|accepted|dismissed|fixed; unique on project, head_sha, base_sha) in `src/cairn/review/store.py`, created through the existing schema path in `src/cairn/store.py` (Cairn: HIGH, 139 dependents; add only the table creation call)
 - [x] T005 [P] Implement diff resolution and file filtering (base/head, `--staged`, PR number via the forge or local refs; skip generated, vendored and lock files with a reason) in `src/cairn/review/diff.py`, reading and writing UTF-8 explicitly
-- [ ] T006 Mask credentials and remove `<private>` from every string before it can reach a model or a comment, reusing the improved patterns, in `src/cairn/review/model.py` (`sanitize()`); depends on the masking fix
+- [x] T006 Mask credentials and remove `<private>` from every string before it can reach a model or a comment, reusing the improved patterns, in `src/cairn/review/model.py` (`sanitize()`); depends on the masking fix
 - [x] T007 [P] Add budgets `review.budget_tokens` (60000) and `review.wall_seconds` (180) with plain-language meaning and when-exceeded text in `src/cairn/budgets.py` (Cairn: `test_every_budget_is_explained_in_plain_words`)
 - [ ] T008 [P] Add task names `review.bundle` (balanced) and `review.reflect` (fast) to the tier table only, in `src/cairn/router.py` (Cairn: HIGH, 143 dependents, 4 past fixes; do not touch routing or the ledger; keep `Budget` tests green)
 - [x] T009 [P] Tests for the tables, diff filtering and sanitizing in `tests/review/test_foundations.py`
