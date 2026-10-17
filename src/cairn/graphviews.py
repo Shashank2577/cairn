@@ -107,6 +107,156 @@ def _neighbourhood(idx: MapIndex, nid: str, depth: int, cap: int) -> list[str]:
     return out
 
 
+ROW_CAP = 200   # the most rows one Browse level hands back; the page asks for the next page, never for all of them
+
+
+def _file_table(idx: MapIndex) -> dict[str, dict]:
+    """Per file: its symbol count, its three best-connected symbols and the files that depend on it.
+
+    Built on first use and kept on the index (which is rebuilt whenever the map is), so the first level of Browse
+    pays one pass over the edges and every later level reads dictionaries.
+    """
+    cached = getattr(idx, "_file_table", None)
+    if cached is not None:
+        return cached
+    table: dict[str, dict] = {}
+    for f, ids in idx.by_file.items():
+        syms = [n for n in ids if idx.nodes[n].get("file_type") == "code" and "/" not in idx.label(n)
+                and idx.label(n) != PurePosixPath(f).name]
+        syms.sort(key=lambda n: (-idx.degree(n), idx.label(n)))
+        table[f] = {"symbols": len(syms), "top": [(idx.degree(n), idx.label(n)) for n in syms[:3]], "dep": set()}
+    for s, edges in idx.out.items():
+        fs = idx.file_of(s)
+        if not fs:
+            continue
+        for e in edges:
+            ft = idx.file_of(e.other)
+            if ft and ft != fs and e.rel not in STRUCTURE_RELS and ft in table:
+                table[ft]["dep"].add(fs)
+    idx._file_table = table  # type: ignore[attr-defined]
+    return table
+
+
+def _roll(table: dict[str, int] | None, files: list[str]) -> int:
+    return sum((table or {}).get(f, 0) for f in files)
+
+
+def browse(idx: MapIndex, path: str = "", facts: dict[str, dict[str, int]] | None = None, offset: int = 0,
+           limit: int = ROW_CAP, sort: str = "name") -> dict:
+    """One level of the repository: the folders and files directly under `path`, never the whole tree.
+
+    Each row carries what makes it worth opening: file and symbol counts, its best-connected symbols, how many
+    other files depend on it, and what Cairn knows about it (commits, past fixes, specs, memories). `facts` maps
+    a fact name to {file: count}. At most `limit` (<= ROW_CAP) rows come back; `total` says how many exist.
+    """
+    facts = facts or {}
+    path = path.strip("/")
+    table = _file_table(idx)
+    prefix = path + "/" if path else ""
+    kids: dict[str, list[str]] = {}
+    for f in table:
+        if f.startswith(prefix):
+            head, _, rest = f[len(prefix):].partition("/")
+            kids.setdefault(head + ("/" if rest else ""), []).append(f)
+    rows = []
+    for name, files in kids.items():
+        is_dir = name.endswith("/")
+        under = set(files)
+        dep: set[str] = set()
+        top: list[tuple[int, str]] = []
+        for f in files:
+            dep |= table[f]["dep"]
+            top += table[f]["top"]
+        dep -= under
+        symbols = sum(table[f]["symbols"] for f in files)
+        fixes, commits = _roll(facts.get("fixes"), files), _roll(facts.get("commits"), files)
+        heat = len(dep) + fixes * 4
+        rows.append({"name": name.rstrip("/"), "path": prefix + name.rstrip("/"), "kind": "folder" if is_dir else "file",
+                     "files": len(files), "symbols": symbols,
+                     "top": [t for _, t in sorted(top, key=lambda x: (-x[0], x[1]))[:3]],
+                     "dependents": len(dep), "commits": commits, "fixes": fixes,
+                     "specs": _roll(facts.get("specs"), files), "memories": _roll(facts.get("memories"), files),
+                     "risk": "high" if heat >= 40 else "medium" if heat >= 12 else "low", "heat": heat})
+    if sort == "risk":
+        rows.sort(key=lambda r: (-r["heat"], r["name"]))
+    else:
+        rows.sort(key=lambda r: (r["kind"] != "folder", r["name"].lower()))
+    limit = max(1, min(limit, ROW_CAP))
+    crumbs, acc = [], ""
+    for part in path.split("/") if path else []:
+        acc = f"{acc}/{part}" if acc else part
+        crumbs.append({"name": part, "path": acc})
+    return {"path": path, "crumbs": crumbs, "rows": rows[offset:offset + limit], "total": len(rows), "offset": offset,
+            "files": sum(r["files"] for r in rows), "sort": sort}
+
+
+def find(idx: MapIndex, q: str, limit: int = 12) -> dict:
+    """Files, folders and symbols whose name contains `q`: the "find a file or area" box."""
+    needle = q.strip().lower()
+    if len(needle) < 2:
+        return {"folders": [], "files": [], "symbols": []}
+    folders: dict[str, int] = {}
+    files = []
+    for f in idx.by_file:
+        low = f.lower()
+        if needle in low:
+            name = PurePosixPath(f).name.lower()
+            files.append((0 if name.startswith(needle) else 1 if needle in name else 2, len(f), f))
+        parts = f.split("/")[:-1]
+        for i in range(len(parts)):
+            d = "/".join(parts[:i + 1])
+            if needle in parts[i].lower():
+                folders[d] = folders.get(d, 0) + 1
+    files.sort()
+    syms = []
+    for nid, n in idx.nodes.items():
+        lbl = str(n.get("label") or "")
+        if n.get("file_type") == "code" and needle in lbl.lower() and not idx.is_external(nid):
+            syms.append((0 if lbl.lower().startswith(needle) else 1, -idx.degree(nid), nid))
+    syms.sort()
+    return {"folders": [{"path": d, "name": d.rsplit("/", 1)[-1]} for d in sorted(folders, key=lambda d: (len(d), d))[:limit]],
+            "files": [{"path": f, "name": PurePosixPath(f).name} for _, _, f in files[:limit]],
+            "symbols": [{"id": nid, "label": idx.label(nid), "file": idx.file_of(nid)} for _, _, nid in syms[:limit]]}
+
+
+def focus(idx: MapIndex, nid: str, depth: int = 2, cap: int = 150) -> dict | None:
+    """A node and what surrounds it, nearest first, never more than `cap` nodes.
+
+    `total` is the size of the full neighbourhood within `depth` hops, so the page can say "showing 150 of 2,310"
+    and offer more. Structure links (file contains symbol) are not walked: they would make every file a hub.
+    """
+    if nid.startswith("community:"):  # an area, not a node: its best-connected members stand for it
+        members = sorted((n for n, d in idx.nodes.items() if str(d.get("community")) == nid[10:] and not idx.is_external(n)),
+                         key=lambda n: (-idx.degree(n), n))
+        keep = members[:max(1, cap)]
+        return {"center": None, "nodes": [dict(_node(idx, n), hop=1) for n in keep], "links": _links(idx, set(keep)),
+                "shown": len(keep), "total": len(members), "depth": 1, "by_hop": {"1": len(members)}} if members else None
+    seeds = [nid]
+    if nid not in idx.nodes and nid in idx.by_file:  # a file: its own symbols are the centre
+        seeds = sorted((n for n in idx.by_file[nid] if idx.nodes[n].get("file_type") == "code"),
+                       key=lambda n: (-idx.degree(n), n))[:40]
+    seeds = [n for n in seeds if n in idx.nodes]
+    if not seeds:
+        return None
+    depth = max(1, min(depth, 3))
+    hops: dict[str, int] = {n: 0 for n in seeds}
+    ring = list(seeds)
+    for d in range(1, depth + 1):
+        nxt = []
+        for cur in ring:
+            for e in (*idx.out.get(cur, ()), *idx.inc.get(cur, ())):
+                if e.rel not in STRUCTURE_RELS and e.other in idx.nodes and e.other not in hops \
+                        and not idx.is_external(e.other):
+                    hops[e.other] = d
+                    nxt.append(e.other)
+        ring = nxt
+    ordered = sorted(hops, key=lambda n: (hops[n], -idx.degree(n), n))
+    keep = ordered[:max(1, cap)]
+    nodes = [dict(_node(idx, n), hop=hops[n]) for n in keep]
+    return {"center": nid if len(seeds) == 1 else None, "file": nid if len(seeds) > 1 or nid in idx.by_file else None, "nodes": nodes, "links": _links(idx, set(keep)), "shown": len(keep), "total": len(hops),
+            "depth": depth, "by_hop": {str(h): sum(1 for v in hops.values() if v == h) for h in range(depth + 1)}}
+
+
 def node(idx: MapIndex, nid: str) -> dict | None:
     if nid not in idx.nodes:
         return None
