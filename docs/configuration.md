@@ -26,7 +26,7 @@ Some settings can also be changed from the page (Project settings) or with
 | Key | Default | Meaning |
 |---|---|---|
 | `provider` | `"auto"` | `auto`, `anthropic`, `openai` or `claude-code`. `auto` picks an Anthropic key, then an OpenAI-compatible key or endpoint, then the signed-in Claude Code CLI. |
-| `fast` | `"claude-haiku-4-5-20251001"` | Model for the fast tier |
+| `fast` | `"claude-haiku-5-5"` | Model for the fast tier |
 | `balanced` | `"claude-sonnet-5"` | Model for the balanced tier |
 | `deep` | `"claude-opus-5-5"` | Model for the deep tier |
 | `frontier` | `"claude-fable-5-1"` | Model for the frontier tier (opt-in reviews only) |
