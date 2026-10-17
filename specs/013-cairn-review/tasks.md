@@ -15,18 +15,18 @@ description: "Task list for Cairn Review"
 
 ## Phase 1: Setup
 
-- [ ] T001 Confirm the license of the design source and whether any prompt text or rule wording is reused; if so add attribution to `NOTICE` and `licenses/` and record the result in `specs/013-cairn-review/research.md` D1
-- [ ] T002 Create the package skeleton `src/cairn/review/__init__.py` and `tests/review/__init__.py`
-- [ ] T003 [P] Write `docs/adr/0009-review-stage.md` (native pipeline, tool count 13, author pays, forge posting default)
+- [x] T001 Confirm the license of the design source and whether any prompt text or rule wording is reused; if so add attribution to `NOTICE` and `licenses/` and record the result in `specs/013-cairn-review/research.md` D1
+- [x] T002 Create the package skeleton `src/cairn/review/__init__.py` and `tests/review/__init__.py`
+- [x] T003 [P] Write `docs/adr/0010-review-stage.md (0009 was taken)` (native pipeline, tool count 13, author pays, forge posting default)
 
 ## Phase 2: Foundational (blocks all stories)
 
-- [ ] T004 Add tables `reviews`, `review_findings`, `review_rules` exactly as in `data-model.md` (severity in high|medium|low|note; state in open|accepted|dismissed|fixed; unique on project, head_sha, base_sha) in `src/cairn/review/store.py`, created through the existing schema path in `src/cairn/store.py` (Cairn: HIGH, 139 dependents; add only the table creation call)
-- [ ] T005 [P] Implement diff resolution and file filtering (base/head, `--staged`, PR number via the forge or local refs; skip generated, vendored and lock files with a reason) in `src/cairn/review/diff.py`, reading and writing UTF-8 explicitly
+- [x] T004 Add tables `reviews`, `review_findings`, `review_rules` exactly as in `data-model.md` (severity in high|medium|low|note; state in open|accepted|dismissed|fixed; unique on project, head_sha, base_sha) in `src/cairn/review/store.py`, created through the existing schema path in `src/cairn/store.py` (Cairn: HIGH, 139 dependents; add only the table creation call)
+- [x] T005 [P] Implement diff resolution and file filtering (base/head, `--staged`, PR number via the forge or local refs; skip generated, vendored and lock files with a reason) in `src/cairn/review/diff.py`, reading and writing UTF-8 explicitly
 - [ ] T006 Mask credentials and remove `<private>` from every string before it can reach a model or a comment, reusing the improved patterns, in `src/cairn/review/model.py` (`sanitize()`); depends on the masking fix
-- [ ] T007 [P] Add budgets `review.budget_tokens` (60000) and `review.wall_seconds` (180) with plain-language meaning and when-exceeded text in `src/cairn/budgets.py` (Cairn: `test_every_budget_is_explained_in_plain_words`)
+- [x] T007 [P] Add budgets `review.budget_tokens` (60000) and `review.wall_seconds` (180) with plain-language meaning and when-exceeded text in `src/cairn/budgets.py` (Cairn: `test_every_budget_is_explained_in_plain_words`)
 - [ ] T008 [P] Add task names `review.bundle` (balanced) and `review.reflect` (fast) to the tier table only, in `src/cairn/router.py` (Cairn: HIGH, 143 dependents, 4 past fixes; do not touch routing or the ledger; keep `Budget` tests green)
-- [ ] T009 [P] Tests for the tables, diff filtering and sanitizing in `tests/review/test_foundations.py`
+- [x] T009 [P] Tests for the tables, diff filtering and sanitizing in `tests/review/test_foundations.py`
 
 **Checkpoint**: foundations pass tests; nothing user-visible yet.
 
@@ -34,24 +34,24 @@ description: "Task list for Cairn Review"
 
 **Goal**: `cairn review` works with no model. **Independent test**: quickstart step 1.
 
-- [ ] T010 [P] [US1] Deterministic check: files that usually change together but are missing from the diff, in `src/cairn/review/checks.py`
-- [ ] T011 [P] [US1] Deterministic check: open drift on touched requirements, in `src/cairn/review/checks.py` (uses `src/cairn/drift.py`)
-- [ ] T012 [P] [US1] Deterministic check: tests likely affected but absent, and dependency change without lock update, in `src/cairn/review/checks.py`
-- [ ] T013 [US1] Deterministic check: secrets in the diff, in `src/cairn/review/checks.py`
-- [ ] T014 [US1] Pipeline runner (no model path): resolve diff, run checks, store a review and findings, handle "nothing to review", in `src/cairn/review/pipeline.py`
-- [ ] T015 [US1] `cairn review` command group per `contracts/cli.md` (run, list, show, text and json output, `--ci` exit status, model-not-run notice) in `src/cairn/cli.py` (Cairn: HIGH, 6 past fixes; thin wrapper only)
-- [ ] T016 [US1] Compact pack formatter within `context.budget` in `src/cairn/review/pack.py`
-- [ ] T017 [P] [US1] Fixture repository with seeded issues in `tests/review/fixtures/` and tests for each check and the CLI in `tests/review/test_deterministic.py` (SC-001, SC-003, SC-008)
+- [x] T010 [P] [US1] Deterministic check: files that usually change together but are missing from the diff, in `src/cairn/review/checks.py`
+- [x] T011 [P] [US1] Deterministic check: open drift on touched requirements, in `src/cairn/review/checks.py` (uses `src/cairn/drift.py`)
+- [x] T012 [P] [US1] Deterministic check: tests likely affected but absent, and dependency change without lock update, in `src/cairn/review/checks.py`
+- [x] T013 [US1] Deterministic check: secrets in the diff, in `src/cairn/review/checks.py`
+- [x] T014 [US1] Pipeline runner (no model path): resolve diff, run checks, store a review and findings, handle "nothing to review", in `src/cairn/review/pipeline.py`
+- [x] T015 [US1] `cairn review` command group per `contracts/cli.md` (run, list, show, text and json output, `--ci` exit status, model-not-run notice) in `src/cairn/cli.py` (Cairn: HIGH, 6 past fixes; thin wrapper only)
+- [x] T016 [US1] Compact pack formatter within `context.budget` in `src/cairn/review/pack.py`
+- [x] T017 [P] [US1] Fixture repository with seeded issues in `tests/review/fixtures/` and tests for each check and the CLI in `tests/review/test_deterministic.py` (SC-001, SC-003, SC-008)
 
 ## Phase 4: User Story 2 - Findings that know the project (P1)
 
 **Goal**: history, spec and convention evidence in findings. **Independent test**: change a file with a recorded fix.
 
-- [ ] T018 [P] [US2] Check: past fixes and reverts on touched code, with commit citations, in `src/cairn/review/checks.py`
-- [ ] T019 [P] [US2] Check: conventions and gotchas linked to touched files, with memory citations, in `src/cairn/review/checks.py`
-- [ ] T020 [US2] Attach the owning spec task and recent agent sessions to each review as context, in `src/cairn/review/pipeline.py`
-- [ ] T021 [US2] Reject any finding without provenance and at least one citation (SC-002) in `src/cairn/review/store.py`
-- [ ] T022 [P] [US2] Tests in `tests/review/test_project_knowledge.py`
+- [x] T018 [P] [US2] Check: past fixes and reverts on touched code, with commit citations, in `src/cairn/review/checks.py`
+- [x] T019 [P] [US2] Check: conventions and gotchas linked to touched files, with memory citations, in `src/cairn/review/checks.py`
+- [x] T020 [US2] Attach the owning spec task and recent agent sessions to each review as context, in `src/cairn/review/pipeline.py`
+- [x] T021 [US2] Reject any finding without provenance and at least one citation (SC-002) in `src/cairn/review/store.py`
+- [x] T022 [P] [US2] Tests in `tests/review/test_project_knowledge.py`
 
 ## Phase 5: User Story 4 - See and triage in the page (P2)
 

@@ -13,3 +13,5 @@ State transitions: finding `open → accepted | dismissed`; `open → fixed` whe
 Validation: severity and kind are enumerations; a finding without at least one citation is rejected (SC-002); review rows never store diff content or prompt text, only sizes and paths.
 
 Retention: reviews follow the project's other records; deleting a project removes them; `cairn review --forget <id>` removes one.
+
+Build note: `reviews` also has a `context` JSON column (owning spec tasks and recent agent sessions, T020).
