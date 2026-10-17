@@ -300,8 +300,7 @@ Notes: (a) on Haiku 5.5 `MAX_THINKING_TOKENS=0` does not zero thinking (2.5–4k
 
 Shares come from `measure/skip_escalate.py` over **all** captured events (spreix 14,886; cairn 4,997). Dollars apply Sonnet 5.5's price to the escalated share of the `h55_lean2` tokens
 (assuming Sonnet would use the same number of tokens, which is not measured). Triggers available deterministically before the call: large edit/write input, large result, error with a large result.
-A **failed parse** is the fourth trigger; across the 558 model calls of this study, 0 observer replies failed to parse (all outcomes `stored`), so it would add about 0% (the harness reads
-all 14 tokens of `Outcome`; none was `dropped`/`preserved`).
+A **failed parse** is the fourth trigger; across the 558 model calls of this study, 0 observer replies failed to parse (all outcomes `stored`), so it would add about 0% (none was `dropped` or `preserved`).
 
 | rule | spreix: events / input | cairn: events / input |
 | --- | --- | --- |
