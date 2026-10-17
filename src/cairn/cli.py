@@ -499,6 +499,19 @@ def sync_cmd(deep: Optional[bool] = typer.Option(None, "--deep/--no-deep", help=
         console.print(Text(f"   done in {res.get('seconds', 0)}s", style=f"dim {SLATE}"))
 
 
+@app.command("redaction-test")
+def redaction_test(file: Path = typer.Argument(..., exists=True, dir_okay=False, help="Text file to check.")):
+    """Show which lines Cairn would mask when recording this text, and why (never the value itself)."""
+    from .engines.recall.tags import redact_hits
+    found = 0
+    for n, line in enumerate(file.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        ids = redact_hits(line)
+        if ids:
+            found += 1
+            console.print(f"line {n}: would be masked ({', '.join(ids)})")
+    console.print(f"{found} line(s) would be masked." if found else "No line would be masked.")
+
+
 # ---- questions ---------------------------------------------------------------------------------------
 @app.command()
 def impact(target: str = typer.Argument(..., help="File path, symbol, Class.method, or an id like task:001/T004"),

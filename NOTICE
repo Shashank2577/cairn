@@ -22,3 +22,8 @@ Bundled browser libraries (licence files are next to each library in the package
   (Apache-2.0 / MPL-2.0), cytoscape 3.34.3 (MIT), cytoscape-fcose 2.2.0, cose-base 2.2.0, layout-base 2.0.1 (MIT),
   d3-hierarchy 3.1.2 (ISC, Copyright 2010-2021 Mike Bostock).
 - src/cairn/ui/fonts/: Overpass and Overpass Mono (SIL Open Font License 1.1).
+
+Credential-masking patterns (src/cairn/engines/recall/tags.py): the token formats and the keyword
+prefilter idea are informed by the public rule sets of gitleaks (Copyright (c) 2019 Zachary Rice, MIT;
+licenses/secret-patterns-MIT.txt) and detect-secrets (Copyright Yelp Inc., Apache-2.0;
+licenses/secret-patterns-APACHE-2.0.txt). The patterns were rewritten for Cairn; no code was copied.

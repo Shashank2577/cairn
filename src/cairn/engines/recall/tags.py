@@ -69,20 +69,61 @@ def normalize_stored_prompt_text(prompt: str) -> str:
     return preferred[: MAX_STORED_PROMPT_CHARS - 1] + "…"
 
 
+# High-precision credential shapes. Each row: (id, prefilter keywords, pattern). A row is only tried when
+# one of its keywords occurs in the text (cheap substring test), so ordinary text costs almost nothing.
+# Values are masked whole.
+_B = r"(?<![A-Za-z0-9_])"
+SECRET_PATTERNS: tuple[tuple[str, tuple[str, ...], re.Pattern], ...] = tuple(
+    (pid, kws, re.compile(rx)) for pid, kws, rx in (
+        ("private-key", ("-----BEGIN",),
+         r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\Z)"),
+        ("url-credentials", ("://",), r"(?<=://)[^\s/:@'\"<>]+:[^\s/@'\"<>]+(?=@[^\s/'\"<>]+)"),
+        ("github-token", ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"),
+         _B + r"(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{50,255})"),
+        ("gitlab-token", ("glpat-",), _B + r"glpat-[A-Za-z0-9_-]{20,}"),
+        ("aws-access-key-id", ("AKIA", "ASIA", "ABIA", "ACCA"), _B + r"(?:AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16}(?![A-Za-z0-9])"),
+        ("jwt", ("eyJ",), _B + r"eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
+        ("slack-token", ("xox", "xapp-"), _B + r"(?:xox[abposr]-[A-Za-z0-9-]{10,}|xapp-\d-[A-Za-z0-9-]{10,})"),
+        ("stripe-key", ("sk_live_", "rk_live_", "sk_test_", "rk_test_"), _B + r"[sr]k_(?:live|test)_[A-Za-z0-9]{16,}"),
+        ("anthropic-key", ("sk-ant-",), _B + r"sk-ant-[A-Za-z0-9_-]{20,}"),
+        ("openai-key", ("sk-",), _B + r"sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}"),
+        ("npm-token", ("npm_",), _B + r"npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])"),
+        ("pypi-token", ("pypi-",), _B + r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{20,}"),
+        ("sendgrid-key", ("SG.",), _B + r"SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"),
+        ("twilio-key", ("SK", "AC"), _B + r"(?:SK|AC)[0-9a-f]{32}(?![A-Za-z0-9])"),
+        ("google-api-key", ("AIza",), _B + r"AIza[0-9A-Za-z_-]{35}(?![A-Za-z0-9_-])"),
+        ("azure-storage-key", ("AccountKey=",), r"(?<=AccountKey=)[A-Za-z0-9+/]{60,}={0,2}"),
+    ))
+
 # Values that look like credentials are masked in anything recorded from tool input.
 SECRET_RE = re.compile(
     r"(?i)\b([\w-]*(?:token|secret|password|passwd|api[_-]?key)[\w-]*)(\s*[=:]\s*)(['\"]?)[^\s'\"]+\3"
     r"|\b(bearer)\s+[\w.~+/-]+=*|(--[\w-]*(?:token|secret|password|api-key)[\w-]*)\s+\S+")
 
 
+def _mask_pairs(m: re.Match) -> str:
+    if m.group(4):
+        return f"{m.group(4)} ***"
+    if m.group(5):
+        return f"{m.group(5)} ***"
+    return f"{m.group(1)}{m.group(2)}***"
+
+
+def redact_hits(text: str) -> list[str]:
+    """Ids of every pattern that matches ``text`` (never the matched value)."""
+    text = text or ""
+    hits = [pid for pid, kws, rx in SECRET_PATTERNS if any(k in text for k in kws) and rx.search(text)]
+    if SECRET_RE.search(text):
+        hits.append("key-value")
+    return hits
+
+
 def redact(text: str) -> str:
-    def mask(m: re.Match) -> str:
-        if m.group(4):
-            return f"{m.group(4)} ***"
-        if m.group(5):
-            return f"{m.group(5)} ***"
-        return f"{m.group(1)}{m.group(2)}***"
-    return SECRET_RE.sub(mask, text or "")
+    text = text or ""
+    for _pid, kws, rx in SECRET_PATTERNS:
+        if any(k in text for k in kws):
+            text = rx.sub("***", text)
+    return SECRET_RE.sub(_mask_pairs, text)
 
 
 def redact_value(value, _depth: int = 0):
