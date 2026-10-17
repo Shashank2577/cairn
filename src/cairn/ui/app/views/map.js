@@ -793,7 +793,7 @@ function Architecture() {
     return html`<div>
       <p class="sub" style="margin:-6px 0 14px;max-width:84ch">Every ${unit} sits above the code it uses, in ${plural(layers, "layer")}: entry points at the top, foundations at the bottom.
         ${small.length ? ` ${plural(small.length, unit)} ${small.length === 1 ? "is" : "are"} in a small import cycle (dashed red).` : ""}
-        ${big > 8 ? ` ${big} ${unit}s import each other in one large cycle, so most of the code moves together.` : !small.length ? " There are no import cycles." : ""}
+        ${big > 8 ? ` ${big} ${unit}s are tangled into one group that imports itself round and round, so a change inside it can reach the rest of it.` : !small.length ? " There are no import cycles." : ""}
  Hover a ${unit} to trace its links; click to ${g.level === "folder" ? "explore it in the graph" : "see what breaks if it changes"}.</p>
       <${ArchMap} g=${g} pid=${pid}/></div>`;
   }}</${Load}>`;
