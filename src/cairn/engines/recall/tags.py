@@ -83,6 +83,10 @@ SECRET_PATTERNS: tuple[tuple[str, tuple[str, ...], re.Pattern], ...] = tuple(
         ("basic-auth", ("authorization",), r"(?i)(authorization\s*[:=]\s*['\"]?(?:basic|digest)\s+)[A-Za-z0-9+/=_-]{8,}"),
         ("aws-secret-key", ("aws",),
          r"(?i)(aws[_-]?secret[_-]?(?:access[_-]?)?key[\"']?\s*[:=]\s*[\"']?)[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])"),
+        # an unlabelled 40-character base64 secret: needs upper, lower and a digit, so git hashes and words do not hit
+        ("aws-secret-key-bare", (),
+         r"(?<![A-Za-z0-9/+=_.-])(?=[A-Za-z0-9/+]{0,39}[a-z])(?=[A-Za-z0-9/+]{0,39}[A-Z])(?=[A-Za-z0-9/+]{0,39}\d)"
+         r"[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=_-]|\.[A-Za-z0-9])"),
         ("slack-webhook", ("hooks.slack.com",),
          r"https://hooks\.slack\.com/(?:services|workflows|triggers)/[A-Za-z0-9/_-]{16,}"),
         ("huggingface-token", ("hf_",), _B + r"hf_[A-Za-z0-9]{34,}"),
@@ -150,7 +154,7 @@ def _apply(rx: re.Pattern, text: str) -> str:
 
 def _candidates(text: str):
     low = text.lower()
-    return [(pid, rx) for pid, kws, rx in SECRET_PATTERNS if any(k in low for k in kws)]
+    return [(pid, rx) for pid, kws, rx in SECRET_PATTERNS if not kws or any(k in low for k in kws)]
 
 
 def redact_hits(text: str) -> list[str]:

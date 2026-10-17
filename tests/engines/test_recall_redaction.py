@@ -33,6 +33,7 @@ CASES = {  # id: (secret, look-alike that is not one)
     "url-credentials": ("https://" + "alice" + ":" + "hunter2x" + "@example.com/repo", "https://example.com:8080/a@b"),
     "basic-auth": ("Authorization: Ba" + "sic dXNlcjpwYXNzd29yZDEyMw==", "Authorization: Basic"),
     "huggingface-token": ("hf" + "_" + "A1b2C3d4E5" * 3 + "A1b2", "hf" + "_model_name"),
+    "aws-secret-key-bare": ("wJalrXUtnFEMI/K7MDENG/bPxRfiCY" + "EXAMPLEKEY", "0123456789abcdef" * 2 + "01234567"),
     "slack-webhook": ("https://hooks." + "slack.com/services/T01ABCDEF/B01ABCDEF/A1b2C3d4E5f6G7h8I9j0", "https://hooks." + "slack.com/docs"),
     "aws-secret-key": ("aws_secret_" + "access_key = " + "A1b2C3d4E5f6G7h8I9j0" * 2, "aws_secret_" + "access_key = short"),
     "private-key": ("-----BEGIN " + "RSA PRIVATE KEY-----\nMIIabc\n-----END " + "RSA PRIVATE KEY-----",
@@ -258,3 +259,22 @@ def test_store_masks_update_observation_and_session_fields(repo):
     assert TOK not in _everything(repo) and KEY not in _everything(repo)
     with Store.open(repo) as st:
         assert TOK not in str([tuple(r) for r in st.db.execute("SELECT custom_title, user_prompt FROM sdk_sessions")])
+
+
+def test_more_review_cases():
+    for text in ("the token: expired error", "secret_key_length=32", "SECRET_KEY_LENGTH = 32",
+                 "src/" + "a1B2c3D4e5" * 4 + "/file.py", "camelCaseIdentifierWithoutDigitsAtAllXYZabcdefg"):
+        assert redact(text) == text, text
+    assert "hunter2" not in redact("{'PASSWORD': 'hunter2', 'Nested': {'Api_Key': 'abc12345'}}")
+    assert "hunter2" not in json.dumps(redact_value({"Config": [{"PASSWORD": "hunter2"}]}))
+    bare = "wJalrXUtnFEMI/K7MDENG/bPxRfiCY" + "EXAMPLEKEY"
+    assert redact(f"key is {bare}.") == "key is ***."
+
+
+def test_redact_is_fast_on_large_text():
+    import time
+    big = ("line with token: words and https://host:80/a@b plus key=value\n" * 40_000) + "x" * 200_000
+    t = time.perf_counter()
+    redact(big)
+    redact_value({"out": big})
+    assert time.perf_counter() - t < 5
