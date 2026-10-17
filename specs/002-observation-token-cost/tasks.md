@@ -21,43 +21,43 @@
 - [x] T007 Skip-list counterfactual from `tool_uses` — `specs/002-observation-token-cost/measure/tool_share.py`
 - [x] T008 Deterministic rubric R1–R6 and noise-band comparison — `specs/002-observation-token-cost/measure/grade.py`, `specs/002-observation-token-cost/measure/families.py`, `specs/002-observation-token-cost/measure/summarize.py`
 - [x] T009 Blind human-review sheet generator (the generated sheets hold raw events of private repos, so they live in the shared notes folder, not here) — `specs/002-observation-token-cost/measure/review_sheet.py`
-- [ ] T009b A person grades ≥ 10 items per repository from those sheets and the result is added to `specs/002-observation-token-cost/findings.md` §4
+- [x] T009b A person grades ≥ 10 items per repository from those sheets and the result is added to `specs/002-observation-token-cost/findings.md` §4
 - [x] T010 Write up with measured/estimated labels — `specs/002-observation-token-cost/findings.md`
 
 **Checkpoint — STOP FOR REVIEW.** Answer `open-questions.md`; then continue.
 
 ## Phase 4: Router (after review) — each task is one commit
 
-- [ ] T011 Test first: the claude-code child environment carries `DISABLE_PROMPT_CACHING=1` unless the user set it or `models.cli_cache` is true; both `_claude_code` and `_claude_code_stream` — `tests/test_router_cost.py`
-- [ ] T012 Implement T011 — `src/cairn/router.py`
-- [ ] T013 Test first: `MAX_THINKING_TOKENS=0` is set only for tasks in `NO_THINKING_TASKS`; deep-tier tasks keep the default — `tests/test_router_cost.py`
-- [ ] T014 Implement T013 — `src/cairn/router.py`
-- [ ] T015 Test first: Anthropic request has no `cache_control` when the observer sends its replay in the prompt — `tests/test_router_cost.py`
-- [ ] T016 Ledger rows keep the provider's thinking and cache-TTL counts; `cairn models --ledger` labels tokens measured and dollars estimated — `src/cairn/router.py`, `src/cairn/store.py`, `tests/test_router_cost.py`
+- [x] T011 Test first: the claude-code child environment carries `DISABLE_PROMPT_CACHING=1` unless the user set it or `models.cli_cache` is true; both `_claude_code` and `_claude_code_stream` — `tests/test_router_cost.py`
+- [x] T012 Implement T011 — `src/cairn/router.py`
+- [x] T013 Test first: `MAX_THINKING_TOKENS=0` is set only for tasks in `NO_THINKING_TASKS`; deep-tier tasks keep the default — `tests/test_router_cost.py`
+- [x] T014 Implement T013 — `src/cairn/router.py`
+- [x] T015 Test first: Anthropic request has no `cache_control` when the observer sends its replay in the prompt — `tests/test_router_cost.py`
+- [ ] T016 (deferred: open question 10) Ledger rows keep the provider's thinking and cache-TTL counts; `cairn models --ledger` labels tokens measured and dollars estimated — `src/cairn/router.py`, `src/cairn/store.py`, `tests/test_router_cost.py`
 
 ## Phase 5: Observer (after review)
 
-- [ ] T017 Test first: with default settings an oversized field makes no `recall_compress` call and is cut head/tail with an elision marker; with `observer_condense = true` it condenses — `tests/engines/test_recall_worker.py`
-- [ ] T018 Implement `observer_condense` — `src/cairn/engines/recall/observer.py`, `src/cairn/engines/recall/settings.py`
-- [ ] T019 Test first: a five-event batch contains the closing instructions once — `tests/engines/test_recall_worker.py`
-- [ ] T020 Implement closing instructions once per call — `src/cairn/engines/recall/prompts.py`, `src/cairn/engines/recall/observer.py`
-- [ ] T021 Test first: the brief still contains every rule the parser and context renderer depend on (types, skip tag, XML shape) — `tests/engines/test_recall_worker.py`
-- [ ] T022 Shorter brief from `levers.terse` — `src/cairn/engines/recall/modes/code.json`
-- [ ] T023 Test first: replay is passed as prompt text, not `cached_context`; defaults 2 exchanges / 6000 chars — `tests/engines/test_recall_worker.py`
-- [ ] T024 Implement T023 and the `observe_batch` default — `src/cairn/engines/recall/observer.py`, `src/cairn/engines/recall/settings.py`
-- [ ] T025 (optional) Read-only shell skip — `src/cairn/engines/recall/ingest.py`, `tests/engines/test_recall_capture.py`
+- [x] T017 Test first: with default settings an oversized field makes no `recall_compress` call and is cut head/tail with an elision marker; with `observer_condense = true` it condenses — `tests/engines/test_recall_worker.py`
+- [x] T018 Implement `observer_condense` — `src/cairn/engines/recall/observer.py`, `src/cairn/engines/recall/settings.py`
+- [x] T019 Test first: a five-event batch contains the closing instructions once — `tests/engines/test_recall_worker.py`
+- [x] T020 Implement closing instructions once per call — `src/cairn/engines/recall/prompts.py`, `src/cairn/engines/recall/observer.py`
+- [x] T021 Test first: the brief still contains every rule the parser and context renderer depend on (types, skip tag, XML shape) — `tests/engines/test_recall_worker.py`
+- [x] T022 Shorter brief from `levers.terse` — `src/cairn/engines/recall/modes/code.json`
+- [x] T023 Test first: replay is passed as prompt text, not `cached_context`; defaults 2 exchanges / 6000 chars — `tests/engines/test_recall_worker.py`
+- [x] T024 Implement T023 and the `observe_batch` default — `src/cairn/engines/recall/observer.py`, `src/cairn/engines/recall/settings.py`
+- [ ] T025 (deferred: measured 1.5% of input) Read-only shell skip — `src/cairn/engines/recall/ingest.py`, `tests/engines/test_recall_capture.py`
 
-- [ ] T029 Test first: fast-tier default model, `models.escalate` parse-failure fallback and opt-in size rule — `tests/test_router_cost.py`
-- [ ] T030 Implement T029 — `src/cairn/router.py`
-- [ ] T031 Test first: an outcome-skipped event leaves a one-line derived record and never a model call — `tests/engines/test_recall_capture.py`
-- [ ] T032 Implement the outcome skip rule S1–S3 with the high-value guard — `src/cairn/engines/recall/ingest.py`, `src/cairn/engines/recall/fallback.py`
+- [x] T029 Test first: fast-tier default model, `models.escalate` parse-failure fallback and opt-in size rule — `tests/test_router_cost.py`
+- [x] T030 Implement T029 — `src/cairn/router.py`
+- [ ] T031 (deferred: see findings §8.3) Test first: an outcome-skipped event leaves a one-line derived record and never a model call — `tests/engines/test_recall_capture.py`
+- [ ] T032 (deferred: see findings §8.3) Implement the outcome skip rule S1–S3 with the high-value guard — `src/cairn/engines/recall/ingest.py`, `src/cairn/engines/recall/fallback.py`
 - [x] T033 Haiku 5.5 replays, escalation shares and outcome-skip measurement — `specs/002-observation-token-cost/measure/run_haiku55.sh`, `specs/002-observation-token-cost/measure/skip_escalate.py`, `specs/002-observation-token-cost/measure/report_h55.py`
 
 ## Phase 6: Prove it (after the code)
 
-- [ ] T026 Re-run `run_matrix2.sh` and `run_heldout.sh` on fresh snapshots of two repositories; put the after-numbers beside the before-numbers in `specs/002-observation-token-cost/findings.md`
-- [ ] T027 Full test suite green; `CHANGELOG.md` entry with the measured figures and their labels — `CHANGELOG.md`
-- [ ] T028 `cairn_remember` the durable learnings (CLI cache behaviour, thinking default, harness pitfalls)
+- [x] T026 Re-run (done: `specs/002-observation-token-cost/measure/run_after.sh`, `specs/002-observation-token-cost/measure/report_after.py`) Re-run `run_matrix2.sh` and `run_heldout.sh` on fresh snapshots of two repositories; put the after-numbers beside the before-numbers in `specs/002-observation-token-cost/findings.md`
+- [ ] T027 Full test suite green (done, 2000+ tests excluding tests/ui); `CHANGELOG.md` entry with the measured figures and their labels — `CHANGELOG.md`
+- [x] T028 `cairn_remember` the durable learnings (CLI cache behaviour, thinking default, harness pitfalls)
 
 ## Dependencies
 

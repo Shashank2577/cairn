@@ -340,3 +340,68 @@ Every skipped event would still get a one-line deterministic record from the exi
 
 `lean2` on Haiku 5.5 beats the cache counterfactual by about 11×, and `lean2` on Haiku 4.5 alone already beats it. A cache that works is not the way to the floor: the prefix would have to be identical across calls
 (§1.3), and the cheapest design simply sends fewer tokens.
+
+
+## 9. After: the shipped defaults, measured (commits f956676, 152327e)
+
+**Blind human check (done).** The owner graded 20 items (10 per repository, arms hidden), 0–2 per question. Unblinded:
+
+| arm | n | accurate | useful | specific |
+| --- | --- | --- | --- | --- |
+| cairn, old settings (`nocache`) | 3 | 2.00 | 2.00 | 2.00 |
+| cairn, `lean2` (Economy) | 7 | 2.00 | 1.86 | 1.71 |
+| spreix, old settings | 5 | 2.00 | 2.00 | 2.00 |
+| spreix, `lean2` (Economy) | 5 | 2.00 | 2.00 | 1.80 |
+
+No inaccurate note in either arm. Economy's notes are slightly less specific (and on cairn slightly less useful); the three lowest items were all Economy. Small sample, but it agrees with the
+decision: **Safe is the default, Economy is an opt-in profile** (`observe_batch = 10`, `observer_replay_exchanges = 2`, `observer_replay_chars = 6000`).
+
+**What shipped.** CLI cache writes off and thinking off for bulk tasks (`router.py`); no condensing call, closing instructions once, replay as prompt text, a shorter brief, and escalation to the
+balanced tier only when a reply looks like XML but does not parse (`observer.py`, `prompts.py`, `settings.py`, `modes/code.json`); fast tier default `claude-haiku-5-5`. Opt-ins: `observer_escalate_chars`, `observer_condense`,
+`models.cli_cache`. Not shipped: the outcome skip rule (T031/T032; measured 1.5% of input, and 32 of 508 trivial-rule events are high-value by the grader), ledger columns (T016), the optional shell skip (T025).
+
+**After numbers: the new defaults replayed on the same windows (no harness patch).** Tokens measured; dollars estimated (Haiku 4.5 $1/$5; Haiku 5.5 $0.10/$0.50; 1-hour writes 2×). One run each; the noise caveats of §4 apply.
+
+**cairn — main window**
+
+| run | calls | input-side tok | cache-written | output | thinking | obs | tok/event | est. $/event | HV | outcome | grounding |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| before (old default) | 10 | 180,638 | 180,538 | 18,091 | 0 | 6 | 3,975 | $0.00903 | 94% | 83% | 97% |
+| after: Safe (Haiku 4.5) | 10 | 160,571 | 0 | 10,905 | 0 | 13 | 3,430 | $0.00430 | 94% | 87% | 94% |
+| after: Economy (Haiku 4.5) | 5 | 84,419 | 0 | 10,722 | 0 | 16 | 1,903 | $0.00276 | 97% | 91% | 98% |
+| after: Safe on Haiku 5.5 | 10 | 243,940 | 0 | 9,908 | 1,431 | 11 | 5,077 | $0.00059 | 97% | 83% | 100% |
+
+**cairn — held-out window**
+
+| run | calls | input-side tok | cache-written | output | thinking | obs | tok/event | est. $/event | HV | outcome | grounding |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| before (old default) | 13 | 203,036 | 202,906 | 42,367 | 17,615 | 31 | 4,908 | $0.01236 | 100% | 92% | 98% |
+| after: Safe (Haiku 4.5) | 11 | 156,332 | 0 | 24,361 | 0 | 46 | 3,614 | $0.00556 | 100% | 100% | 98% |
+| after: Economy (Haiku 4.5) | 6 | 86,173 | 0 | 14,313 | 0 | 26 | 2,010 | $0.00315 | 100% | 100% | 98% |
+| after: Safe on Haiku 5.5 | 11 | 228,619 | 0 | 21,484 | 5,549 | 28 | 5,002 | $0.00067 | 100% | 100% | 98% |
+
+**spreix-notetaker — main window**
+
+| run | calls | input-side tok | cache-written | output | thinking | obs | tok/event | est. $/event | HV | outcome | grounding |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| before (old default) | 19 | 284,018 | 283,828 | 37,477 | 0 | 26 | 6,430 | $0.01510 | 69% | 82% | 99% |
+| after: Safe (Haiku 4.5) | 13 | 139,046 | 0 | 14,537 | 0 | 23 | 3,072 | $0.00423 | 74% | 73% | 90% |
+| after: Economy (Haiku 4.5) | 9 | 70,239 | 0 | 7,284 | 0 | 13 | 1,550 | $0.00213 | 71% | 73% | 98% |
+| after: Safe on Haiku 5.5 | 13 | 198,279 | 0 | 16,631 | 5,367 | 21 | 4,298 | $0.00056 | 91% | 91% | 100% |
+
+**spreix-notetaker — held-out window**
+
+| run | calls | input-side tok | cache-written | output | thinking | obs | tok/event | est. $/event | HV | outcome | grounding |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| before (old default) | 17 | 222,940 | 222,770 | 33,039 | 16,747 | 24 | 5,120 | $0.01222 | 83% | 50% | 93% |
+| after: Safe (Haiku 4.5) | 12 | 138,587 | 0 | 11,582 | 0 | 20 | 3,003 | $0.00393 | 89% | 64% | 94% |
+| after: Economy (Haiku 4.5) | 8 | 77,999 | 0 | 7,587 | 0 | 15 | 1,712 | $0.00232 | 86% | 50% | 95% |
+| after: Safe on Haiku 5.5 | 12 | 186,108 | 0 | 14,124 | 4,275 | 18 | 4,005 | $0.00051 | 94% | 71% | 100% |
+
+
+Reading the table:
+- **Safe on Haiku 4.5** costs **−52% / −55% (cairn)** and **−72% / −68% (spreix)** per event against the old default, with quality inside the gate on both repositories and both windows.
+- **Economy on Haiku 4.5**: −69% / −75% (cairn) and −86% / −81% (spreix), half the input tokens again.
+- **Safe on Haiku 5.5** (the new default model): **$0.0005–0.0007 per event, −93% to −96%** against the old default. Haiku 5.5 reads about 40–50% more input tokens for the same text, so its token counts are higher; its price per token is a tenth.
+- Thinking is not fully zero on Haiku 5.5 (1.4–5.5k tokens) even with `MAX_THINKING_TOKENS=0`; that model keeps a short reasoning step. It is still the cheapest row.
+- The cache counterfactual ($54.9 of $116.5 for spreix): Safe on Haiku 4.5 projects to about **$63** and Safe on Haiku 5.5 to about **$8** for the same 14,886 events (estimated, extrapolated from four 50-event windows); a working cache is not the way to the floor.

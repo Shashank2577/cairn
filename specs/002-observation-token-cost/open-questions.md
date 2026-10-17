@@ -14,7 +14,7 @@ Each has a recommended default so the work can proceed if you do not answer. Not
 4. **CLI cache switch.** `DISABLE_PROMPT_CACHING` is a Claude Code environment variable, not a documented API. If a later CLI renames it the saving
    disappears silently (the ledger would show cache writes again). Accept that, with a test on the env we set and `run_matrix.sh` as the canary?
    *Default: yes.*
-5. **A person grades the blind sheet.** 10 items per repository in the shared notes folder (`002-review/`). Defaults should not change before this.
+5. **(Resolved: graded, see findings §9.)** A person grades the blind sheet. 10 items per repository in the shared notes folder (`002-review/`). Defaults should not change before this.
    *Default: block the change on it.*
 6. **Anthropic API key.** The SDK path is estimated because this machine has no key. Provide one (or a scoped budget) to measure it, or accept the estimate?
    *Default: accept the estimate; the Router change for that path is only "stop marking a changing block cacheable".*

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `002-observation-token-cost`
 **Created**: 2026-10-17
-**Status**: Measured; **defaults NOT changed** — waiting for review (see `findings.md`, `open-questions.md`)
+**Status**: Safe tier implemented (commits f956676, 152327e); Economy is an opt-in profile; outcome skip, ledger columns deferred
 **Input**: User description: "Session observation (`recall_observe`) is 80% or more of all model tokens on a real repo.
 Cut the model tokens spent on session observations without lowering their usefulness. Measure first, then change."
 
