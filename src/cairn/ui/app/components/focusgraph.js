@@ -32,7 +32,7 @@ export function FocusGraph({ pid, node, file, depth, limit, nav }) {
   const pickSymbol = s => nav({ view: "focus", node: s.id, file: "", depth: 2, limit: 150 });
   return html`<div class="fg"><style>${STYLE}${FIND_STYLE}</style>
     <div class="fg-bar bw">
-      <${FindBox} pid=${pid} placeholder="Start from a symbol, file or folder  ⌘K" onSymbol=${pickSymbol}
+      <${FindBox} pid=${pid} placeholder="Start from a symbol, file or folder" onSymbol=${pickSymbol}
         onFile=${f => nav({ view: "focus", node: "", file: f, depth: 1, limit: 150 })} onFolder=${p => nav({ view: "browse", path: p })}/>
     </div>
     ${!target ? html`<${Empty} title="Pick somewhere to start"><p>This view draws one thing and its surroundings, never the whole repository. Search for a symbol or file above, or start from an area:</p>

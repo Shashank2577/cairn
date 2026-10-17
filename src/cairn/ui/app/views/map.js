@@ -761,6 +761,9 @@ function SystemView() {
   // about the product. Saying so stops the page claiming to be one repository while the picture beside it
   // is five.
   const view = useFetch(() => api.p(pid).systemView(level, scope || undefined), [pid, level, scope]);
+  const stale = view.data?.stale_scope;
+  // A saved link can name a flow from an older model. The server drew the current one; drop the dead scope from the address.
+  useEffect(() => { if (stale && scope) setScope(""); }, [stale]);
   const sys = view.data?.system, repos = view.data?.repos || [];
   const isProduct = repos.length > 1;
   return html`<div>
@@ -777,6 +780,7 @@ function SystemView() {
     ${isProduct ? html`<p class="sub" style="margin:-4px 0 12px;max-width:88ch">
       <b>${sys}</b> — ${plural(repos.length, "repository", "repositories")} declared as one product in
       <code>system.yaml</code>: ${repos.join(", ")}. Every level below draws all of them.</p>` : null}
+    ${stale ? html`<p class="sub" role="status" style="margin:-4px 0 12px">That link pointed at a view from an earlier version of the model, so this is the current one.</p>` : null}
     <${SystemDiagram} pid=${pid} level=${level} scope=${scope}/>
   </div>`;
 }

@@ -1,8 +1,8 @@
 // Browse: the repository one level at a time. Folders and files directly under a path, each with what makes
 // it worth opening (size, best-connected symbols, who depends on it, what Cairn remembers about it). Only
 // the current level is ever fetched or drawn, and never more than one page of it, so it opens instantly on
-// any repository. A find box jumps straight to a folder, file or symbol (Cmd/Ctrl-K).
-import { useEffect, useRef, useState } from "preact/hooks";
+// any repository. A find box jumps straight to a folder, file or symbol.
+import { useEffect, useState } from "preact/hooks";
 import { html, Icon, Load, Tag, Empty } from "./ui.js";
 import { useFetch } from "../state.js";
 import { api } from "../api.js";
@@ -38,16 +38,11 @@ const STYLE = `
 @media (max-width: 760px) { .bw .bw-row { grid-template-columns: 1fr; } .bw .bw-tags { justify-content: flex-start; } }
 `;
 
-/** The find box, shared by Browse and the neighbourhood view. Opens on Cmd/Ctrl-K while the page is up. */
-export function FindBox({ pid, onFolder, onFile, onSymbol, placeholder = "Find a file, folder or symbol  ⌘K" }) {
+/** The find box, shared by Browse and the neighbourhood view: jumps to a folder, file or symbol. (Cmd/Ctrl-K is the
+ * shell's own project-wide search; this one stays on this page's map.) */
+export function FindBox({ pid, onFolder, onFile, onSymbol, placeholder = "Find a file, folder or symbol" }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState(null);
-  const input = useRef(null);
-  useEffect(() => {
-    const key = e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); input.current?.focus(); input.current?.select(); } };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, []);
   useEffect(() => {
     if (q.trim().length < 2) { setHits(null); return; }
     let dead = false;
@@ -56,7 +51,7 @@ export function FindBox({ pid, onFolder, onFile, onSymbol, placeholder = "Find a
   }, [q, pid]);
   const done = fn => arg => { setQ(""); setHits(null); fn(arg); };
   const none = hits && !hits.folders.length && !hits.files.length && !hits.symbols.length;
-  return html`<div class="bw-find"><input class="input" type="search" ref=${input} value=${q} placeholder=${placeholder} aria-label="Find a file, folder or symbol"
+  return html`<div class="bw-find"><input class="input" type="search" value=${q} placeholder=${placeholder} aria-label="Find a file, folder or symbol"
       onInput=${e => setQ(e.target.value)} onKeyDown=${e => { if (e.key === "Escape") { setQ(""); setHits(null); } }}/>
     ${hits ? html`<div class="bw-hits" role="listbox">
       ${none ? html`<p class="sub" style="margin:8px">Nothing in the map is named like that.</p>` : null}
