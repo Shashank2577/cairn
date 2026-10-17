@@ -481,6 +481,25 @@ def redaction_test(file: Path = typer.Argument(..., exists=True, dir_okay=False,
     console.print(f"{found} line(s) would be masked." if found else "No line would be masked.")
 
 
+@app.command("redaction-scan")
+def redaction_scan(as_json: bool = typer.Option(False, "--json")):
+    """Count already-stored rows that still hold a credential shape (read-only; never shows values)."""
+    from .engines.recall.projects import find_store_root
+    from .engines.recall.redaction_scan import scan_store
+    from .engines.recall.schema import store_path
+    root = find_store_root(None)
+    if root is None or not store_path(root).exists():
+        err.print("No session store found here.")
+        raise typer.Exit(3)
+    counts = scan_store(store_path(root))
+    if as_json:
+        return _emit_json(counts)
+    if not counts:
+        console.print("No stored row holds a recognised credential shape.")
+    for pid, tables in sorted(counts.items()):
+        console.print(f"{pid}: " + ", ".join(f"{t} {n}" for t, n in sorted(tables.items())))
+
+
 # ---- questions ---------------------------------------------------------------------------------------
 @app.command()
 def impact(target: str = typer.Argument(..., help="File path, symbol, Class.method, or an id like task:001/T004"),
