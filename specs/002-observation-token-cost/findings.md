@@ -404,4 +404,4 @@ Reading the table:
 - **Economy on Haiku 4.5**: −69% / −75% (cairn) and −86% / −81% (spreix), half the input tokens again.
 - **Safe on Haiku 5.5** (the new default model): **$0.0005–0.0007 per event, −93% to −96%** against the old default. Haiku 5.5 reads about 40–50% more input tokens for the same text, so its token counts are higher; its price per token is a tenth.
 - Thinking is not fully zero on Haiku 5.5 (1.4–5.5k tokens) even with `MAX_THINKING_TOKENS=0`; that model keeps a short reasoning step. It is still the cheapest row.
-- The cache counterfactual ($54.9 of $116.5 for spreix): Safe on Haiku 4.5 projects to about **$63** and Safe on Haiku 5.5 to about **$8** for the same 14,886 events (estimated, extrapolated from four 50-event windows); a working cache is not the way to the floor.
+- The cache counterfactual ($54.9 of $116.5 for spreix): Safe on Haiku 4.5 projects to about **$61** and Safe on Haiku 5.5 to about **$8** for the same 14,886 events (estimated, extrapolated from four 50-event windows); a working cache is not the way to the floor.

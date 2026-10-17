@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Session observations cost far fewer model tokens.** Replayed on two real repositories (measured tokens, estimated dollars; see
+  `specs/002-observation-token-cost/findings.md`): the Claude Code CLI path no longer writes prompt-cache entries it never read (they were billed at
+  the 1-hour rate), bulk tasks run without extended thinking, oversized tool output is cut head/tail instead of condensed by an extra model call, the
+  closing instructions are sent once per batch, the observer brief is shorter, and the replay is plain prompt text. Estimated cost per tool event fell
+  52–72% on the same model; with the new default fast model `claude-haiku-5-5` it fell about 93–96%. A blind check of 20 notes found none inaccurate;
+  the opt-in *economy* profile (`observe_batch = 10`, `observer_replay_exchanges = 2`, `observer_replay_chars = 6000`) saves more and writes slightly less specific notes.
+- A reply that looks like XML but does not parse is retried once on the balanced tier (`observer_escalate = "parse"`, or `"off"`); a size rule is opt-in
+  (`observer_escalate_chars`). `observer_condense = true` and `models.cli_cache = true` restore the old behaviour.
+
 ## 0.2.2 — 2026-10-08
 
 ### Added

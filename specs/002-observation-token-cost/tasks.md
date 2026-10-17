@@ -56,7 +56,7 @@
 ## Phase 6: Prove it (after the code)
 
 - [x] T026 Re-run (done: `specs/002-observation-token-cost/measure/run_after.sh`, `specs/002-observation-token-cost/measure/report_after.py`) Re-run `run_matrix2.sh` and `run_heldout.sh` on fresh snapshots of two repositories; put the after-numbers beside the before-numbers in `specs/002-observation-token-cost/findings.md`
-- [ ] T027 Full test suite green (done, 2000+ tests excluding tests/ui); `CHANGELOG.md` entry with the measured figures and their labels — `CHANGELOG.md`
+- [x] T027 Full test suite green (done, 2000+ tests excluding tests/ui); `CHANGELOG.md` entry with the measured figures and their labels — `CHANGELOG.md`
 - [x] T028 `cairn_remember` the durable learnings (CLI cache behaviour, thinking default, harness pitfalls)
 
 ## Dependencies
