@@ -8,6 +8,8 @@ from typing import Optional
 import typer
 from typer.core import TyperGroup
 
+import functools
+
 from . import diff as diffmod, pack, pipeline, store
 
 
@@ -29,6 +31,22 @@ review_app = typer.Typer(cls=_ReviewGroup, add_completion=False, no_args_is_help
                          help="Review a change against the map, specs, history and conventions.")
 
 
+def _guard(fn):
+    """Exit status 2 for any error, with a short message instead of a traceback (0 clean, 1 findings, 2 error)."""
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        try:
+            return fn(*a, **kw)
+        except (typer.Exit, typer.Abort, SystemExit):
+            raise
+        except (diffmod.DiffError, store.AmbiguousReview) as exc:
+            typer.echo(str(exc), err=True)
+        except Exception as exc:  # noqa: BLE001 - the contract says an error is exit 2, never a traceback
+            typer.echo(f"Review failed: {type(exc).__name__}: {str(exc)[:200]}", err=True)
+        raise typer.Exit(2)
+    return wrapper
+
+
 def _open():
     from ..cli import _cairn, _need_init
     c = _cairn()
@@ -41,6 +59,7 @@ def _out(text: str) -> None:
 
 
 @review_app.command("run")
+@_guard
 def run(target: Optional[str] = typer.Argument(None, help="Branch or pull request number (default: current branch)."),
         base: Optional[str] = typer.Option(None, "--base", help="Compare against this ref (default: main)."),
         staged: bool = typer.Option(False, "--staged", help="Review staged changes."),
@@ -76,6 +95,7 @@ def run(target: Optional[str] = typer.Argument(None, help="Branch or pull reques
 
 
 @review_app.command("list")
+@_guard
 def list_(branch: Optional[str] = typer.Option(None, "--branch"), limit: int = typer.Option(20, "--limit")) -> None:
     """Stored reviews, newest first."""
     c = _open()
@@ -89,6 +109,7 @@ def list_(branch: Optional[str] = typer.Option(None, "--branch"), limit: int = t
 
 
 @review_app.command("show")
+@_guard
 def show(review_id: str = typer.Argument(...)) -> None:
     """One review with its findings."""
     c = _open()

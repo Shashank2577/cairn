@@ -39,8 +39,8 @@ class Ctx:
         return {f.path for f in self.diff.files} | {s["path"] for s in self.diff.skipped}
 
 
-def _f(kind, severity, path, title, body, provenance, citations, line=None, line_end=None) -> dict:
-    return {"kind": kind, "severity": severity, "path": path, "title": title, "body": body, "provenance": provenance,
+def _f(kind, severity, path, title, body, provenance, citations, line=None, line_end=None, rule="") -> dict:
+    return {"rule": rule, "kind": kind, "severity": severity, "path": path, "title": title, "body": body, "provenance": provenance,
             "citations": citations, "line_start": line, "line_end": line_end or line, "author_kind": "rule"}
 
 
@@ -75,7 +75,7 @@ def cochange(ctx: Ctx) -> list[dict]:
                 continue
             missing.setdefault(partner, []).append((p, c["count"]))
     out = []
-    for partner, hits in sorted(missing.items(), key=lambda kv: -max(n for _, n in kv[1]))[:MAX_PER_CHECK]:
+    for partner, hits in sorted(missing.items(), key=lambda kv: -max(n for _, n in kv[1]))[:50]:
         src, count = max(hits, key=lambda h: h[1])
         cites = _commits_touching(ctx, src, partner)
         if not cites:
@@ -85,7 +85,7 @@ def cochange(ctx: Ctx) -> list[dict]:
                  f"`{partner}` usually changes with `{src}` but is not in this change")
         body = (f"`{partner}` and `{src}` changed together in {count} past commits. This change edits `{src}` "
                 f"and leaves `{partner}` as it is. Check that this is intended.")
-        out.append(_f("test" if is_test else "cochange", "medium", src, title, body, "INFERRED", cites))
+        out.append(_f("test" if is_test else "cochange", "medium", src, title, body, "INFERRED", cites, rule=f"partner:{partner}"))
     return out
 
 
@@ -108,7 +108,7 @@ def tests_by_name(ctx: Ctx) -> list[dict]:
         if hit and hit not in ctx.touched:
             out.append(_f("test", "low", p, f"`{hit}` tests `{p}` but is not in this change",
                           f"`{p}` changed and its test file `{hit}` did not. Run it, or add a test for the change.",
-                          "INFERRED", [f"file:{hit}"]))
+                          "INFERRED", [f"file:{hit}"], rule=f"testfile:{hit}"))
     return out[:3]
 
 
@@ -138,7 +138,7 @@ def dependency_lock(ctx: Ctx) -> list[dict]:
             continue
         out.append(_f("test", "medium", f.path, f"Dependencies changed in `{f.path}` but `{existing[0]}` was not updated",
                       f"The change edits dependency lines in `{f.path}`. `{existing[0]}` is tracked and unchanged, so "
-                      "installs will not match.", "EXTRACTED", [f"file:{existing[0]}", f"diff:{f.path}"]))
+                      "installs will not match.", "EXTRACTED", [f"file:{existing[0]}", f"diff:{f.path}"], rule=f"lock:{existing[0]}"))
     return out
 
 
@@ -162,8 +162,8 @@ def drift(ctx: Ctx) -> list[dict]:
                         ctx.live_paths[0] if ctx.live_paths else "")
         sev = {"high": "high", "medium": "medium"}.get(d["severity"], "low")
         out.append(_f("drift", sev, path, d["title"], "\n".join(d.get("evidence") or []), "EXTRACTED",
-                      [d["cite"]] if d.get("cite") else [f"spec:{d['spec']}"]))
-    return out[:MAX_PER_CHECK]
+                      [d["cite"]] if d.get("cite") else [f"spec:{d['spec']}"], rule=f"drift:{d['id']}"))
+    return out
 
 
 # ---- T013: secrets in the diff ------------------------------------------------------------------------
@@ -188,7 +188,7 @@ def _placeholder(value: str) -> bool:
 
 def secrets(ctx: Ctx) -> list[dict]:
     out = []
-    for f in ctx.diff.files:
+    for f in [*ctx.diff.files, *ctx.diff.skipped_files]:  # the skip list is for review, not for secrets
         if f.status == "D":
             continue
         for n, text in f.added:
@@ -202,8 +202,8 @@ def secrets(ctx: Ctx) -> list[dict]:
             out.append(_f("secret", sev, f.path, f"Possible {label} added on line {n}",
                           f"A value that looks like this kind of credential ({label}) is added at `{f.path}:{n}`. The value is not repeated "
                           "here. Remove it, rotate it if it was real, and read it from the environment instead.",
-                          "EXTRACTED", [f"diff:{f.path}:{n}"], line=n))
-    return out[:MAX_PER_CHECK]
+                          "EXTRACTED", [f"diff:{f.path}:{n}"], line=n, rule=f"secret:{label}"))
+    return out
 
 
 # ---- T018: past fixes and reverts on the touched code -------------------------------------------------
@@ -218,7 +218,7 @@ def history(ctx: Ctx) -> list[dict]:
                 continue
             slot = by_commit.setdefault(c["id"], {**c, "files": []})
             slot["files"].append(p)
-    ranked = sorted(by_commit.values(), key=lambda c: ("revert" not in c["risk"], -c["ts"]))[:MAX_PER_CHECK]
+    ranked = sorted(by_commit.values(), key=lambda c: ("revert" not in c["risk"], -c["ts"]))[:50]
     out = []
     for c in ranked:
         reverted = "revert" in c["risk"]
@@ -227,7 +227,7 @@ def history(ctx: Ctx) -> list[dict]:
         out.append(_f("history", "medium" if reverted else "low", c["files"][0],
                       f"This code has a past {what}: \"{c['title'][:80]}\"",
                       f"{files} changed in commit {c['sha']} ({what}: {c['title'][:120]}). "
-                      "Check that this change does not bring that problem back.", "INFERRED", [c["id"]]))
+                      "Check that this change does not bring that problem back.", "INFERRED", [c["id"]], rule=c["id"]))
     return out
 
 
@@ -241,13 +241,30 @@ def conventions(ctx: Ctx) -> list[dict]:
         return []
     mems = [m for m in ctx.cairn.memory.about([], paths, limit=12) if m["kind"] in _MEM_SEVERITY]
     out = []
-    for m in mems[:MAX_PER_CHECK]:
+    for m in mems:
         linked = {l["dst"][5:] for l in ctx.brain.links_from(f"memory:{m['id']}", limit=100) if l["dst"].startswith("file:")}
         path = next((p for p in paths if p in linked or PurePosixPath(p).stem in m["text"]), paths[0])
         first = m["text"].strip().splitlines()[0][:110]
         out.append(_f("convention", _MEM_SEVERITY[m["kind"]], path, f"A team {m['kind']} applies here: {first}",
-                      m["text"][:600], "INFERRED", [f"memory:{m['id']}"]))
+                      m["text"][:600], "INFERRED", [f"memory:{m['id']}"], rule=f"memory:{m['id']}"))
     return out
+
+
+_RANK = {"high": 0, "medium": 1, "low": 2, "note": 3}
+
+
+def cap(findings: list[dict], limit: int = MAX_PER_CHECK) -> list[dict]:
+    """Keep at most ``limit`` findings of one check, most serious first. High severity is never dropped; whatever
+    else is left out is counted in one closing note so nothing disappears silently."""
+    ranked = sorted(findings, key=lambda f: _RANK[f["severity"]])
+    keep = [f for i, f in enumerate(ranked) if i < limit or f["severity"] == "high"]
+    left = ranked[len(keep):]
+    if left:
+        kinds = ", ".join(sorted({f["kind"] for f in left}))
+        keep.append(_f(left[0]["kind"], "note", left[0]["path"], f"+{len(left)} more {kinds} finding(s) not shown",
+                       "Raise the cap or narrow the change to see them: " + "; ".join(f["title"][:80] for f in left[:3]),
+                       left[0]["provenance"], list(left[0]["citations"]), rule=f"more:{left[0]['kind']}"))
+    return keep
 
 
 CHECKS = (cochange, tests_by_name, dependency_lock, drift, secrets, history, conventions)
@@ -257,8 +274,8 @@ def run_all(cairn, diff: Diff) -> list[dict]:
     ctx = Ctx(cairn, diff)
     out, seen = [], set()
     for check in CHECKS:
-        for f in check(ctx):
-            key = (f["kind"], f["path"], f["title"])
+        for f in cap(check(ctx)):
+            key = (f["kind"], f["path"], f["rule"], f["title"])
             if key not in seen:
                 seen.add(key)
                 out.append(f)

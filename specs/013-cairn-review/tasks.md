@@ -23,7 +23,7 @@ description: "Task list for Cairn Review"
 
 - [x] T004 Add tables `reviews`, `review_findings`, `review_rules` exactly as in `data-model.md` (severity in high|medium|low|note; state in open|accepted|dismissed|fixed; unique on project, head_sha, base_sha) in `src/cairn/review/store.py`, created through the existing schema path in `src/cairn/store.py` (Cairn: HIGH, 139 dependents; add only the table creation call)
 - [x] T005 [P] Implement diff resolution and file filtering (base/head, `--staged`, PR number via the forge or local refs; skip generated, vendored and lock files with a reason) in `src/cairn/review/diff.py`, reading and writing UTF-8 explicitly
-- [x] T006 Mask credentials and remove `<private>` from every string before it can reach a model or a comment, reusing the improved patterns, in `src/cairn/review/model.py` (`sanitize()`); depends on the masking fix
+- [x] T006 Mask credentials and remove `<private>` from every string before it can reach a model or a comment, reusing the improved patterns, in `src/cairn/review/model.py` (`sanitize()` and `complete()`, the single choke point every model call goes through); depends on the masking fix
 - [x] T007 [P] Add budgets `review.budget_tokens` (60000) and `review.wall_seconds` (180) with plain-language meaning and when-exceeded text in `src/cairn/budgets.py` (Cairn: `test_every_budget_is_explained_in_plain_words`)
 - [ ] T008 [P] Add task names `review.bundle` (balanced) and `review.reflect` (fast) to the tier table only, in `src/cairn/router.py` (Cairn: HIGH, 143 dependents, 4 past fixes; do not touch routing or the ledger; keep `Budget` tests green)
 - [x] T009 [P] Tests for the tables, diff filtering and sanitizing in `tests/review/test_foundations.py`
@@ -39,7 +39,7 @@ description: "Task list for Cairn Review"
 - [x] T012 [P] [US1] Deterministic check: tests likely affected but absent, and dependency change without lock update, in `src/cairn/review/checks.py`
 - [x] T013 [US1] Deterministic check: secrets in the diff, in `src/cairn/review/checks.py`
 - [x] T014 [US1] Pipeline runner (no model path): resolve diff, run checks, store a review and findings, handle "nothing to review", in `src/cairn/review/pipeline.py`
-- [x] T015 [US1] `cairn review` command group per `contracts/cli.md` (run, list, show, text and json output, `--ci` exit status, model-not-run notice) in `src/cairn/cli.py` (Cairn: HIGH, 6 past fixes; thin wrapper only)
+- [x] T015 [US1] `cairn review` command group per `contracts/cli.md` (run, list, show, text and json output, `--ci` exit status, model-not-run notice) in `src/cairn/review/cli.py`, mounted with two lines in `src/cairn/cli.py` (Cairn: HIGH, 6 past fixes)
 - [x] T016 [US1] Compact pack formatter within `context.budget` in `src/cairn/review/pack.py`
 - [x] T017 [P] [US1] Fixture repository with seeded issues in `tests/review/fixtures/` and tests for each check and the CLI in `tests/review/test_deterministic.py` (SC-001, SC-003, SC-008)
 
