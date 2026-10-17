@@ -47,6 +47,11 @@ TASK_TIER: dict[str, str] = {
     # agent session memory
     "recall_observe": "fast", "recall_summarize": "fast", "recall_compress": "fast", "recall_corpus": "balanced",
 }
+# Fast-tier bulk tasks run without extended thinking on the Claude Code CLI, which turns it on by default: measured, thinking was
+# 37-58% of output tokens on observation calls and the quality gate held without it (specs/002-observation-token-cost).
+NO_THINKING_TASKS = frozenset({"recall_observe", "recall_summarize", "recall_compress", "classify", "label", "brief",
+                               "summarize", "temporal.resolve", "temporal.attributes", "temporal.timestamps", "graph-label",
+                               "graph-dedup", "memory_rerank", "memory_instructions"})
 # Input size (tokens) above which a tier is escalated one step for quality.
 COMFORT_WINDOW = {"fast": 24_000, "balanced": 80_000, "deep": 180_000, "frontier": 400_000}
 
@@ -125,7 +130,7 @@ class Router:
 
     def model(self, tier: str) -> str:
         return str(self.project.cfg(f"models.{tier}", "")) or {
-            "fast": "claude-haiku-4-5-20251001", "balanced": "claude-sonnet-5",
+            "fast": "claude-haiku-5-5", "balanced": "claude-sonnet-5",
             "deep": "claude-opus-5-5", "frontier": "claude-fable-5-1"}[tier]
 
     def table(self) -> list[dict]:
@@ -177,7 +182,7 @@ class Router:
             if self.provider == "anthropic":
                 text, usage = self._anthropic(model, system, cached_context, prompt, max_tokens)
             elif self.provider == "claude-code":
-                text, usage = self._claude_code(model, system, cached_context, prompt, max_tokens)
+                text, usage = self._claude_code(model, system, cached_context, prompt, max_tokens, task)
             else:
                 text, usage = self._openai(model, system, cached_context, prompt, max_tokens)
             ok = True
@@ -195,7 +200,8 @@ class Router:
         usage = dict(NO_USAGE)
         provider = {"anthropic": self._anthropic_stream, "claude-code": self._claude_code_stream}.get(
             self.provider or "", self._openai_stream)
-        chunks = provider(model, system, cached_context, prompt, max_tokens, usage, cancel)
+        chunks = provider(model, system, cached_context, prompt, max_tokens, usage, cancel, task) \
+            if self.provider == "claude-code" else provider(model, system, cached_context, prompt, max_tokens, usage, cancel)
         ok, written = False, 0
         try:
             for chunk in chunks:
@@ -258,6 +264,17 @@ class Router:
                 yield text
             usage.update(self._anthropic_usage(s.get_final_message().usage))
 
+    def _cli_env(self, task: str | None) -> dict:
+        """Environment of the one-shot CLI process. Each call is a fresh process whose request changes every time, so a prompt-cache
+        entry is written (at the 1-hour rate, 2x input) and never read: caching is off unless the user set it or `models.cli_cache`
+        is true. Thinking is off for the bulk tasks in NO_THINKING_TASKS unless the user set MAX_THINKING_TOKENS."""
+        env = {**os.environ, "CAIRN_INTERNAL": "1"}
+        if not self.project.cfg("models.cli_cache", False):
+            env.setdefault("DISABLE_PROMPT_CACHING", "1")
+        if task in NO_THINKING_TASKS:
+            env.setdefault("MAX_THINKING_TOKENS", "0")
+        return env
+
     # claude-code: one isolated, tool-less turn through the signed-in Claude Code CLI (the user's plan). It runs
     # from an empty temp folder with no user/project settings, MCP servers or tools, so the user's own hooks and
     # plugins (including Cairn's capture) never fire for Cairn's model calls. The CLI manages output length.
@@ -281,12 +298,12 @@ class Router:
         return {"input": u.get("input_tokens", 0), "output": u.get("output_tokens", 0),
                 "cache_read": u.get("cache_read_input_tokens", 0), "cache_write": u.get("cache_creation_input_tokens", 0)}
 
-    def _claude_code(self, model: str, system: str, cached: str, prompt: str, max_tokens: int):
+    def _claude_code(self, model: str, system: str, cached: str, prompt: str, max_tokens: int, task: str | None = None):
         del max_tokens
         with tempfile.TemporaryDirectory(prefix="cairn-model-") as cwd:
             res = subprocess.run(self._claude_code_args(model, system, cached, "json"), input=prompt,
                                  capture_output=True, text=True, timeout=600, cwd=cwd,
-                                 env={**os.environ, "CAIRN_INTERNAL": "1"}, check=False, encoding="utf-8", errors="replace")
+                                 env=self._cli_env(task), check=False, encoding="utf-8", errors="replace")
         try:
             data = json.loads(res.stdout)
         except json.JSONDecodeError as exc:
@@ -294,13 +311,13 @@ class Router:
         return str(data.get("result") or ""), self._claude_code_result(data)
 
     def _claude_code_stream(self, model: str, system: str, cached: str, prompt: str, max_tokens: int, usage: dict,
-                            cancel: threading.Event | None = None):
+                            cancel: threading.Event | None = None, task: str | None = None):
         del max_tokens
         with tempfile.TemporaryDirectory(prefix="cairn-model-") as cwd, \
                 open(os.path.join(cwd, "stderr.log"), "w+", encoding="utf-8") as err:  # a file: a full stderr pipe can't stall the stream
             proc = subprocess.Popen(self._claude_code_args(model, system, cached, "stream-json"), cwd=cwd,
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True,
-                                    env={**os.environ, "CAIRN_INTERNAL": "1"}, encoding="utf-8", errors="replace")
+                                    env=self._cli_env(task), encoding="utf-8", errors="replace")
             lines: queue.Queue = queue.Queue()  # read on a side thread, so a stop is noticed between lines
 
             def pump() -> None:

@@ -38,7 +38,7 @@ Each job maps to a tier in `TASK_TIER`, and each tier maps to a model in `[model
 
 | Tier | Default model | Jobs |
 |---|---|---|
-| fast | `claude-haiku-4-5-20251001` | `classify`, `summarize`, `label`, `brief`; timeline `temporal.resolve`, `temporal.attributes`, `temporal.timestamps`, `temporal.summarize`, `temporal.community`, `temporal.saga`, `temporal.rerank`; memory `memory_rerank`, `memory_instructions`; map `graph-label`, `graph-dedup`; sessions `recall_observe`, `recall_summarize`, `recall_compress` |
+| fast | `claude-haiku-5-5` | `classify`, `summarize`, `label`, `brief`; timeline `temporal.resolve`, `temporal.attributes`, `temporal.timestamps`, `temporal.summarize`, `temporal.community`, `temporal.saga`, `temporal.rerank`; memory `memory_rerank`, `memory_instructions`; map `graph-label`, `graph-dedup`; sessions `recall_observe`, `recall_summarize`, `recall_compress` |
 | balanced | `claude-sonnet-5` | `extract`, `episode`, `memory`, `link`; timeline `temporal.extract`, `temporal.dedupe`; memory `memory_chat`, `memory_procedural`; map `graph-extract`; sessions `recall_corpus` |
 | deep | `claude-opus-5-5` | `why`, `impact`, `drift`, `ask`; map `graph-triage` |
 | frontier | `claude-fable-5-1` | `review` (opt-in only) |
