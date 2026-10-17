@@ -336,6 +336,13 @@ def _system_diagram_cached(root: str, level: str, scope: str | None, stamp: tupl
     return render_inline(desc), json.dumps(desc, default=str)
 
 
+@lru_cache(maxsize=8)
+def _docs_bundle_cached(root: str, stamp: tuple):
+    """The architecture documents of one model, built once per stamp like the diagrams."""
+    from .system.export import bundle
+    return bundle(Path(root))
+
+
 # ---- per-project routes ------------------------------------------------------------------------------------
 def project_router(hub: Hub) -> APIRouter:
     r = APIRouter(prefix="/api/p/{pid}")
@@ -633,6 +640,73 @@ def project_router(hub: Hub) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(404, str(exc))
         return [{"title": d["title"], "scope": d["scope"]} for d in built]
+
+    @r.get("/docs", dependencies=read)
+    def docs_list(pid: str):
+        """The architecture documents computed live from the current model, and how stale that model is."""
+        from .system.export import MAX_FLOW_DOCS, commits_behind
+        root = c(pid).project.root
+        b = _docs_bundle_cached(str(root), _system_stamp(str(root)))
+        return {"commit": b.commit[:12], "head": b.head[:12], "behind": commits_behind(root, b.commit),
+                "system": b.product.get("system"), "flow_entries": b.flow_entries, "flow_shapes": b.flow_shapes,
+                "max_flow_docs": MAX_FLOW_DOCS,
+                "narrate_tokens": int(c(pid).project.cfg("system.narrate_tokens", 4000)),
+                "export_dir": "docs/architecture",
+                "docs": [{"slug": d.slug, "title": d.title, "level": d.level, "summary": d.summary,
+                          "diagram": d.desc is not None} for d in b.docs]}
+
+    @r.get("/docs/{slug}", dependencies=read)
+    def docs_one(pid: str, slug: str):
+        """One document: its Markdown, its diagram drawn for the page, and the evidence it cites."""
+        from .system.diagram.svg import render_inline
+        root = c(pid).project.root
+        b = _docs_bundle_cached(str(root), _system_stamp(str(root)))
+        doc = next((d for d in b.docs if d.slug == slug), None)
+        if doc is None:
+            raise HTTPException(404, "no such document")
+        refs = []
+        for ref in doc.evidence:
+            path, _, line = ref.rpartition(":")
+            if not path or not line.isdigit():
+                path, line = ref, ""
+            refs.append({"ref": ref, "file": path.split("/", 1)[1] if "/" in path else path,
+                         "line": int(line) if line else None})
+        return {"slug": doc.slug, "title": doc.title, "level": doc.level, "md": doc.md, "commit": b.commit,
+                "svg": render_inline(doc.desc) if doc.desc else "", "evidence": refs}
+
+    @r.post("/docs/export")
+    def docs_export(pid: str, payload: dict = Body(default={}), principal=Depends(require("project.write"))):
+        """Write the document set into the repository (``docs/architecture``); ``narrate`` is the only way
+        a model is called, and only when the caller asks."""
+        from .system.export import export
+        root = c(pid).project.root
+        narrate = bool(payload.get("narrate"))
+        result = export(root, root / "docs" / "architecture", narrate=narrate)
+        audit(pid, principal, "docs.export", pid, narrate=narrate)
+        return {"written": len(result["written"]), "commit": result["commit"], "narrated": result["narrated"],
+                "dir": "docs/architecture"}
+
+    @r.post("/docs/zip")
+    def docs_zip(pid: str, request: Request, payload: dict = Body(default={}),
+                 principal=Depends(require("project.read"))):
+        """The same document set as a zip download, built in a temporary folder so nothing is written to the repository."""
+        import io
+        import tempfile
+        import zipfile
+        from .system.export import export
+        narrate = bool(payload.get("narrate"))
+        if narrate:   # narrating spends model tokens: the same permission as writing
+            get_platform(request).require(principal, "project.write", project_id=pid)
+        root = c(pid).project.root
+        with tempfile.TemporaryDirectory() as tmp:
+            result = export(root, Path(tmp), narrate=narrate)
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                for name in result["written"]:
+                    z.write(Path(tmp) / name, f"architecture/{name}")
+        return Response(buf.getvalue(), media_type="application/zip",
+                        headers={"Content-Disposition": 'attachment; filename="architecture.zip"',
+                                 "Cache-Control": "no-store"})
 
     @r.get("/diagram/tokens", dependencies=read)
     def diagram_tokens(pid: str):
