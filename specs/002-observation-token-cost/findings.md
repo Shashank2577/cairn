@@ -252,7 +252,7 @@ deterministic record for every skipped event; treat the cache counterfactual ($1
 This machine has no key, so the direct path remains **estimated** (§2); everything below that ran a model ran through the CLI.
 
 **Models (measured through the CLI on a trivial call, `claude-haiku-5-5` and `claude-sonnet-5-5` both accepted).** The CLI's own cost report implies
-**$0.10 / $0.50 per MTok for Haiku 5.5** (matches the message) and **$2 / $10 for Sonnet 5.5** (inferred, one call; verify before shipping). These are 10× and 2× below
+**$0.10 / $0.50 per MTok for Haiku 5.5** (matches the message) and **$2 / $10 for Sonnet 5.5** (confirmed afterwards against the first-party pricing table in the claude-api reference, cached 2026-10-06; Haiku 5.5 is $0.10 / $0.50 up to 100K-token prompts, $0.50 / $2.50 beyond; label these list prices as of that date). These are 10× and 2× below
 Haiku 4.5's $1 / $5 used in §1–§5, so the dollars below are not comparable with those; tokens are.
 
 ### 8.1 Same windows on Haiku 5.5 (main window, seed 7; one run each, so within the noise discussed in §4)

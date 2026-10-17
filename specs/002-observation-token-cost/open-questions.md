@@ -25,5 +25,5 @@ Each has a recommended default so the work can proceed if you do not answer. Not
    *Default: separate follow-up.*
 10. **Ledger columns.** Record thinking tokens and cache TTL per call in the ledger (needs a column in `ledger`, overlaps spec 009)? *Default: yes, additive columns with defaults.*
 11. **Escalation default.** Measured: escalating on size multiplies cost 2.7–4.2× for 2–4% of events (§8.2). Default to parse-failure-only escalation, size rule opt-in? *Default: yes.*
-12. **Sonnet 5.5 price** ($2/$10) is inferred from one CLI call; confirm before it appears in any shipped number. *Default: show as estimated.*
+12. **Sonnet 5.5 price** ($2/$10) — resolved: confirmed from the first-party table (cached 2026-10-06); label as list prices as of that date.
 13. **Anthropic key for the direct path.** Needed to measure it rather than estimate it; with Haiku 5.5 the whole matrix costs well under a dollar. *Default: please provide a scoped key.*
