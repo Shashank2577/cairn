@@ -1,0 +1,23 @@
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: postgresql://shop:shop@db:5432/shop
+      REDIS_URL: redis://redis:6379
+    depends_on: [db, redis]
+  worker:
+    build: ../shop-worker
+    environment:
+      REDIS_URL: redis://redis:6379
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+    depends_on: [redis]
+  web:
+    build: ../shop-web
+    ports: ["3000:3000"]
+    environment:
+      API_BASE_URL: http://api:8000
+  db:
+    image: postgres:16
+  redis:
+    image: redis:7

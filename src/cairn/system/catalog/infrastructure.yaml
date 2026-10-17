@@ -1,0 +1,136 @@
+# Stores, channels and outside services: what each is called, its element type and its labels; how to
+# recognise one from a container image, a connection-URL scheme or a driver name; and which
+# configuration names are sensitive. Data, not code; projects extend it in .cairn/catalog/*.yaml.
+version: 1
+
+techs:
+  postgresql: {name: PostgreSQL, type: data-store, how: SQL}
+  mysql: {name: MySQL, type: data-store, how: SQL}
+  sqlserver: {name: SQL Server, type: data-store, how: SQL}
+  sqlite: {name: SQLite, type: data-store, how: SQL}
+  sql: {name: SQL database, type: data-store, how: SQL}
+  mongodb: {name: MongoDB, type: data-store, how: MongoDB driver}
+  redis: {name: Redis, type: data-store, how: Redis, channel_when_messaging: true}
+  memcached: {name: Memcached, type: data-store, how: Memcached}
+  elasticsearch: {name: Elasticsearch, type: data-store, how: HTTP · Elasticsearch}
+  cassandra: {name: Cassandra, type: data-store, how: CQL}
+  clickhouse: {name: ClickHouse, type: data-store, how: SQL}
+  influxdb: {name: InfluxDB, type: data-store, how: InfluxDB}
+  minio: {name: MinIO, type: data-store, how: S3 API}
+  rabbitmq: {name: RabbitMQ, type: channel, how: AMQP}
+  kafka: {name: Kafka, type: channel, how: Kafka}
+  nats: {name: NATS, type: channel, how: NATS}
+  sqs: {name: Amazon SQS, type: channel, how: SQS, external: true}
+
+services:
+  sendgrid: {name: SendGrid, desc: Delivers email, what: Sends email, how: HTTPS · SendGrid SDK}
+  stripe: {name: Stripe, desc: Takes card payments, what: Takes payments, how: HTTPS · Stripe SDK}
+  twilio: {name: Twilio, desc: Sends SMS and calls, what: Sends messages, how: HTTPS · Twilio SDK}
+  s3: {name: Amazon S3, type: data-store, desc: Stores objects, what: Stores files, how: HTTPS · AWS SDK}
+  ses: {name: Amazon SES, desc: Delivers email, what: Sends email, how: HTTPS · AWS SDK}
+  openai: {name: OpenAI API, desc: Hosted language models, what: Calls a language model, how: HTTPS · OpenAI SDK}
+  anthropic: {name: Anthropic API, desc: Hosted language models, what: Calls a language model, how: HTTPS · Anthropic SDK}
+  slack: {name: Slack, desc: Team messaging, what: Posts messages, how: HTTPS · Slack SDK}
+
+# Container images (registry and tag removed) -> tech.
+images:
+  postgres: postgresql
+  postgis/postgis: postgresql
+  bitnami/postgresql: postgresql
+  timescale/timescaledb: postgresql
+  mysql: mysql
+  mariadb: mysql
+  bitnami/mysql: mysql
+  mcr.microsoft.com/mssql/server: sqlserver
+  mongo: mongodb
+  bitnami/mongodb: mongodb
+  redis: redis
+  bitnami/redis: redis
+  redis/redis-stack: redis
+  valkey/valkey: redis
+  memcached: memcached
+  elasticsearch: elasticsearch
+  docker.elastic.co/elasticsearch/elasticsearch: elasticsearch
+  opensearchproject/opensearch: elasticsearch
+  cassandra: cassandra
+  clickhouse/clickhouse-server: clickhouse
+  influxdb: influxdb
+  minio/minio: minio
+  rabbitmq: rabbitmq
+  bitnami/rabbitmq: rabbitmq
+  bitnami/kafka: kafka
+  confluentinc/cp-kafka: kafka
+  apache/kafka: kafka
+  wurstmeister/kafka: kafka
+  nats: nats
+
+# Connection-URL schemes (a "jdbc:" prefix and a "+driver" suffix are removed first) -> tech.
+schemes:
+  postgres: postgresql
+  postgresql: postgresql
+  pgsql: postgresql
+  mysql: mysql
+  mariadb: mysql
+  sqlserver: sqlserver
+  mssql: sqlserver
+  sqlite: sqlite
+  mongodb: mongodb
+  redis: redis
+  rediss: redis
+  amqp: rabbitmq
+  amqps: rabbitmq
+  kafka: kafka
+  nats: nats
+
+# database/sql driver names -> tech.
+drivers:
+  postgres: postgresql
+  pgx: postgresql
+  mysql: mysql
+  sqlite3: sqlite
+  sqlite: sqlite
+  sqlserver: sqlserver
+  mssql: sqlserver
+
+# Configuration keys whose value names a store (Spring and friends) -> tech, or "scheme" to read it from
+# the value's URL scheme. Values are read only to find the scheme or host and are never stored.
+config_keys:
+  spring.datasource.url: scheme
+  spring.r2dbc.url: scheme
+  spring.data.mongodb.uri: scheme
+  spring.data.mongodb.host: mongodb
+  spring.redis.host: redis
+  spring.data.redis.host: redis
+  spring.kafka.bootstrap-servers: kafka
+  spring.rabbitmq.host: rabbitmq
+
+# Names (environment variables, configuration keys) are split into words; a name containing one of these
+# words is sensitive and is kept only as its kind ("a SendGrid credential"), never by name.
+sensitive:
+  words: [key, apikey, secret, token, password, passwd, pwd, pass, credential, credentials, private, salt,
+          signing, dsn]
+  vendors:
+    sendgrid: SendGrid
+    stripe: Stripe
+    aws: AWS
+    twilio: Twilio
+    github: GitHub
+    gh: GitHub
+    openai: OpenAI
+    anthropic: Anthropic
+    slack: Slack
+    google: Google
+    gcp: Google
+    azure: Azure
+    jwt: JWT
+    smtp: email
+    mail: email
+    db: database
+    database: database
+    datasource: database
+    jdbc: database
+    postgres: database
+    pg: database
+    mysql: database
+    mongo: database
+    redis: Redis

@@ -1,0 +1,4 @@
+[project]
+name = "shop-contracts"
+version = "1.2.0"
+description = "Shared order types for the shop services"

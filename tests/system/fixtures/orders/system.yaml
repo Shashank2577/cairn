@@ -1,0 +1,4 @@
+system: Orders
+repos:
+  - path: checkout-spring
+  - path: inventory-go

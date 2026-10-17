@@ -789,3 +789,27 @@ code.pkg { font-size: 11.5px; padding: 0 5px; border-radius: 4px; background: va
 .rmap { padding-top: 44px; }
 .narr-packmd h1, .narr-packmd h2 { font-size: 14px; margin: 10px 0 6px; padding-top: 0; border-top: 0; }
 .narr-packmd h3, .narr-packmd h4 { font-size: 13px; margin: 8px 0 4px; }
+
+/* ------------------------------------------------------------------ graph engine views */
+/* The engine draws these in its own page; here we only give it a frame that behaves. Full remaining
+   height so a 900-node graph has room to spread, min-width 0 so a wide frame cannot push the page
+   sideways, and a visible edge so the frame reads as "another document" rather than a blank panel. */
+.graphviews { display: flex; flex-direction: column; min-width: 0; }
+.engine-frame {
+  flex: 1 1 auto; width: 100%; min-width: 0;
+  min-height: min(72vh, 900px);
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg-2, var(--bg));
+  display: block;
+}
+@media (max-width: 720px) { .engine-frame { min-height: 60vh; } }
+
+/* ------------------------------------------------------------------ products in the repositories list
+   system.yaml says which repositories are one product. The list groups by that so a service mesh reads
+   as one thing instead of five circles; the heading carries the count and says where the grouping came
+   from, because a grouping whose source is not named looks like an opinion. */
+.prodgrp { margin-bottom: 14px; }
+.prodgrp + .prodgrp { border-top: 1px solid var(--line); padding-top: 12px; }
+.prodgrp-h { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; margin: 0 0 6px 2px; }
+.prodgrp-h b { font-size: 12.5px; color: var(--ink); letter-spacing: .01em; }
+.prodgrp-h span { font-size: 11.5px; }

@@ -1,0 +1,7 @@
+[project]
+name = "shop-api"
+version = "0.4.0"
+description = "Orders API for the shop"
+dependencies = ["fastapi", "uvicorn", "psycopg[binary]", "redis", "shop-contracts"]
+[project.scripts]
+shop-api = "shop_api.main:run"

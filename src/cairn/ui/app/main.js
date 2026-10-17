@@ -3,7 +3,7 @@
 import { render } from "preact";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { html, Toasts, Logo, Empty } from "./components/ui.js";
-import { TopBar, Rail } from "./components/shell.js";
+import { TopBar, Rail, ServerBanner } from "./components/shell.js";
 import { AppCtx, usePref, useApp as useAppBase } from "./state.js";
 import { api, bootSession, env, openStream, ApiError } from "./api.js";
 import { useRoute, link, go } from "./router.js";
@@ -196,7 +196,7 @@ function Workspace() {
       <${TopBar} onMenu=${() => setDrawer(true)}/>
       <${Rail} open=${drawer} onClose=${() => setDrawer(false)}/>
       <div class=${"drawer-scrim" + (drawer ? " open" : "")} onClick=${() => setDrawer(false)}></div>
-      <main class="main" id="main" tabindex="-1">${content}</main>
+      <main class="main" id="main" tabindex="-1"><${ServerBanner}/>${content}</main>
     </div>
   </${AppCtx.Provider}>`;
 }

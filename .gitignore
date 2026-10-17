@@ -21,3 +21,6 @@ build/
 /.opencode/plugins/cairn.js
 /.vscode/mcp.json
 /.github/hooks/cairn.json
+
+# pinned public fixture repositories fetched by tests/system/fixtures/fetch.py
+.pytest-fixture-cache/

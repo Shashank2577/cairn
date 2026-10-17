@@ -1,0 +1,22 @@
+diagram: flow
+title: Flow of an authenticated MCP call to a Cairn team server
+scope: Cairn team server, components of the web container
+description: A client sends a bearer token; the request gate asks the platform service to verify it against the token table and either admits the call with the token's principal or refuses it with 401.
+source_note: replaces the template "Authentication Flow"; real code from Cairn itself
+elements:
+  - {id: client, name: MCP client, type: external-system, desc: An agent configured with a team token, evidence: ["docs/teams.md"]}
+  - {id: gate, name: Request gate, type: component, tech: platform/web.py evaluate(), desc: Authenticates every request, evidence: ["src/cairn/platform/web.py:155"]}
+  - {id: svc, name: Platform service, type: component, tech: platform/service.py, desc: Owns users and tokens, evidence: ["src/cairn/platform/service.py:1289"]}
+  - {id: store, name: Team store, type: data-store, tech: SQLite api_tokens, desc: Hashed tokens and users, evidence: ["src/cairn/platform/service.py:1295"]}
+flow:
+  participants: [client, gate, svc, store]
+  messages:
+    - {from: client, to: gate, what: Call an MCP tool, how: "POST /mcp/<project>/ · Bearer", style: sync, evidence: ["src/cairn/platform/web.py:167"]}
+    - {from: gate, to: svc, what: Verify the token, how: principal_from_bearer(), style: sync, evidence: ["src/cairn/platform/web.py:168"]}
+    - {from: svc, to: store, what: Look up token by prefix, how: "SELECT api_tokens JOIN users", style: sync, evidence: ["src/cairn/platform/service.py:1295"]}
+    - {from: store, to: svc, what: Token row and user, how: row, style: return, evidence: ["src/cairn/platform/service.py:1298"]}
+    - {from: svc, to: gate, what: Principal with scopes, how: Principal, style: return, evidence: ["src/cairn/platform/service.py:1306"]}
+    - {from: gate, to: client, what: Run the tool, how: "200 · tool result", style: return, evidence: ["src/cairn/platform/web.py:184"]}
+    - {from: gate, to: client, what: Refuse the call, how: "401 invalid_token", style: return, evidence: ["src/cairn/platform/web.py:170"]}
+  fragments:
+    - {type: alt, start: 6, end: 7, label: token valid, else_at: 7, else_label: hash mismatch, revoked or expired}

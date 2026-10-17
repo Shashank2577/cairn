@@ -21,6 +21,7 @@ import networkx as nx
 from networkx.readwrite import json_graph
 from cairn.engines.graph.security import sanitize_label, check_graph_file_size_cap, _CONTROL_CHAR_RE
 from cairn.engines.graph.build import edge_data, edge_datas
+from cairn.engines.graph.ids import is_external_symbol
 from cairn.engines.graph.paths import default_graph_json as _default_graph_json
 
 try:
@@ -618,6 +619,8 @@ def _score_query(
         {} if collect_per_term_seeds else None
     )
     for nid, data in node_iter:
+        if is_external_symbol(data):     # a library's symbol is not a place in this system
+            continue
         norm_label = data.get("norm_label") or _strip_diacritics(data.get("label") or "").lower()
         bare_label = norm_label.rstrip("()")
         # Tokenized form of the label (punctuation stripped, same transform as the
@@ -1054,7 +1057,7 @@ def _bfs(G: nx.Graph, start_nodes: list[str], depth: int) -> tuple[set[str], lis
             if n not in seed_set and G.degree(n) >= hub_threshold:
                 continue
             for neighbor in G.neighbors(n):
-                if neighbor not in visited:
+                if neighbor not in visited and not is_external_symbol(G.nodes[neighbor]):
                     next_frontier.add(neighbor)
                     edges_seen.append((n, neighbor))
         visited.update(next_frontier)
@@ -1083,7 +1086,7 @@ def _dfs(G: nx.Graph, start_nodes: list[str], depth: int) -> tuple[set[str], lis
         if node not in seed_set and G.degree(node) >= hub_threshold:
             continue
         for neighbor in G.neighbors(node):
-            if neighbor not in visited:
+            if neighbor not in visited and not is_external_symbol(G.nodes[neighbor]):
                 stack.append((neighbor, d + 1))
                 edges_seen.append((node, neighbor))
     _complete_induced_edges(G, visited, edges_seen)

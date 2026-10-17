@@ -177,8 +177,143 @@ def _jvm(root: Path, files: set[str]) -> tuple[dict[str, str], list[str]]:
     return groups, deps
 
 
+def _product(root: Path) -> dict | None:
+    """The product this repository *declares*, if a ``system.yaml`` at its root says so.
+
+    Returns ``{"system", "members", "description"}``. ``members`` is every repository the declaration
+    names, including this one, as ``{name, root}``. ``description`` is this repository's declared
+    description. ``None`` when this root declares nothing — which is true of every sibling in a product
+    except the one that owns the file, so callers must resolve membership across projects rather than
+    asking one repository.
+    """
+    from cairn.engines import systems
+    try:
+        sysdef = systems.discover(root)
+        decl = systems.declarations(root)
+    except Exception:
+        return None
+    if sysdef is None or decl is None:
+        return None
+    members = []
+    try:
+        members.append({"name": sysdef.root.name, "root": str(Path(sysdef.root).resolve())})
+    except OSError:
+        pass
+    for s in sysdef.siblings:
+        try:
+            members.append({"name": s.name, "root": str(Path(s.root).resolve())})
+        except OSError:
+            continue
+    mine = root.resolve()
+    description = None
+    for m in members:
+        if m["root"] == str(mine):
+            description = ((decl.repos or {}).get(m["name"]) or {}).get("description")
+            break
+    return {"system": decl.system or sysdef.name, "members": members, "description": description}
+
+
+def _declared_product_links(items, decl, product_of: dict) -> dict[tuple[str, str], dict]:
+    """Repository → repository links declared in a ``system.yaml``.
+
+    ``actors`` and ``relationships`` are facts no amount of parsing can recover — they are the things a
+    person decided. They are drawn with ``kind="declared"`` and no inferred weight.
+    """
+    from cairn.engines import systems
+    out: dict[tuple[str, str], dict] = {}
+    by_root = {str(Path(root).resolve()): pid for pid, _n, root, _i in items}
+    for pid, _name, root, _idx in items:
+        prod = decl[pid].get("product")
+        if not prod:
+            continue
+        try:
+            d = systems.declarations(Path(root))
+        except Exception:
+            continue
+        name_of = {by_root.get(m["root"]): m["name"] for m in prod["members"]}
+        for rel in (getattr(d, "relationships", None) or []):
+            src, dst = _declared_endpoints(rel, name_of, by_root)
+            if not src or not dst or src == dst or (src, dst) in out:
+                continue
+            out[(src, dst)] = {"source": src, "target": dst, "kind": "declared", "weight": 1,
+                               "packages": [], "evidence": [], "declared": True,
+                               "note": rel.get("what") or rel.get("description") or ""}
+    return out
+
+
+def _declared_endpoints(rel: dict, name_of: dict[str, str], by_root: dict[str, str]):
+    """The two project ids a declared relationship points at, by repository name or by path."""
+    out = []
+    for side in ("src", "dst", "source", "target", "from", "to"):
+        v = rel.get(side)
+        if not isinstance(v, str):
+            continue
+        if v in name_of:
+            out.append(name_of[v])
+        elif v in by_root:
+            out.append(by_root[v])
+    return (out + [None, None])[:2]
+
+
+def _shared_element_links(items, decl, evidence: int, product_of: dict) -> dict[tuple[str, str], dict]:
+    """Repository → repository links from a shared external element in their stored system models.
+
+    Two services that both publish to ``kafka`` are related even though neither imports the other; the
+    evidence is the element itself, named in both repositories' own models. Only elements that are not
+    the repository's own container count, and both ends must be mapped projects so the graph never points
+    at something the reader cannot open.
+    """
+    from cairn.engines import systems
+    # ``product_of`` is resolved across every project, not read off one repository: in a product only
+    # the repository that owns system.yaml declares it, so asking each one yields the answer for exactly
+    # one of them and nothing for the rest. Both ends must be in the same product, and repositories with
+    # no product never link to anything — two unrelated projects that happen to both use PostgreSQL are
+    # not one system.
+    prod_of = {pid: (product_of.get(pid) or {}).get("system") for pid, *_ in items}
+
+    used: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))  # name -> repo -> element ids
+    for pid, _name, root, _idx in items:
+        db = Path(root) / ".cairn" / "brain.db"
+        if not db.exists():
+            continue
+        try:
+            rows = systems.read_only_rows(
+                db, "SELECT id, type, name FROM sm_element WHERE type <> 'code' AND type <> 'container'")
+        except Exception:
+            continue
+        for r in rows:
+            used[str(r["name"]).lower()][pid].append(r["id"])
+
+    out: dict[tuple[str, str], dict] = {}
+    for name, holders in used.items():
+        pids = sorted(holders)
+        if len(pids) < 2:
+            continue
+        same_product = {prod_of.get(p) for p in pids}
+        for i, a in enumerate(pids):
+            for b in pids[i + 1:]:
+                if prod_of.get(a) is None or prod_of.get(a) != prod_of.get(b):
+                    continue
+                link = out.setdefault((a, b), {"source": a, "target": b, "kind": "shares", "weight": 0,
+                                               "packages": [], "evidence": []})
+                link["weight"] += 1
+                link["packages"].append(name)
+                for pid, want in ((a, a), (b, b)):
+                    for eid in holders[pid][:evidence]:
+                        link["evidence"].append({"file": eid, "line": None, "name": name, "package": name,
+                                                 "node": eid})
+    return out
+
+
 def declarations(root: "str | Path", idx) -> dict:
-    """What a repository offers to others and what it depends on, by ecosystem."""
+    """What a repository offers to others and what it depends on, by ecosystem, plus any
+    ``system.yaml`` product it belongs to.
+
+    The package keys are read from code. The ``product`` key is read from the declaration file, because
+    a service mesh has no shared packages to import and would otherwise come back as an island: the ASG
+    services call each other over HTTP, so nothing in the source says they are one product except the
+    file that says so.
+    """
     root = Path(root)
     files = set(idx.by_file)
     py, py_deps = _python(root, files)
@@ -186,7 +321,8 @@ def declarations(root: "str | Path", idx) -> dict:
     go, go_deps = _go(root, files)
     jvm, jvm_deps = _jvm(root, files)
     return {"python": py, "js": js, "go": go, "jvm": jvm,
-            "deps": {"python": py_deps, "js": js_deps, "go": go_deps, "jvm": jvm_deps}}
+            "deps": {"python": py_deps, "js": js_deps, "go": go_deps, "jvm": jvm_deps},
+            "product": _product(root)}
 
 
 # ── description / summary ──────────────────────────────────────────────────────
@@ -342,6 +478,30 @@ def repos(projects: Iterable[tuple[str, str, "str | Path", Any]], *, evidence: i
     for eco, key in ambiguous:
         provided[eco].pop(key, None)
 
+    # ---- products declared in system.yaml -------------------------------------------------------------
+    # Only the repository that owns the declaration file knows the product; its siblings each carry their
+    # own .cairn and know nothing. So membership is resolved here, across every project the caller passed,
+    # by matching declared member roots against roots we already have.
+    products: dict[str, dict] = {}
+    for pid, _name, root, _idx in items:
+        prod = decl[pid].get("product")
+        if not prod:
+            continue
+        entry = products.setdefault(prod["system"], {"system": prod["system"], "members": {}})
+        for m in prod["members"]:
+            prev = entry["members"].get(m["root"])
+            if prev is None or (prev.get("description") is None and m.get("description")):
+                entry["members"][m["root"]] = m
+    by_root = {str(Path(root).resolve()): pid for pid, _n, root, _i in items}
+    product_of: dict[str, dict] = {}
+    for entry in products.values():
+        for mroot, m in entry["members"].items():
+            owner = by_root.get(mroot)
+            if owner is None:
+                continue
+            product_of[owner] = {"system": entry["system"], "description": m.get("description"),
+                                 "siblings": sum(1 for r in entry["members"] if r != mroot)}
+
     nodes = []
     for pid, name, root, idx in items:
         d = decl[pid]
@@ -357,6 +517,7 @@ def repos(projects: Iterable[tuple[str, str, "str | Path", Any]], *, evidence: i
             "packages": [{"ecosystem": eco, "name": shown}
                          for eco in ("python", "js", "go", "jvm") for shown in sorted(set(d[eco].values()))],
             "description": readme_description(root),
+            "product": product_of.get(pid),
             "built_at_commit": idx.built_at_commit,
         })
 
@@ -411,6 +572,14 @@ def repos(projects: Iterable[tuple[str, str, "str | Path", Any]], *, evidence: i
                     continue
                 links[(pid, owner)] = {"source": pid, "target": owner, "kind": "depends", "weight": 1,
                                        "packages": [dep], "evidence": [], "declared": True}
+
+    # A service mesh has no shared packages, so import-derived edges come back empty and the graph draws
+    # a row of islands. What the code *does* show is that two repositories talk to the same external
+    # thing — two services on one Kafka topic, three on one PostgreSQL. Those are real, and they are what
+    # makes the picture a system instead of a list. Declared relationships in system.yaml win over both.
+    if not links:
+        links.update(_shared_element_links(items, decl, evidence, product_of))
+        links.update(_declared_product_links(items, decl, product_of))
 
     out_links = sorted(links.values(), key=lambda l: (-l["weight"], l["source"], l["target"]))
 

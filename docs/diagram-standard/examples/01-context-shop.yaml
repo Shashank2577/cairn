@@ -1,0 +1,12 @@
+diagram: context
+title: System context for Shop
+scope: Shop (software system, 4 repositories)
+description: Customers place orders through Shop, which emails each customer a confirmation through SendGrid.
+source_note: worked example; evidence points into the shop sandbox repositories
+elements:
+  - {id: customer, name: Customer, type: person, desc: Browses the store and places orders, at: [0,0], provenance: declared, evidence: ["system.yaml: actors"]}
+  - {id: shop, name: Shop, type: system, desc: Takes orders and confirms them by email, at: [1,0], focus: true, evidence: ["system.yaml: shop-web, shop-api, shop-worker, shop-contracts"]}
+  - {id: sendgrid, name: SendGrid, type: external-system, desc: Delivers transactional email, at: [2,0], evidence: ["shop-worker/pyproject.toml: sendgrid", "shop-worker/shop_worker/mailer.py:2"]}
+relationships:
+  - {from: customer, to: shop, what: Places and tracks orders, style: sync, provenance: declared, evidence: ["shop-web/server.js:5"]}
+  - {from: shop, to: sendgrid, what: Sends order confirmations, style: sync, evidence: ["shop-worker/shop_worker/mailer.py:6"]}

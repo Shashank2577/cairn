@@ -1,0 +1,13 @@
+C4Context
+    title System context of Shop
+
+    Person(customer, "Customer", "Places and tracks orders")
+    Person(ops, "Operator", "Reads the nightly report")
+    System(shop, "Shop", "Takes orders and confirms them by email")
+    System_Ext(mail, "SendGrid", "Delivers transactional email")
+    System_Ext(payments, "Card gateway", "Authorises and captures payments")
+
+    Rel(customer, shop, "Places and tracks orders")
+    Rel(shop, mail, "Sends order confirmations")
+    Rel(shop, payments, "Authorises each payment")
+    Rel(ops, shop, "Reads the nightly report")

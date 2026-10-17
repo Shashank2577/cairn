@@ -5,7 +5,7 @@
 //   node tests/ui/smoke.mjs --base http://127.0.0.1:4747     against a running server (cairn ui / cairn serve)
 //   node tests/ui/smoke.mjs --mock                           against the UI's sample data; no Cairn server needed
 //
-// Options: --email/--password (team mode sign-in), --widths 1440,390, --project <id>, --chrome <path>
+// Options: --timeout=<seconds per page, default 20> --budget=<seconds for the whole run; 0 = none> --email/--password (team mode sign-in), --widths 1440,390, --project <id>, --chrome <path>
 // (or CHROME_PATH), --shots <dir> (a screenshot per page), --verbose. Needs Node 22+ (global WebSocket and fetch)
 // and Chrome or Chromium; without them it says why and exits 0. Exits 1 when any page has a problem.
 import { spawn, execFileSync } from "node:child_process";
@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 const args = parseArgs(process.argv.slice(2));
 const UI_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/cairn/ui");
 const WIDTHS = String(args.widths || "1440,390").split(",").map(Number).filter(Boolean);
-const SETTLE_MS = 700, PAGE_TIMEOUT_MS = 20000;
+const SETTLE_MS = 700, PAGE_TIMEOUT_MS = Number(args.timeout || 20) * 1000;  // --timeout=<seconds> per page, for slow machines
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function parseArgs(argv) {
@@ -74,11 +74,15 @@ function serveUi() {
 /** Launch Chrome on a free debugging port and return its browser WebSocket URL. */
 function launchChrome(bin) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "cairn-ui-smoke-"));
-  const proc = spawn(bin, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check",
-    "--disable-gpu", "--disable-extensions", "--hide-scrollbars", "--mute-audio", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+  const flags = ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check",
+    "--disable-gpu", "--disable-extensions", "--hide-scrollbars", "--mute-audio", "about:blank"];
+  // Containers and CI runners often have a tiny /dev/shm and no sandbox support; both make Chrome slow or unable to start.
+  if (process.platform === "linux") flags.splice(1, 0, "--disable-dev-shm-usage", ...(process.env.CI || os.userInfo().uid === 0 ? ["--no-sandbox"] : []));
+  const proc = spawn(bin, flags, { stdio: ["ignore", "ignore", "pipe"] });
+  const wait = Math.max(20000, PAGE_TIMEOUT_MS);
   return new Promise((resolve, reject) => {
     let buf = "";
-    const t = setTimeout(() => reject(new Error("Chrome didn't open a debugging port within 20 seconds.")), 20000);
+    const t = setTimeout(() => { proc.kill(); reject(new Error(`Chrome didn't open a debugging port within ${wait / 1000} seconds.`)); }, wait);
     proc.stderr.on("data", d => { buf += d; const m = buf.match(/DevTools listening on (ws:\/\/\S+)/); if (m) { clearTimeout(t); resolve({ proc, ws: m[1], profile }); } });
     proc.on("exit", code => { clearTimeout(t); reject(new Error(`Chrome exited (${code}) before it was ready.`)); });
   });
@@ -217,7 +221,68 @@ async function signIn(page) {
   return r === 200 ? null : `Signing in as ${args.email} failed (${r}).`;
 }
 
+/** What a click or a frame can still get wrong after every page has loaded: dropdowns that fail to open (their data
+ *  came from a failing endpoint) and engine views whose page or script is gone. Runs once, at the first width. */
+async function interactions(page, d, problems, base) {
+  const home = `#/p/${encodeURIComponent(d.pid)}/overview`;
+  await page.eval(`location.hash = ${JSON.stringify(home)}`); await settle(page);
+  const n = await page.eval(`document.querySelectorAll('header.top [aria-haspopup]').length`);
+  for (let i = 0; i < n; i++) {
+    page.drain();
+    const r = await page.eval(`(async () => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const b = document.querySelectorAll('header.top [aria-haspopup]')[${i}];
+      const label = b.getAttribute('aria-label') || b.title || b.textContent.trim().slice(0, 30) || 'dropdown ${i + 1}';
+      b.click(); await sleep(450);
+      const opened = !!document.querySelector('.pop');
+      b.click(); await sleep(150);
+      return { label, opened };
+    })()`);
+    await settle(page);
+    const { errors, failed } = page.drain();
+    const issues = [];
+    if (!r.opened) issues.push("did not open");
+    errors.forEach(e => issues.push("console " + e));
+    failed.forEach(f => issues.push("request " + f.replace(base, "")));
+    if (issues.length) { const label = `dropdown "${r.label}"`; problems.push({ label, issues }); console.log(`FAIL ${label}`); issues.forEach(x => console.log(`       - ${x}`)); }
+  }
+  const frames = await page.eval(`(async () => {
+    const out = [];
+    const views = await fetch(${JSON.stringify(`/api/p/${encodeURIComponent(d.pid)}/graph/views`)}).then(r => r.ok ? r.json() : []).catch(() => []);
+    for (const v of views) {
+      const r = await fetch(${JSON.stringify(`/api/p/${encodeURIComponent(d.pid)}/graph/views/`)} + v.kind);
+      const html = r.ok ? await r.text() : "";
+      const src = (html.match(/<script[^>]+src="([^"]+)"/) || [])[1];
+      const lib = src ? await fetch(src).then(x => ({ ok: x.ok, type: x.headers.get("content-type") || "" })).catch(() => ({ ok: false, type: "" })) : { ok: true, type: "javascript" };
+      out.push({ kind: v.kind, status: r.status, bytes: html.length, src: src || "", libOk: lib.ok && /javascript/.test(lib.type) });
+    }
+    return out;
+  })()`);
+  for (const f of frames) {
+    const issues = [];
+    if (f.status !== 200 || f.bytes < 500) issues.push(`the page answered ${f.status} with ${f.bytes} bytes`);
+    if (!f.libOk) issues.push(`its script ${f.src} does not load as JavaScript`);
+    if (issues.length) { const label = `engine view "${f.kind}"`; problems.push({ label, issues }); console.log(`FAIL ${label}`); issues.forEach(x => console.log(`       - ${x}`)); }
+  }
+  if (args.verbose) console.log(`ok   ${n} dropdowns opened, ${frames.length} engine views load`);
+}
+
+/** Where the run is, so a hang names the page it is stuck on instead of timing out silently. */
+const progress = { route: "starting", page: null };
+
 async function main() {
+  const budget = Number(args.budget || 0);  // --budget=<seconds>: stop the whole run and say where it was
+  if (budget > 0) {
+    setTimeout(async () => {
+      const waiting = progress.page ? [...progress.page.inflight.values()].map(r => r.url).slice(0, 5) : [];
+      let seen = "(no page)";
+      if (progress.page) {  // what the page shows, if it still answers
+        seen = await Promise.race([progress.page.eval(`JSON.stringify({ url: location.href, state: document.readyState, text: (document.body?.innerText || "").slice(0, 300), app: document.getElementById("app")?.className })`).catch(e => "eval failed: " + e.message), sleep(4000).then(() => "the page did not answer")]);
+      }
+      console.error(`FAIL: the check ran past its ${budget}s budget. Last step: ${progress.route}. Still waiting on: ${waiting.join(", ") || "nothing recorded"}. The page shows: ${seen}`);
+      process.exit(1);
+    }, budget * 1000).unref();
+  }
   if (typeof WebSocket === "undefined" || typeof fetch === "undefined") skip(`needs Node 22 or newer (this is ${process.version}).`);
   if (!args.base && !args.mock) { console.error("Usage: node tests/ui/smoke.mjs --base http://127.0.0.1:4747   or   --mock"); process.exit(2); }
   const bin = findChrome();
@@ -230,13 +295,19 @@ async function main() {
     catch (e) { console.error(`FAIL: no Cairn server at ${base} (${e.message}). Start one with \`cairn ui\`, or run with --mock.`); process.exit(1); }
   }
   if (args.shots) fs.mkdirSync(args.shots, { recursive: true });
-  const chrome = await launchChrome(bin);
+  // A runner that is busy at that moment can miss the start-up window once; a second try is not hiding a UI fault.
+  progress.route = "launching Chrome";
+  const chrome = await launchChrome(bin).catch(() => launchChrome(bin));
+  progress.route = "connecting to Chrome";
   const B = await connect(chrome.ws);
+  progress.route = "Chrome connected";
   const problems = [];
   let visited = 0;
   try {
     for (const width of WIDTHS) {
+      progress.route = `${width}px opening a tab`;
       const page = await openPage(B, width);
+      progress.page = page; progress.route = `${width}px loading the start page`;
       await page.send("Page.navigate", { url: entry + "#/" });
       await settle(page);
       if (!args.mock && await page.eval(`fetch("/api/session", { credentials: "same-origin" }).then(async r => { await r.text(); return r.status; })`) === 401) {
@@ -244,11 +315,13 @@ async function main() {
         if (why) { console.error("FAIL: " + why); process.exitCode = 1; return; }
         await page.send("Page.reload", { ignoreCache: true }); await settle(page);
       }
+      progress.route = `${width}px finding the pages to visit`;
       const d = await discover(page, args.project);
       if (d.error) { console.error("FAIL: " + d.error); process.exitCode = 1; return; }
       if (width === WIDTHS[0]) console.log(`Cairn UI smoke: ${args.mock ? "sample data" : base} (${d.mode} mode), project ${d.pid}, widths ${WIDTHS.join(" and ")}px, Chrome ${path.basename(bin)}`);
       page.drain(); page.inflight.clear();  // the start page, sign-in and discovery are not under test
       for (const route of routesFor(d)) {
+        progress.route = `${width}px ${decodeURIComponent(route)}`; progress.page = page;
         await page.eval(`location.hash = ${JSON.stringify(route)}`);
         const settled = await settle(page);
         const c = await page.eval(CHECK);
@@ -269,6 +342,7 @@ async function main() {
         if (issues.length) { problems.push({ label, issues }); console.log(`FAIL ${label}`); issues.forEach(i => console.log(`       - ${i}`)); }
         else if (args.verbose) console.log(`ok   ${label}  ${c.h1 ? `(${c.h1.trim().slice(0, 50)})` : ""}`);
       }
+      if (width === WIDTHS[0]) await interactions(page, d, problems, base);
       await B.send("Target.closeTarget", { targetId: page.targetId });
     }
   } finally {

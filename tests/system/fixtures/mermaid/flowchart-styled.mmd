@@ -1,0 +1,15 @@
+%% Styling and interaction: real files are full of it and none of it is ever evaluated. Every statement here
+%% must be ignored with a warning, and the arrows underneath it must still import.
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#eef"}}}%%
+flowchart LR
+  web["Storefront"] --> api["Orders API"]
+  api --> db[("PostgreSQL")]
+  classDef hot fill:#fee,stroke:#c00
+  classDef cold fill:#eef,stroke:#00c
+  class web hot
+  class api,db cold
+  style web stroke-width:3px
+  linkStyle 0 stroke:#f00
+  click web call openStore() "Open the store"
+  click api href "https://example.invalid/api" "Open the API"
+  links api:{"Dashboard": "/dashboard"}

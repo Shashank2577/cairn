@@ -1,0 +1,12 @@
+diagram: data-model
+title: Data model of Shop orders
+scope: shop-contracts types and the orders table
+description: An Order is stored as one orders row, and an OrderCreated event refers to an order by its id.
+source_note: replaces "Entity Relationship Diagram" and "Rule Data Model"
+elements:
+  - {id: order, name: Order, type: entity, fields: ["id: str", "customer_email: str", "total_cents: int"], at: [0,0], evidence: ["shop-contracts/shop_contracts/orders.py:4"]}
+  - {id: row, name: orders (table), type: entity, fields: ["id", "customer_email", "total_cents"], at: [1,0], evidence: ["shop-api/shop_api/db.py:8"]}
+  - {id: evt, name: OrderCreated, type: entity, fields: ["order_id: str", "customer_email: str"], at: [0,1], evidence: ["shop-contracts/shop_contracts/orders.py:10"]}
+relationships:
+  - {from: order, to: row, what: Persisted as one row, style: sync, evidence: ["shop-api/shop_api/db.py:8"]}
+  - {from: evt, to: order, what: Refers to by order_id, style: sync, evidence: ["shop-api/shop_api/orders.py:13"]}

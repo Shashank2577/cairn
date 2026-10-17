@@ -41,7 +41,7 @@ Anything a user or agent sees is added in the shared surfaces: a command in `cli
   `tests/engines/*_support.py` and `workflow_helpers.py`.
 - Some optional dependencies (server backends, extra languages) are only exercised when their
   extras are installed.
-- `node tests/ui/smoke.mjs --base http://127.0.0.1:4747` (or `--mock` for the sample data, no server) visits every UI page in headless Chrome at 1440 and 390 px and fails on console errors, failed requests or sideways overflow; it skips without Chrome or Node 22+.
+- `node tests/ui/smoke.mjs --base http://127.0.0.1:4747` (or `--mock` for the sample data, no server) visits every UI page in headless Chrome at 1440 and 390 px and fails on console errors, failed requests or sideways overflow; it skips without Chrome or Node 22+. It also opens every top-bar dropdown and loads every Engine view, and `tests/ui/test_browser_smoke.py` runs it from `pytest` against real servers (a healthy one must pass, one whose code is deleted must fail), so a dead UI cannot ship behind green tests.
 
 ## How we work
 

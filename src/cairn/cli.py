@@ -13,6 +13,7 @@ from typing import Optional
 import typer
 from rich.console import Console, Group
 from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -28,6 +29,9 @@ trace_app = typer.Typer(help="Explore the code map.")
 agents_app = typer.Typer(help="Agent integrations.")
 app.add_typer(trace_app, name="trace")
 app.add_typer(agents_app, name="agents")
+from .system.diagram.cli import diagram_app  # noqa: E402
+
+app.add_typer(diagram_app, name="diagram")
 
 
 def _mount_platform() -> None:
@@ -257,7 +261,8 @@ def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = Fa
             mark("Git hooks", "ok", "sync after commit, merge, checkout" + ("" if added else " (already set)"))
         # sync (fan-out)
         labels = {"map": "Map", "history": "Timeline", "specs": "Specs", "sessions": "Sessions",
-                  "links": "Linking", "drift": "Drift check", "timeline": "Timeline facts"}
+                  "links": "Linking", "drift": "Drift check", "timeline": "Timeline facts",
+                  "system": "System model"}
 
         def prog(step, st, detail):
             label = labels.get(step, step)
@@ -319,6 +324,11 @@ def status(as_json: bool = typer.Option(False, "--json", help="Machine-readable 
         bits.append(f"[{ROSE}]{ov['drift']} drift findings[/] → cairn drift")
     bits.append(f"UI [{AMBER}]{srv['project_url']}[/]" if srv else "UI [dim]stopped[/] → cairn ui")
     console.print("   ".join(bits))
+    if srv and srv.get("stale"):  # the server answers but cannot be trusted: say why and the one fix
+        console.print(f"[{ROSE}]⚠ {escape(srv['stale']['reason'])}[/]\n  fix: {escape(srv['stale']['fix'])}")
+    for x in daemon.stray_servers():
+        console.print(f"[{ROSE}]⚠ another Cairn server is running on port {x['port']} (pid {x['pid']})[/]"
+                      "\n  fix: run `cairn down --all`, then `cairn up`")
 
 
 def _ago(ts: float) -> str:
@@ -364,8 +374,6 @@ def doctor():
     """Every capability, its state, and the exact command to enable it."""
     import shutil
 
-    from rich.markup import escape
-
     from . import daemon
     from .engines import specs
     c = _cairn()
@@ -392,6 +400,8 @@ def doctor():
         row(False, "Session capture", "off (config)", "set [sessions] capture = true in .cairn/config.toml")
     row(c.router.available, "Model", c.router.provider if c.router.available else "none (model features off)",
         "sign in to Claude Code (claude), or set ANTHROPIC_API_KEY / an OpenAI-compatible endpoint")
+    deep = c.router.deep_state()  # the same answer the API and the UI show
+    row(deep["enabled"], "Deep", ("on · " if deep["enabled"] else "off · ") + deep["reason"], deep["fix"])
     from .engines import vectors
     embedder = vectors.embedder_id()
     row(embedder != "hash-v1", "Local embeddings", embedder, "check network once to download the embedding model")
@@ -404,7 +414,15 @@ def doctor():
     row(store_ok or bool(graph_url), "Timeline store", graph_url or "embedded (.cairn/temporal)",
         "reinstall Cairn (the embedded graph database is missing)")
     srv = daemon.info()
-    row(bool(srv), "Local UI", srv["url"] if srv else "stopped", "cairn ui")
+    stale = srv.get("stale") if srv else None
+    row(bool(srv) and not stale, "Local UI",
+        (f"{srv['url']} · {stale['reason']}" if stale else srv["url"]) if srv else "stopped",
+        stale["fix"] if stale else "cairn ui")
+    strays = daemon.stray_servers()
+    row(not strays, "Other Cairn servers",
+        "none" if not strays else "; ".join(f"port {x['port']} (pid {x['pid']})" for x in strays)
+        + " · not the server `cairn up` manages, so it can serve old or deleted code",
+        "cairn down --all")
     row(bool(shutil.which("cairn")), "cairn on PATH", "yes" if shutil.which("cairn") else "no",
         "uv tool install --python 3.12 cairn-brain")
     from . import agents as agents_mod
@@ -437,6 +455,15 @@ def doctor():
         "" if global_wired else "cairn global install")
     console.print(brand("doctor"))
     console.print(t)
+    from .budgets import budgets
+    bt = Table(box=None, pad_edge=False, show_header=True, header_style=f"bold {INK}")
+    for col in ("Limit", "Value", "Used", "What it limits and what happens at the limit"):
+        bt.add_column(col, overflow="fold")
+    for b in budgets(c.project, c.brain):
+        used = "-" if b["used"] is None else f"{b['used']:,}" + (f" ({b['used_note']})" if b.get("used_note") else "")
+        bt.add_row(escape(b["name"]), f"{b['value']:,} {b['unit']}", used,
+                   escape(f"{b['meaning']} At the limit: {b['when_exceeded'][0].lower()}{b['when_exceeded'][1:]}"))
+    console.print(bt)
 
 
 # ---- sync --------------------------------------------------------------------------------------------
@@ -541,7 +568,7 @@ def ask(question: str = typer.Argument(...), budget: int = typer.Option(1800),
 
 
 @app.command()
-def search(query: str, kinds: Optional[str] = typer.Option(None, help="symbol,file,spec,task,req,commit,memory,obs,fact"),
+def search(query: str, kinds: Optional[str] = typer.Option(None, help="symbol,file,spec,task,req,commit,memory,obs,fact,text"),
            limit: int = 20, as_json: bool = typer.Option(False, "--json")):
     """Search every layer."""
     c = _cairn()
@@ -549,8 +576,11 @@ def search(query: str, kinds: Optional[str] = typer.Option(None, help="symbol,fi
     if as_json:
         _emit_json(hits)
         return
+    from rich.markup import escape
+
+    from .textsearch import cite
     for h in hits:
-        console.print(f" [{SLATE}]{h['kind']:<8}[/] [{INK}]{h['title']}[/]  [dim]{h.get('path') or h['id']}[/]")
+        console.print(f" [{SLATE}]{h['kind']:<8}[/] [{INK}]{escape(h['title'])}[/]  [dim]{escape(cite(h)) if h.get('path') else h['id']}[/]")
 
 
 @app.command()
@@ -912,14 +942,26 @@ def standup(days: int = typer.Option(1, help="How far back: 1 = the last 24h, 2 
 
 # ---- systems & review context ------------------------------------------------------------------------
 @app.command("system")
-def system_cmd():
-    """Sibling repos of this product, from system.yaml (zero-config cross-repo awareness)."""
+def system_cmd(view: Optional[str] = typer.Option(None, "--view",
+                                                  help="Draw one level of the system model: context, containers, "
+                                                  "components, flows or code."),
+               scope: Optional[str] = typer.Option(None, "--scope", help="Narrow the view: a container or "
+                                                   "repository for containers and components, an entry point "
+                                                   "for flows."),
+               as_json: bool = typer.Option(False, "--json", help="The view's diagram description as JSON."),
+               out: Optional[Path] = typer.Option(None, "--out", help="Write the diagram description to a file "
+                                                   "(.yaml, or .json)."),
+               svg: bool = typer.Option(False, "--svg", help="Write the SVG rendering to <out>.svg too.")):
+    """Sibling repos of this product, from system.yaml; with --view, the computed system model (0 model calls)."""
     from .engines import systems
     from .project import Project
     proj = Project.discover()
     if proj is None:
         err.print("[bold red]Not inside a project folder.[/]")
         raise typer.Exit(3)
+    if view is not None or as_json or out is not None:
+        _system_view(proj.root, view or "containers", scope, as_json, out, svg)
+        return
     ctx = systems.system_context(proj.root)
     console.print(brand("system"))
     if ctx is None:
@@ -936,6 +978,70 @@ def system_cmd():
         console.print(Text(" no valid sibling brains yet — each repo needs `cairn init`", style=f"dim {SLATE}"))
     console.print(Text(" (file-local view; the heavier cross-repo graph is separate: `cairn graph global`)",
                        style=f"dim {SLATE}"))
+
+
+def _system_view(root: Path, level: str, scope: str | None, as_json: bool, out: Path | None,
+                 svg: bool = False) -> None:
+    """``cairn system --view``: the stored model when this repository has one, else built now; read-only.
+
+    Every level returns one diagram description, so ``--json`` and ``--out`` always write something the
+    renderer and the checker take. ``flows`` has more than one; text mode prints them all.
+    """
+    from .system.views import LEVEL_NAMES
+    from .system.views import view as system_view
+    if level not in LEVEL_NAMES and level not in ("container", "component", "flow"):
+        err.print(f"[bold red]Unknown view {level!r}[/] — use {', '.join(LEVEL_NAMES)}.")
+        raise typer.Exit(2)
+    try:
+        descs = [system_view(root, level, scope)]
+        if level in ("flows", "flow") and not as_json and out is None:
+            from .system.flows import flows as all_flows
+            from .system.link import link
+            descs = all_flows(root, link(root), scope=scope)
+    except ValueError as exc:
+        err.print(f"[bold red]{exc}[/]")
+        raise typer.Exit(2)
+    desc = descs[0]
+    if out is not None:
+        import yaml
+        text = json.dumps(desc, indent=2) if out.suffix == ".json" else yaml.safe_dump(
+            desc, sort_keys=False, allow_unicode=True, width=200)
+        out.write_text(text, encoding="utf-8")
+        if not as_json:
+            console.print(f"[{MOSS}]✓[/] {desc['title']} → {out}")
+        if svg:
+            from .system.diagram.svg import render as svg_render
+            svg_path = out.with_suffix(".svg")
+            svg_path.write_text(svg_render(desc), encoding="utf-8")
+            if not as_json:
+                console.print(f"[{MOSS}]✓[/] {desc['title']} → {svg_path}")
+    if as_json:
+        _emit_json(desc)
+        return
+    if out is not None:
+        return
+    from rich.markup import escape
+    from .spans import annotate
+    for i, one in enumerate(descs):
+        if i:
+            console.print()
+        console.print(brand("system"))
+        console.print(f"  [{INK}]{escape(one['title'])}[/]  [{SLATE}]{escape(one['scope'])}[/]")
+        for e in one["elements"]:
+            mark = {"declared": "◆ ", "inferred": "≈ ", "ambiguous": "? ", "stale": "⚠ "}.get(e["provenance"], "")
+            kind = e.get("kind") or e["type"]
+            tech = f" · {e['tech']}" if e.get("tech") else ""
+            console.print(f"  [{MOSS}]●[/] [{INK}]{mark}{escape(e['name'])}[/] "
+                          f"[{SLATE}]{escape(kind + tech)} — {escape(annotate(root, e['evidence'][0]))}[/]")
+        names = {e["id"]: e["name"] for e in one["elements"]}
+        for r in ((one.get("flow") or {}).get("messages") or one.get("relationships") or []):
+            mark = {"declared": "◆ ", "inferred": "≈ ", "ambiguous": "? ", "stale": "⚠ "}.get(r["provenance"], "")
+            label = " · ".join(x for x in (r.get("what"), f"[{r['how']}]" if r.get("how") else None) if x)
+            ends = f"{names.get(r['from'], r['from'])} → {names.get(r['to'], r['to'])}"
+            console.print(f"    [{INK}]{mark}{escape(ends)}[/]  [{SLATE}]{escape(label)} ({r['style']}) — "
+                          f"{escape(annotate(root, r['evidence'][0]))}[/]")
+    if len(descs) > 1:
+        console.print(Text(f" {len(descs)} flows; --scope picks one, --out writes one", style=f"dim {SLATE}"))
 
 
 @app.command("review-context")
@@ -966,13 +1072,47 @@ def sessions(ctx: typer.Context):
     raise typer.Exit(main(list(ctx.args) or ["sessions"]))
 
 
+# ---- docs export --------------------------------------------------------------------------------------
+docs_app = typer.Typer(help="Architecture documents from the system model.")
+app.add_typer(docs_app, name="docs")
+
+
+@docs_app.command("export")
+def docs_export(out: Path = typer.Option(Path("docs/architecture"), "--out",
+                                         help="Directory to write the documents into."),
+                narrate: bool = typer.Option(False, "--narrate",
+                                             help="Opt in to model-written names and descriptions "
+                                                  "(fast tier, ledgered, capped by [system] narrate_tokens).")):
+    """Write the architecture document set (context, containers, components, flows, code) from the computed
+    system model. Every statement cites evidence or is marked inferred; empty sections are omitted; each
+    document records the commit it describes. Zero model calls unless --narrate is passed."""
+    from .project import Project
+    from .system.export import export
+    proj = Project.discover()
+    if proj is None:
+        err.print("[bold red]Not inside a project folder.[/]")
+        raise typer.Exit(3)
+    result = export(proj.root, proj.root / out, narrate=narrate)
+    console.print(f"[{MOSS}]✓[/] {len(result['written'])} files written to [bold]{out}[/] "
+                  f"(commit [{SLATE}]{result['commit'][:12]}[/])"
+                  + (f", narrative on ([{SLATE}]{result['narrated']} files narrated[/])" if narrate else ""))
+
+
 # ---- servers & agents --------------------------------------------------------------------------------
+def _say_replaced(d: dict) -> None:
+    """`cairn up` / `cairn ui` replaced a server that could not be trusted: say what and why, and who it touched."""
+    if d.get("replaced"):
+        console.print(f"[{AMBER}]↻ replaced the old server[/]: {escape(d['replaced']['reason'])} "
+                      "(other repositories on this machine were interrupted for a few seconds)")
+
+
 @app.command()
 def ui(no_open: bool = typer.Option(False, "--no-open")):
     """Open the UI for this repository (starts the local server if needed; one server serves every repo)."""
     from . import daemon
     c = _cairn()
     d = daemon.start(c.project)
+    _say_replaced(d)
     console.print(f"[{MOSS}]✓[/] {d['project_url']}")
     if not no_open:
         webbrowser.open(d["project_url"])
@@ -983,14 +1123,20 @@ def up():
     """Start the local server in the background and add this repository to it."""
     from . import daemon
     d = daemon.start(_cairn().project)
+    _say_replaced(d)
     console.print(f"[{MOSS}]✓[/] running at [{AMBER}]{d['project_url']}[/]")
 
 
 @app.command()
-def down():
+def down(all_servers: bool = typer.Option(False, "--all", help="Also stop leftover Cairn servers on other ports.")):
     """Stop the local server (it serves every registered repository)."""
     from . import daemon
     console.print(f"[{MOSS}]✓[/] stopped" if daemon.stop() else f"[{SLATE}]not running[/]")
+    if all_servers:
+        freed = daemon.stop_strays()
+        if freed:
+            console.print(f"[{MOSS}]✓[/] also stopped leftover servers on port{'s' if len(freed) > 1 else ''} "
+                          + ", ".join(str(p) for p in freed))
 
 
 @app.command()

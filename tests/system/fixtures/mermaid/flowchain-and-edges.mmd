@@ -1,0 +1,10 @@
+%% Chained edges, & fan-out, thick lines, dotted lines and both label spellings.
+flowchart TD
+  src["Checkout"] --> cart["Cart"] --> pay["Payment"]
+  cart & promo["Promotions"] --> total["Order total"]
+  pay ==>|"Authorises"| gateway["Card gateway"]
+  total -.->|"Revalidates"| pay
+  report["Reports"] --> pay
+  src -- "Reads the cart" --> cart
+  vault{{"Key vault"}} -->|"Wraps keys"| pay
+  legacy["Legacy importer"] -. "Nightly batch" .-> vault
