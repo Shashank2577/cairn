@@ -106,6 +106,15 @@ description: "Task list for Cairn Review"
 - [ ] T054 Run quickstart steps 1–10 and record results in `specs/013-cairn-review/quickstart.md`
 - [ ] T055 Full test suite green on macOS, Linux and Windows CI
 
+## Open follow-ups from the independent review (not yet done)
+
+Already fixed in the review core: exact review ids, honest git errors with exit 2, secrets in skipped files, uncapped high severity with a "+N more" note, line-free signatures, quoted file names and `+++`/`---` content lines, fixed/superseded transitions, triage carried across heads, enum CHECK constraints, non-vacuous and extra tests. Still open:
+
+- [ ] T056 Add the contract flags `--model/--no-model`, `--post` and `--budget` to `cairn review`, and the subcommands `suppressions` and `rules --export/--import` (`contracts/cli.md`); `accept`, `dismiss` and `rule` stay under T023.
+- [ ] T057 Add a test that fails when any module in `src/cairn/review/` calls a router's `complete` or `stream` directly instead of `model.complete` (the sanitizing choke point).
+- [ ] T058 Re-running the review of an older head refreshes its `created_at` and can supersede a newer review of the same branch; keep the original time on reuse and supersede only by head order.
+- [ ] T059 Review uncommitted working-tree changes (`--working`) and fetch a pull request's head when it is not in the clone (today only local refs resolve).
+
 ## Dependencies and order
 
 - Setup → Foundational → US1 → US2 → US4 → Model review → US6 → US3 → US5 → Polish.

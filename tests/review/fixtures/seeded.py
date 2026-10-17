@@ -23,7 +23,7 @@ LOCK = json.dumps({"name": "shop", "lockfileVersion": 3}, indent=2) + "\n"
 SECRET_LINE = 'AWS_KEY = "AKIAIOSFODNN7EXAMPLE"\n'
 
 SEEDED = {"cochange": "shop/ledger.py", "test": "tests/test_payments.py", "history": "Fix double charge on retry",
-          "convention": "integer cents", "secret": "AWS access key", "lock": "package-lock.json"}
+          "convention": "integer cents", "secret": "credential", "lock": "package-lock.json"}
 
 
 def build(root) -> None:

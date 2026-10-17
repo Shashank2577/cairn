@@ -167,42 +167,43 @@ def drift(ctx: Ctx) -> list[dict]:
 
 
 # ---- T013: secrets in the diff ------------------------------------------------------------------------
-_SECRET_SHAPES = [
-    ("AWS access key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
-    ("GitHub token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b")),
-    ("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}")),
-    ("API secret key", re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}|\bsk-[A-Za-z0-9_-]{24,}")),
-    ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
-    ("private key", re.compile(r"-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----")),
-    ("JSON web token", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")),
-]
-_ASSIGN = re.compile(r"(?i)\b[\w-]*(?:secret|token|passw(?:or)?d|api[_-]?key|private[_-]?key|credential)[\w-]*[\"']?\s*[:=]\s*"
+# A generic "name = value" hit is only worth a finding when the value is a literal, not a placeholder or a lookup.
+_ASSIGN = re.compile(r"(?i)[\"']?\w*(?:secret|token|passw(?:or)?d|api[_-]?key|private[_-]?key|credential)\w*[\"']?\s*[:=]\s*"
                      r"[\"']([^\"'\s]{8,})[\"']")
 _PLACEHOLDER = re.compile(r"(?i)\$\{|\{\{|<[^>]+>|example|changeme|change-me|xxxx|your[_-]|placeholder|dummy|sample|"
                           r"redacted|\*{3,}|process\.env|environ|getenv|todo|fixme|\bnone\b|\bnull\b")
 
 
-def _placeholder(value: str) -> bool:
-    return bool(_PLACEHOLDER.search(value)) or len(set(value)) <= 2
+def _literal_secret(text: str) -> bool:
+    m = _ASSIGN.search(text)
+    return bool(m) and not _PLACEHOLDER.search(m.group(1)) and len(set(m.group(1))) > 2
+
+
+def _label(pid: str) -> str:
+    return pid.replace("-", " ").replace("_", " ")
 
 
 def secrets(ctx: Ctx) -> list[dict]:
+    """Credentials added by the change, found with the same patterns Cairn masks with (one source of truth)."""
+    from ..engines.recall.tags import redact_hits
     out = []
     for f in [*ctx.diff.files, *ctx.diff.skipped_files]:  # the skip list is for review, not for secrets
         if f.status == "D":
             continue
         for n, text in f.added:
-            label = next((name for name, rx in _SECRET_SHAPES if rx.search(text)), None)
-            sev = "high"
-            if not label:
-                m = _ASSIGN.search(text)
-                if not m or _placeholder(m.group(1)):
-                    continue
-                label, sev = "hard-coded credential", ("medium" if is_test_path(f.path) else "high")
-            out.append(_f("secret", sev, f.path, f"Possible {label} added on line {n}",
-                          f"A value that looks like this kind of credential ({label}) is added at `{f.path}:{n}`. The value is not repeated "
-                          "here. Remove it, rotate it if it was real, and read it from the environment instead.",
-                          "EXTRACTED", [f"diff:{f.path}:{n}"], line=n, rule=f"secret:{label}"))
+            hits = redact_hits(text)
+            if not hits:
+                continue
+            specific = [h for h in hits if h != "key-value"]
+            if not specific and not _literal_secret(text):
+                continue
+            pid = (specific or hits)[0]
+            label = _label(pid)
+            sev = "medium" if pid == "key-value" and is_test_path(f.path) else "high"
+            out.append(_f("secret", sev, f.path, f"Possible credential ({label}) added on line {n}",
+                          f"A value that looks like a credential ({label}) is added at `{f.path}:{n}`. The value is not "
+                          "repeated here. Remove it, rotate it if it was real, and read it from the environment instead.",
+                          "EXTRACTED", [f"diff:{f.path}:{n}"], line=n, rule=f"secret:{pid}"))
     return out
 
 

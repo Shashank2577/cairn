@@ -87,7 +87,7 @@ def test_nothing_to_review_says_so(repo, cairn):
 def test_cli_text_run_list_show_and_forget(seeded_cairn):
     r = runner.invoke(app, ["review"])
     assert r.exit_code == 0, r.output
-    assert "A model review was not run" in r.output and "AWS access key" in r.output
+    assert "A model review was not run" in r.output and "credential" in r.output
     rid = re.search(r"Review (\w+):", r.output).group(1)
     assert rid in runner.invoke(app, ["review", "list"]).output
     assert "integer cents" in runner.invoke(app, ["review", "show", rid]).output

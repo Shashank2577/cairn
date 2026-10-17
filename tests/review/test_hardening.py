@@ -101,7 +101,10 @@ def test_secrets_in_huge_files_are_found(seeded_cairn):
 
 # ---- 9 caps never drop high severity -------------------------------------------------------------------
 def test_high_severity_secrets_are_never_capped(seeded_cairn):
-    lines = "".join(f'k{i} = "AKIA{i:016d}"\n'.replace("AKIA0", "AKIAA") for i in range(checks.MAX_PER_CHECK + 5))
+    import base64
+    import hashlib
+    keys = ["AKIA" + base64.b32encode(hashlib.sha1(str(i).encode()).digest()).decode()[:16] for i in range(checks.MAX_PER_CHECK + 5)]
+    lines = "".join(f'k{i} = "{k}"\n' for i, k in enumerate(keys))
     commit(seeded_cairn.project.root, {"shop/many.py": lines}, "many keys")
     out = pipeline.run(seeded_cairn)
     secrets = [f for f in out.findings if f["kind"] == "secret" and f["severity"] == "high" and f["path"] == "shop/many.py"]
@@ -268,3 +271,18 @@ def test_every_string_handed_to_a_model_call_is_sanitized():
 def test_sanitize_masks_dict_keys():
     tok = "ghp_" + "a1B2c3D4e5" * 4
     assert tok not in json.dumps(model.sanitize({tok: 1}))
+
+
+def test_secret_check_uses_the_shared_patterns(seeded_cairn):
+    """A credential URL, a Slack webhook and a Basic auth header are flagged, like sanitize() masks them."""
+    url = "https://" + "alice" + ":" + "hunter2xyz99" + "@example.com/r.git"
+    hook = "https://hooks.slack.com/services/" + "T00000000/B00000000/" + "X" * 24
+    basic = "Authorization: Basic " + "YWxpY2U6aHVudGVyMnh5ejk5"
+    commit(seeded_cairn.project.root, {"shop/conf.py": f'u = "{url}"\nh = "{hook}"\n# {basic}\n'}, "conf")
+    out = pipeline.run(seeded_cairn)
+    mine = [f for f in out.findings if f["path"] == "shop/conf.py" and f["kind"] == "secret"]
+    assert {f["line_start"] for f in mine} == {1, 2, 3}
+    blob = json.dumps(out.findings)
+    assert "hunter2xyz99" not in blob and "YWxpY2U6" not in blob and "T00000000" not in blob
+    for line in (url, hook, basic):  # what the check flags, sanitize() masks
+        assert model.sanitize(line) != line
