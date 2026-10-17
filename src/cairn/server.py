@@ -368,6 +368,29 @@ def _written_docs(root: Path) -> list[dict]:
     return sorted(out, key=lambda d: (not d["index"], d["name"]))
 
 
+_MERMAID_FENCE = re.compile(r"^```mermaid[ \t]*\n(.*?)^```[ \t]*$", re.S | re.M)
+
+
+def _draw_mermaid(md: str) -> tuple[str, list[str]]:
+    """Replace the Mermaid blocks Cairn's own reader understands with ``@@diagram:N@@`` markers.
+
+    Returns the Markdown and the drawn SVGs. A block it cannot read (a syntax outside the flowchart,
+    sequence and C4 subset) stays a code block, so nothing is hidden. Drawn by the diagram standard's
+    renderer, with no browser library and no model call.
+    """
+    from .system.diagram.mermaid_in import parse
+    from .system.diagram.svg import render_inline
+    svgs: list[str] = []
+
+    def one(m: re.Match) -> str:
+        try:
+            svgs.append(render_inline(parse(m.group(1)).description))
+        except Exception:
+            return m.group(0)
+        return f"\n@@diagram:{len(svgs) - 1}@@\n"
+    return _MERMAID_FENCE.sub(one, md), svgs
+
+
 @lru_cache(maxsize=8)
 def _docs_bundle_cached(root: str, stamp: tuple):
     """The architecture documents of one model, built once per stamp like the diagrams."""
@@ -702,7 +725,19 @@ def project_router(hub: Hub) -> APIRouter:
             built = all_flows(root, link(root), scope=scope)
         except ValueError as exc:
             raise HTTPException(404, str(exc))
-        return [{"title": d["title"], "scope": d["scope"]} for d in built]
+        # One entry per distinct set of steps: 119 endpoints that all draw the same picture are one choice.
+        # `scope` is what the view endpoint accepts (the entry point's name), not the description's scope line.
+        from .system.export import _shapes
+        from .system.flows import entry_points
+        names = sorted({e.name for e in entry_points(link(root))}, key=len, reverse=True)
+        out = []
+        for group in _shapes(built):
+            d = group[0]
+            name = next((n for n in names if n in d["title"]), d["title"])
+            more = len(group) - 1
+            out.append({"title": d["title"] + (f" (+{more} more with the same steps)" if more else ""),
+                        "scope": name, "count": len(group)})
+        return out
 
     @r.get("/docs", dependencies=read)
     def docs_list(pid: str):
@@ -731,7 +766,8 @@ def project_router(hub: Hub) -> APIRouter:
                 "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; "
                                            "frame-ancestors 'self'",
                 "X-Frame-Options": "SAMEORIGIN", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
-        return {"name": name, "md": text}
+        md, svgs = _draw_mermaid(text)
+        return {"name": name, "md": md, "diagrams": svgs}
 
     @r.get("/docs/{slug}", dependencies=read)
     def docs_one(pid: str, slug: str):

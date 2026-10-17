@@ -22,3 +22,4 @@
 .docs-list h4.sub2 { margin: 8px 10px 2px; font-size: 11px; text-transform: none; letter-spacing: 0; font-weight: 500; }
 .docs-doc.written { padding: 0; overflow: hidden; }
 .docs-frame { display: block; width: 100%; height: 78vh; border: 0; background: #fff; }
+.docs-diagram.full svg { max-width: none; }

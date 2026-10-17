@@ -39,11 +39,23 @@ function Freshness({ list, sync, startSync, canSync }) {
 /** A relative link between exported documents ("flows.md") opens that document in this view. */
 const docLink = pid => href => /^[\w.-]+\.md$/.test(href) ? link.project(pid, "docs", [href.slice(0, -3)]) : null;
 
+/** A drawn diagram: fitted to the page, or at its actual size (scrolling) when the picture is too small to read. */
+function DiagramBox({ svg, label }) {
+  const [full, setFull] = useState(false);
+  return html`<div><button class="btn xs ghost" onClick=${() => setFull(!full)} aria-pressed=${full}>${full ? "Fit to width" : "Actual size"}</button>
+    <div class=${"docs-diagram" + (full ? " full" : "")} role="img" aria-label=${label} dangerouslySetInnerHTML=${{ __html: svg }}></div></div>`;
+}
+
 /** A document from the repository's docs/ folder: its styled page in a sandboxed frame, else its Markdown. */
 function WrittenDoc({ pid, doc }) {
   const res = useFetch(() => doc.html ? Promise.resolve(null) : api.p(pid).docsFile(doc.name), [pid, doc.name]);
   if (doc.html) return html`<article class="docs-doc written"><iframe class="docs-frame" title=${doc.title} sandbox="allow-same-origin" src=${api.p(pid).docsFileUrl(doc.html)}></iframe></article>`;
-  return html`<${Load} res=${res} rows="10" what="this document">${d => html`<article class="docs-doc"><${Markdown} src=${d.md} links=${docLink(pid)} linksKey=${pid}/></article>`}</${Load}>`;
+  // Mermaid blocks Cairn can read come back drawn, as @@diagram:N@@ markers between the Markdown pieces.
+  return html`<${Load} res=${res} rows="10" what="this document">${d => html`<article class="docs-doc">
+    ${d.md.split(/^@@diagram:(\d+)@@$/m).map((part, i) => i % 2
+      ? html`<${DiagramBox} svg=${d.diagrams[+part]} label="Diagram"/>`
+      : part.trim() ? html`<${Markdown} src=${part} links=${docLink(pid)} linksKey=${pid}/>` : null)}
+  </article>`}</${Load}>`;
 }
 
 function Doc({ pid, slug }) {
@@ -54,7 +66,7 @@ function Doc({ pid, slug }) {
     const before = m ? md.slice(0, m.index) : md, after = m ? md.slice(m.index + m[0].length) : "";
     return html`<article class="docs-doc">
       <${Markdown} src=${before} links=${docLink(pid)} linksKey=${pid}/>
-      ${d.svg ? html`<div class="docs-diagram" role="img" aria-label=${"Diagram: " + d.title} dangerouslySetInnerHTML=${{ __html: d.svg }}></div>` : null}
+      ${d.svg ? html`<${DiagramBox} svg=${d.svg} label=${"Diagram: " + d.title}/>` : null}
       ${after ? html`<${Markdown} src=${after} links=${docLink(pid)} linksKey=${pid}/>` : null}
     </article>`;
   }}</${Load}>`;

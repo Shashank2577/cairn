@@ -78,3 +78,26 @@ def test_commits_behind_counts_commits_since_the_model(tmp_path):
     git("commit", "-qam", "two", "--no-gpg-sign")
     assert commits_behind(root, first) == 1
     assert commits_behind(root, "") is None and commits_behind(root, "deadbeef0000") is None
+
+
+def test_repository_docs_are_listed_and_mermaid_is_drawn(client):
+    docs = client.root / "docs"
+    docs.mkdir()
+    (docs / "ARCHITECTURE.md").write_text("# Arch\n\n```mermaid\nflowchart LR\n  A[Web] --> B[Api]\n```\n\n"
+                                          "```mermaid\nnot a diagram at all\n```\n", encoding="utf-8")
+    (docs / "architecture.html").write_text("<h1>Arch</h1>", encoding="utf-8")
+    listed = client.get(f"/api/p/{client.pid}/docs").json()["written"]
+    assert [(d["name"], d["html"]) for d in listed] == [("ARCHITECTURE.md", "architecture.html")]
+    one = client.get(f"/api/p/{client.pid}/docs/files/ARCHITECTURE.md").json()
+    assert len(one["diagrams"]) == 1 and one["diagrams"][0].lstrip().startswith("<svg")
+    assert "@@diagram:0@@" in one["md"] and "not a diagram at all" in one["md"]   # unreadable blocks stay visible
+    page = client.get(f"/api/p/{client.pid}/docs/files/architecture.html")
+    assert page.headers["x-frame-options"] == "SAMEORIGIN" and "default-src 'none'" in page.headers["content-security-policy"]
+    assert client.get(f"/api/p/{client.pid}/docs/files/..%2Fsecret.md").status_code == 404
+
+
+def test_flow_picker_lists_distinct_flows_with_a_scope_the_view_accepts(client):
+    flows = client.get(f"/api/p/{client.pid}/system/flows").json()
+    assert flows and len({f["title"] for f in flows}) == len(flows)
+    for f in flows:
+        assert client.get(f"/api/p/{client.pid}/system/view", params={"level": "flows", "scope": f["scope"]}).status_code == 200
