@@ -31,6 +31,11 @@ CASES = {  # id: (secret, look-alike that is not one)
     "google-api-key": ("AI" + "za" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r", "AI" + "za" + "short"),
     "azure-storage-key": ("Account" + "Key=" + "A1b2C3d4E5f6G7h8" * 4 + "==", "Account" + "Key=short"),
     "url-credentials": ("https://" + "alice" + ":" + "hunter2x" + "@example.com/repo", "https://example.com:8080/a@b"),
+    "basic-auth": ("Authorization: Ba" + "sic dXNlcjpwYXNzd29yZDEyMw==", "Authorization: Basic"),
+    "huggingface-token": ("hf" + "_" + "A1b2C3d4E5" * 3 + "A1b2", "hf" + "_model_name"),
+    "aws-secret-key-bare": ("wJalrXUtnFEMI/K7MDENG/bPxRfiCY" + "EXAMPLEKEY", "0123456789abcdef" * 2 + "01234567"),
+    "slack-webhook": ("https://hooks." + "slack.com/services/T01ABCDEF/B01ABCDEF/A1b2C3d4E5f6G7h8I9j0", "https://hooks." + "slack.com/docs"),
+    "aws-secret-key": ("aws_secret_" + "access_key = " + "A1b2C3d4E5f6G7h8I9j0" * 2, "aws_secret_" + "access_key = short"),
     "private-key": ("-----BEGIN " + "RSA PRIVATE KEY-----\nMIIabc\n-----END " + "RSA PRIVATE KEY-----",
                     "-----BEGIN " + "PUBLIC KEY-----\nMIIabc\n-----END " + "PUBLIC KEY-----"),
 }
@@ -181,3 +186,95 @@ def test_scan_counts_per_shape_read_only(repo):
     assert _everything(repo) == before  # nothing rewritten
     res = CliRunner().invoke(app, ["redaction-scan", "--json"], env={"PWD": str(repo)})
     assert TOK not in res.output and KEY not in res.output
+
+
+# ---- review findings ---------------------------------------------------------------------------------------------
+B64 = "dXNlcjpwYXNzd29yZDEyMw=="
+
+
+def test_json_quoted_and_nested_secrets_are_masked():
+    assert "hunter2" not in json.dumps(redact_value({"password": "hunter2"}))
+    nested = redact_value({"env": {"API_KEY": "abc12345", "PATH": "/usr/bin"}})
+    assert nested["env"]["API_KEY"] == "***" and nested["env"]["PATH"] == "/usr/bin"
+    assert "hunter2" not in redact('{"password": "hunter2", "n": 1}')
+    assert "abc12345" not in redact('{"env":{"API_KEY":"abc12345"}}')
+    assert "abc12345" not in redact("{'api_key': 'abc12345'}")
+
+
+def test_basic_auth_header_is_masked():
+    out = redact("curl -H 'Authorization: Basic " + B64 + "' x")
+    assert B64 not in out and "Authorization: Basic ***" in out
+    assert B64 not in json.dumps(redact_value({"headers": {"Authorization": "Basic " + B64}}))
+    assert "basic-auth" in redact_hits("Authorization: Basic " + B64)
+    assert redact("Basic authentication is supported") == "Basic authentication is supported"
+
+
+@pytest.mark.parametrize("text", [
+    "max_tokens=1024", "token = foo.split()", "token: bucket algorithm", "Fix the password: validation bug",
+    "tokens = tokenizer.encode(x)", "--max-tokens 1024", "password_field: str", "if token == None:",
+    "the secret: how it works", "token=self.get_token()", "api_key=os.environ", "token=$TOKEN"])
+def test_prose_and_code_are_not_mangled(text):
+    assert redact(text) == text
+
+
+@pytest.mark.parametrize("text,gone", [
+    ("password=hunter2", "hunter2"), ("API_KEY=abc12345", "abc12345"), ("--token abcDEF123456", "abcDEF123456"),
+    ("password: hunter2xyz9", "hunter2xyz9"), ('token = "s3cr3tvalue"', "s3cr3tvalue")])
+def test_real_key_values_still_masked(text, gone):
+    assert gone not in redact(text)
+
+
+def test_url_userinfo_with_at_sign_in_password():
+    out = redact("postgres://user:p@ss@host.example/db")
+    assert out == "postgres://***@host.example/db"
+
+
+def test_new_shapes():
+    hook = "https://hooks." + "slack.com/services/" + "T01ABCDEF/B01ABCDEF/" + "A1b2C3d4E5f6G7h8I9j0K1l2"
+    hf = "hf" + "_" + "A1b2C3d4E5" * 3 + "A1b2"
+    aws = "aws_secret_" + "access_key = " + "A1b2C3d4E5f6G7h8I9j0" * 2
+    for text, pid in ((hook, "slack-webhook"), (hf, "huggingface-token"), (aws, "aws-secret-key")):
+        assert pid in redact_hits(text), pid
+        assert redact(text).count("A1b2C3d4") == 0
+    assert redact("see hf_model_name and hooks.slack.com docs") == "see hf_model_name and hooks.slack.com docs"
+
+
+def test_twilio_ignores_plain_hex_ids():
+    for ident in ("0123456789abcdef" * 4, "0123456789abcdef" * 2, "AC" + "0123456789ABCDEF" * 2,
+                  "commit " + "a" * 40, "SKU" + "0123456789abcdef" * 2):
+        assert "twilio-key" not in redact_hits(ident), ident
+
+
+def test_store_masks_update_observation_and_session_fields(repo):
+    with Store.open(repo) as st:
+        sid = st.create_sdk_session("c1", "p", f"hello {TOK}", f"title {KEY}")
+        st.create_sdk_session("c1", "p", "", f"later {TOK}")  # existing row path
+        st.db.execute("UPDATE sdk_sessions SET custom_title=NULL WHERE id=?", (sid,))
+        st.create_sdk_session("c1", "p", "", f"again {TOK}")  # UPDATE custom_title path
+        st.import_sdk_session({"content_session_id": "cx", "memory_session_id": "m1", "project": "p"})
+        ids = st.store_observations("m1", "p", [{"title": "t", "narrative": "n"}])["observation_ids"]
+        st.update_observation(ids[0], {"title": f"a {TOK}", "narrative": f"b {KEY}", "text": f"c {TOK}",
+                                       "facts": [f"d {KEY}"], "subtitle": f"e {TOK}"})
+        st.update_observation(ids[0], {"facts": f"x {TOK}"})
+    assert TOK not in _everything(repo) and KEY not in _everything(repo)
+    with Store.open(repo) as st:
+        assert TOK not in str([tuple(r) for r in st.db.execute("SELECT custom_title, user_prompt FROM sdk_sessions")])
+
+
+def test_more_review_cases():
+    for text in ("the token: expired error", "secret_key_length=32", "SECRET_KEY_LENGTH = 32",
+                 "src/" + "a1B2c3D4e5" * 4 + "/file.py", "camelCaseIdentifierWithoutDigitsAtAllXYZabcdefg"):
+        assert redact(text) == text, text
+    assert "hunter2" not in redact("{'PASSWORD': 'hunter2', 'Nested': {'Api_Key': 'abc12345'}}")
+    assert "hunter2" not in json.dumps(redact_value({"Config": [{"PASSWORD": "hunter2"}]}))
+    bare = "wJalrXUtnFEMI/K7MDENG/bPxRfiCY" + "EXAMPLEKEY"
+    assert redact(f"key is {bare}.") == "key is ***."
+
+
+def test_redact_is_fast_on_large_text():
+    import time
+    big = ("line with token: words and https://host:80/a@b plus key=value\n" * 40_000) + "x" * 200_000
+    t = time.perf_counter()
+    redact(big)
+    redact_value({"out": big})
+    assert time.perf_counter() - t < 5
