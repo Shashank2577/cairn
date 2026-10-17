@@ -19,7 +19,7 @@ from .platforms import (
     sort_platform_sources,
 )
 from .projects import git_branch
-from .tags import normalize_stored_prompt_text
+from .tags import normalize_stored_prompt_text, redact, redact_shapes, redact_value
 
 MAX_TOOL_PAYLOAD_BYTES = 64 * 1024
 USER_PROMPT_DEDUPE_WINDOW_MS = 10_000
@@ -83,6 +83,22 @@ def _rows(cur) -> list[dict]:
 def _row(cur) -> dict | None:
     r = cur.fetchone()
     return dict(r) if r else None
+
+
+
+def _mask_fields(d: dict) -> dict:
+    return {k: (v if k in ("files_read", "files_modified", "files_edited") else _mask(v, True)) for k, v in d.items()}
+
+
+def _mask(v, prose: bool = False):
+    """Last line of defence: every text written to the store is masked, whatever path it came by.
+    ``prose`` (model-written memory) masks token shapes only, not ``name: value`` wording."""
+    fn = redact_shapes if prose else redact
+    if isinstance(v, str):
+        return fn(v)
+    if isinstance(v, (list, dict)):
+        return redact_value(v, 0, fn)
+    return v
 
 
 class Store:
@@ -291,7 +307,7 @@ class Store:
         stored empty so the observations of that turn are withheld)."""
         now = schema.now_ms()
         sid = self._resolve_session(content_session_id, session_db_id)
-        text = prompt_text if raw else normalize_stored_prompt_text(prompt_text)
+        text = redact(prompt_text if raw else normalize_stored_prompt_text(prompt_text))
         cur = self.db.execute(
             "INSERT INTO user_prompts(session_db_id, content_session_id, prompt_number, prompt_text, created_at,"
             " created_at_epoch) VALUES(?,?,?,?,?,?)", (sid, content_session_id, prompt_number, text, schema.iso(now), now))
@@ -347,6 +363,8 @@ class Store:
                            model: str | None = None) -> dict:
         """Insert observations (deduplicated per session by title+narrative) and an optional summary,
         in one transaction. Observations without a title are skipped."""
+        observations = [_mask_fields(o) for o in observations]
+        summary = _mask_fields(summary) if summary else summary
         ts = int(override_epoch) if override_epoch else schema.now_ms()
         stamp = schema.iso(ts)
         ids: list[int] = []
@@ -669,7 +687,7 @@ class Store:
         cur = self.db.execute(
             "INSERT INTO sdk_sessions(content_session_id, memory_session_id, project, platform_source, user_prompt,"
             " started_at, started_at_epoch, completed_at, completed_at_epoch, status) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (s["content_session_id"], s.get("memory_session_id"), s.get("project") or "", src, s.get("user_prompt") or "",
+            (s["content_session_id"], s.get("memory_session_id"), s.get("project") or "", src, _mask(s.get("user_prompt") or ""),
              s.get("started_at") or schema.iso(s.get("started_at_epoch")), s.get("started_at_epoch") or schema.now_ms(),
              s.get("completed_at"), s.get("completed_at_epoch"), s.get("status") or "completed"))
         return {"imported": True, "id": int(cur.lastrowid)}
@@ -683,8 +701,8 @@ class Store:
             "INSERT INTO session_summaries(memory_session_id, project, request, investigated, learned, completed,"
             " next_steps, files_read, files_edited, notes, prompt_number, discovery_tokens, created_at, created_at_epoch)"
             " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (s["memory_session_id"], s.get("project") or "", s.get("request"), s.get("investigated"), s.get("learned"),
-             s.get("completed"), s.get("next_steps"), s.get("files_read"), s.get("files_edited"), s.get("notes"),
+            (s["memory_session_id"], s.get("project") or "", _mask(s.get("request"), True), _mask(s.get("investigated"), True), _mask(s.get("learned"), True),
+             _mask(s.get("completed"), True), _mask(s.get("next_steps"), True), s.get("files_read"), s.get("files_edited"), _mask(s.get("notes"), True),
              s.get("prompt_number"), s.get("discovery_tokens") or 0, s.get("created_at") or schema.iso(),
              s.get("created_at_epoch") or schema.now_ms()))
         return {"imported": True, "id": int(cur.lastrowid)}
@@ -698,8 +716,8 @@ class Store:
             "INSERT INTO observations(memory_session_id, project, text, type, title, subtitle, facts, narrative,"
             " concepts, files_read, files_modified, prompt_number, discovery_tokens, agent_type, agent_id, content_hash,"
             " created_at, created_at_epoch, updated_at_epoch) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (o["memory_session_id"], o.get("project") or "", o.get("text"), o.get("type") or "discovery", o.get("title"),
-             o.get("subtitle"), o.get("facts"), o.get("narrative"), o.get("concepts"), o.get("files_read"),
+            (o["memory_session_id"], o.get("project") or "", _mask(o.get("text"), True), o.get("type") or "discovery", _mask(o.get("title"), True),
+             _mask(o.get("subtitle"), True), _mask(o.get("facts"), True), _mask(o.get("narrative"), True), o.get("concepts"), o.get("files_read"),
              o.get("files_modified"), o.get("prompt_number"), o.get("discovery_tokens") or 0, o.get("agent_type"),
              o.get("agent_id"), content_hash(o["memory_session_id"], o.get("title"), o.get("narrative")),
              o.get("created_at") or schema.iso(o.get("created_at_epoch")), o.get("created_at_epoch") or schema.now_ms(),
@@ -724,7 +742,7 @@ class Store:
         cur = self.db.execute(
             "INSERT INTO user_prompts(session_db_id, content_session_id, prompt_number, prompt_text, created_at,"
             " created_at_epoch) VALUES(?,?,?,?,?,?)",
-            (sid, p["content_session_id"], p["prompt_number"], p["prompt_text"], p.get("created_at") or schema.iso(),
+            (sid, p["content_session_id"], p["prompt_number"], _mask(p["prompt_text"]), p.get("created_at") or schema.iso(),
              p.get("created_at_epoch") or schema.now_ms()))
         return {"imported": True, "id": int(cur.lastrowid)}
 
@@ -762,8 +780,8 @@ class Store:
             return None
         ts = created_at_epoch or schema.now_ms()
         h = tool_use_hash(tool_name, tool_input, tool_response)
-        ti = truncate_payload(tool_input) if tool_input is not None else None
-        tr = truncate_payload(tool_response) if tool_response is not None else None
+        ti = _mask(truncate_payload(tool_input)) if tool_input is not None else None
+        tr = _mask(truncate_payload(tool_response)) if tool_response is not None else None
         self.db.execute(
             "INSERT INTO tool_uses(tool_use_id, content_session_id, memory_session_id, session_db_id, project,"
             " platform_source, tool_name, tool_input, tool_response, cwd, prompt_number, agent_type, agent_id,"
@@ -878,7 +896,7 @@ class Store:
                   "prompt_number", "agent_type", "agent_id", "tool_use_id"):
             if fields.get(k) is not None:
                 cols.append(k)
-                vals.append(fields[k])
+                vals.append(_mask(fields[k]) if k != "cwd" else fields[k])
         cur = self.db.execute(f"INSERT OR IGNORE INTO pending_messages({', '.join(cols)}) VALUES"
                               f" ({', '.join('?' * len(cols))})", vals)
         return int(cur.lastrowid) if cur.rowcount else 0
@@ -986,7 +1004,7 @@ class Store:
 
     def save_conversation(self, session_db_id: int, history: Any, *, consecutive_overflows: int = 0,
                           paused_until_epoch: int | None = None) -> None:
-        text = json.dumps(history)
+        text = redact_shapes(json.dumps(history))
         chars = len(text)
         self.db.execute(
             "INSERT INTO observer_conversations(session_db_id, history, chars, consecutive_overflows, paused_until_epoch,"

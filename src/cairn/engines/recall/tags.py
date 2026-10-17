@@ -118,22 +118,28 @@ def redact_hits(text: str) -> list[str]:
     return hits
 
 
-def redact(text: str) -> str:
+def redact_shapes(text: str) -> str:
+    """Mask only the high-precision token shapes (for prose, where ``name: value`` is ordinary wording)."""
     text = text or ""
     for _pid, kws, rx in SECRET_PATTERNS:
         if any(k in text for k in kws):
             text = rx.sub("***", text)
-    return SECRET_RE.sub(_mask_pairs, text)
+    return text
 
 
-def redact_value(value, _depth: int = 0):
+def redact(text: str) -> str:
+    return SECRET_RE.sub(_mask_pairs, redact_shapes(text))
+
+
+def redact_value(value, _depth: int = 0, _fn=None):
     """Redact every string inside a JSON-shaped value (dicts, lists), leaving its structure intact."""
+    fn = _fn or redact
     if _depth > 12:
         return value
     if isinstance(value, str):
-        return redact(value)
+        return fn(value)
     if isinstance(value, list):
-        return [redact_value(v, _depth + 1) for v in value]
+        return [redact_value(v, _depth + 1, fn) for v in value]
     if isinstance(value, dict):
-        return {k: redact_value(v, _depth + 1) for k, v in value.items()}
+        return {k: redact_value(v, _depth + 1, fn) for k, v in value.items()}
     return value

@@ -89,3 +89,95 @@ def test_cli_reports_lines_not_values(tmp_path):
     assert res.exit_code == 0
     assert "line 2" in res.output and "github-token" in res.output and "line 1" not in res.output
     assert tok not in res.output
+
+
+# ---- write paths: every place captured or derived text is stored or sent --------------------------------------
+import subprocess  # noqa: E402
+
+from cairn.engines.recall import hooks  # noqa: E402
+from cairn.engines.recall.redaction_scan import COLUMNS, scan_store  # noqa: E402
+from cairn.engines.recall.schema import store_path  # noqa: E402
+from cairn.engines.recall.store import Store  # noqa: E402
+
+TOK = CASES["github-token"][0]
+KEY = CASES["aws-access-key-id"][0]
+
+
+@pytest.fixture()
+def repo(tmp_path, monkeypatch):
+    monkeypatch.setenv("CAIRN_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CAIRN_RECALL_NO_SPAWN", "1")
+    for var in ("CAIRN_INTERNAL", "CLAUDE_PROJECT_DIR"):
+        monkeypatch.delenv(var, raising=False)
+    root = tmp_path / "shop"
+    (root / ".cairn").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    return root
+
+
+def _everything(root) -> str:
+    with Store.open(root) as st:
+        out = []
+        for table, cols in COLUMNS.items():
+            out += [str(tuple(r)) for r in st.db.execute(f"SELECT {', '.join(cols)} FROM {table}")]
+    return "\n".join(out)
+
+
+def test_hooks_prompt_tool_io_and_summary_are_masked_everywhere(repo):
+    def cap(event, **p):
+        return hooks.run(event, {"session_id": "s1", "cwd": str(repo), **p}, "claude-code")
+    (repo / ".cairn" / "config.toml").write_text('[team]\nserver = "https://cairn.example.com"\nproject = "p"\n',
+                                                 encoding="utf-8")
+    cap("session-init", prompt=f"use {TOK} please")
+    cap("observation", tool_name="Bash", tool_use_id="t1", tool_input={"command": f"curl -u {KEY}"},
+        tool_response={"out": [f"https://u:{B32}@host.example/x"]})
+    cap("summarize", last_assistant_message=f"I used {TOK}")
+    dump = _everything(repo)
+    assert dump and TOK not in dump and KEY not in dump and B32 not in dump  # prompts, queue, tool_uses, outbox
+    assert scan_store(store_path(repo)) == {}
+
+
+def test_store_masks_model_written_memory_and_imports_but_keeps_prose(repo):
+    with Store.open(repo) as st:
+        st.import_sdk_session({"content_session_id": "c", "memory_session_id": "m1", "project": "p"})
+        st.import_sdk_session({"content_session_id": "c2", "memory_session_id": "m2", "project": "p"})
+        st.store_observations("m1", "p", [{"title": f"Found {TOK}", "narrative": "the token: refresh logic",
+                                           "facts": [f"key {KEY}"]}],
+                              {"request": f"r {TOK}", "learned": "password: rotation policy"})
+        st.import_user_prompt({"content_session_id": "c", "prompt_number": 1, "prompt_text": f"x {TOK}"})
+        st.import_observation({"memory_session_id": "m2", "title": f"t {KEY}", "narrative": "n", "created_at_epoch": 1})
+        st.import_session_summary({"memory_session_id": "m2", "request": f"q {TOK}"})
+        sid = st.db.execute("SELECT id FROM sdk_sessions WHERE memory_session_id='m1'").fetchone()[0]
+        st.save_conversation(sid, [{"role": "user", "content": f"see {TOK}"}])
+        st.enqueue(sid, "c", "summarize", last_assistant_message=f"a {TOK}", last_user_message=f"u {KEY}")
+    dump = _everything(repo)
+    assert TOK not in dump and KEY not in dump
+    assert "the token: refresh logic" in dump and "password: rotation policy" in dump  # prose is not mangled
+
+
+def test_deterministic_fallback_summary_is_masked():
+    from cairn.engines.recall import fallback
+    from cairn.engines.recall.modes import load_mode
+    assert "redact" in fallback.__dict__ and fallback.redact(f"git push {TOK}") == "git push ***"
+
+
+def test_ledger_holds_no_text():
+    from cairn import store as brain
+    ddl = brain.SCHEMA[brain.SCHEMA.index("CREATE TABLE IF NOT EXISTS ledger("):]
+    ddl = ddl[:ddl.index(");")]
+    text_cols = [ln for ln in ddl.split(",") if "TEXT" in ln]
+    assert [ln.strip().split()[0] for ln in text_cols] == ["task", "tier", "model"]  # labels only
+
+
+def test_scan_counts_per_shape_read_only(repo):
+    with Store.open(repo) as st:  # create the schema
+        st.db.execute("INSERT INTO user_prompts(content_session_id, prompt_number, prompt_text, created_at,"
+                      " created_at_epoch) VALUES('c', 1, ?, 'x', 1)", (f"raw {TOK} and {KEY}",))
+        st.db.execute("INSERT INTO user_prompts(content_session_id, prompt_number, prompt_text, created_at,"
+                      " created_at_epoch) VALUES('c', 2, 'clean', 'x', 2)")
+    before = _everything(repo)
+    counts = scan_store(store_path(repo))
+    assert counts == {"github-token": {"user_prompts": 1}, "aws-access-key-id": {"user_prompts": 1}}
+    assert _everything(repo) == before  # nothing rewritten
+    res = CliRunner().invoke(app, ["redaction-scan", "--json"], env={"PWD": str(repo)})
+    assert TOK not in res.output and KEY not in res.output
