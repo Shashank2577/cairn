@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -64,6 +64,51 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(
   id UNINDEXED, kind UNINDEXED, label UNINDEXED, title, body, tokenize='porter unicode61');
 """
 
+# Versioned migrations, applied in order on open. Each step is idempotent (IF NOT EXISTS), so a store
+# opened by an older build after a newer one, or a step interrupted halfway, is safe to re-run.
+MIGRATIONS: dict[int, str] = {
+    # 2: the system model (feature 002): elements, relationships, evidence and flows at C4-style levels.
+    2: """
+CREATE TABLE IF NOT EXISTS sm_element(
+  id TEXT PRIMARY KEY, repo TEXT NOT NULL DEFAULT '', level TEXT NOT NULL, type TEXT NOT NULL,
+  kind TEXT, name TEXT NOT NULL, tech TEXT, descr TEXT, parent TEXT,
+  provenance TEXT NOT NULL DEFAULT 'extracted', stale_reason TEXT, stale_since REAL,
+  built_at_commit TEXT NOT NULL DEFAULT '', meta TEXT NOT NULL DEFAULT '{}', updated_at REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS ix_sm_element_repo ON sm_element(repo, level);
+CREATE TABLE IF NOT EXISTS sm_relationship(
+  id TEXT PRIMARY KEY, repo TEXT NOT NULL DEFAULT '', from_id TEXT NOT NULL, to_id TEXT NOT NULL,
+  level TEXT NOT NULL, what TEXT, how TEXT, style TEXT NOT NULL DEFAULT 'sync', rule TEXT NOT NULL,
+  provenance TEXT NOT NULL DEFAULT 'extracted', data_class TEXT, stale_reason TEXT, stale_since REAL,
+  built_at_commit TEXT NOT NULL DEFAULT '', meta TEXT NOT NULL DEFAULT '{}', updated_at REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS ix_sm_rel_from ON sm_relationship(from_id);
+CREATE INDEX IF NOT EXISTS ix_sm_rel_to ON sm_relationship(to_id);
+CREATE INDEX IF NOT EXISTS ix_sm_rel_repo ON sm_relationship(repo);
+CREATE TABLE IF NOT EXISTS sm_evidence(
+  claim_id TEXT NOT NULL, repo TEXT NOT NULL DEFAULT '', file TEXT, line INTEGER, entry TEXT,
+  kind TEXT NOT NULL, commit_confirmed TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS ix_sm_ev_claim ON sm_evidence(claim_id);
+CREATE INDEX IF NOT EXISTS ix_sm_ev_file ON sm_evidence(repo, file);
+CREATE TABLE IF NOT EXISTS sm_flow(
+  id TEXT PRIMARY KEY, repo TEXT NOT NULL DEFAULT '', entry_id TEXT NOT NULL, title TEXT NOT NULL,
+  provenance TEXT NOT NULL DEFAULT 'extracted', built_at_commit TEXT NOT NULL DEFAULT '',
+  updated_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS sm_flow_step(
+  flow_id TEXT NOT NULL, idx INTEGER NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL,
+  what TEXT, how TEXT, style TEXT NOT NULL DEFAULT 'sync', provenance TEXT NOT NULL DEFAULT 'extracted',
+  evidence TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(flow_id, idx));
+""",
+}
+
+
+def migrate(db: sqlite3.Connection, current: int) -> int:
+    """Apply every migration above ``current`` in order; return the version reached."""
+    v = current
+    for target in sorted(k for k in MIGRATIONS if k > current):
+        db.executescript(MIGRATIONS[target])
+        v = target
+    return v
+
+
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _WORD = re.compile(r"[A-Za-z0-9_]{2,}")
 
@@ -96,8 +141,15 @@ class Brain:
         with self._lock:
             self.db.executescript(SCHEMA)
             # write only on change: readers (agent hooks) must not queue behind a sync's write transaction
-            if self.get_kv("schema_version") != str(SCHEMA_VERSION):
-                self.set_kv("schema_version", str(SCHEMA_VERSION))
+            have = self.get_kv("schema_version")
+            if have != str(SCHEMA_VERSION):
+                try:
+                    current = int(have or 1)
+                except ValueError:
+                    current = 1
+                if current < SCHEMA_VERSION:  # a newer store opened by an older build is left as it is
+                    migrate(self.db, current)
+                    self.set_kv("schema_version", str(SCHEMA_VERSION))
 
     # ---- plumbing -------------------------------------------------------------------------------
     @contextmanager

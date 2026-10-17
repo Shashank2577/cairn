@@ -1,0 +1,50 @@
+# BLIND ground truth for instana/robot-shop, written BEFORE any Cairn extraction ran on it and before anyone
+# working on this feature read its source code. Sources: docker-compose.yaml service list and depends_on at the
+# pinned commit, the README's service list, and general knowledge of this public demo. No extraction rule may be
+# edited while looking at this fixture (feature 002, checkpoint step 4).
+fixture: robot-shop
+upstream: https://github.com/instana/robot-shop
+licence: Apache-2.0
+commit: 55292e2199f2fb00a165b1f7d3045fe7f8922038
+layout: monorepo (one repository, one directory per service, docker-compose.yaml at the root)
+written: 2026-10-08, before extraction
+scope: docker-compose.yaml only (docker-compose-load.yaml's load generator is out of scope)
+
+elements:
+  - {id: web,       type: container,  kind: web-app, tech: nginx + AngularJS, note: "serves the UI and proxies /api/* to the services"}
+  - {id: catalogue, type: container,  kind: service, tech: Node.js Express}
+  - {id: user,      type: container,  kind: service, tech: Node.js Express}
+  - {id: cart,      type: container,  kind: service, tech: Node.js Express}
+  - {id: shipping,  type: container,  kind: service, tech: Java Spring Boot}
+  - {id: ratings,   type: container,  kind: service, tech: PHP}
+  - {id: payment,   type: container,  kind: service, tech: Python Flask}
+  - {id: dispatch,  type: container,  kind: worker,  tech: Go}
+  - {id: mongodb,   type: data-store, tech: MongoDB}
+  - {id: mysql,     type: data-store, tech: MySQL}
+  - {id: redis,     type: data-store, tech: Redis, note: "cart and session storage, not messaging"}
+  - {id: rabbitmq,  type: channel,    tech: RabbitMQ}
+  - {id: payment-gateway, type: external-system, note: "external payment endpoint configured by env; uncertain from docs alone"}
+
+relationships:
+  - {from: web, to: catalogue, style: sync, note: "nginx proxy /api/catalogue/"}
+  - {from: web, to: user,      style: sync, note: "nginx proxy /api/user/"}
+  - {from: web, to: cart,      style: sync, note: "nginx proxy /api/cart/"}
+  - {from: web, to: shipping,  style: sync, note: "nginx proxy /api/shipping/"}
+  - {from: web, to: payment,   style: sync, note: "nginx proxy /api/payment/"}
+  - {from: web, to: ratings,   style: sync, note: "nginx proxy /api/ratings/"}
+  - {from: catalogue, to: mongodb, style: sync}
+  - {from: user, to: mongodb, style: sync}
+  - {from: user, to: redis, style: sync}
+  - {from: cart, to: redis, style: sync}
+  - {from: cart, to: catalogue, style: sync, note: "looks up products over HTTP"}
+  - {from: shipping, to: mysql, style: sync}
+  - {from: shipping, to: cart, style: sync, note: "adds shipping to the cart over HTTP"}
+  - {from: ratings, to: mysql, style: sync}
+  - {from: ratings, to: catalogue, style: sync, note: "checks the product exists over HTTP"}
+  - {from: payment, to: cart, style: sync, note: "over HTTP"}
+  - {from: payment, to: user, style: sync, note: "over HTTP"}
+  - {from: payment, to: rabbitmq, style: async, note: "publishes orders"}
+  - {from: dispatch, to: rabbitmq, style: async, note: "consumes orders"}
+  - {from: payment, to: payment-gateway, style: sync, note: "uncertain from docs alone"}
+
+# Not scored: people (Shopper -> web), compose depends_on edges, the load generator.

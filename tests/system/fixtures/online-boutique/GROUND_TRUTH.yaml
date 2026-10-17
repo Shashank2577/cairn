@@ -1,0 +1,52 @@
+# BLIND ground truth for GoogleCloudPlatform/microservices-demo (Online Boutique), written BEFORE any
+# Cairn extraction ran on it and before anyone working on this feature read its source code. Sources: the
+# README's architecture section and service table, the architecture diagram (docs/img/architecture-diagram.png)
+# and the Kubernetes manifest names at the pinned commit, plus general knowledge of this public demo. No
+# extraction rule may be edited while this fixture is scored (feature 002, task T002: the third product;
+# robot-shop is no longer blind because the T052-T057 rules were developed against it).
+fixture: online-boutique
+upstream: https://github.com/GoogleCloudPlatform/microservices-demo
+licence: Apache-2.0
+commit: 38e7348eb289eb5b87c0c6e8cb19ced0449dc389
+layout: monorepo (one repository, one directory per service, Kubernetes manifests at kubernetes-manifests/)
+written: 2026-10-15, before extraction
+scope: the 11 README services plus the load generator and the Redis cache from the main manifests; the
+  ingress Service (frontend-external), Helm/Istio/Kustomize variants and protos are out of scope.
+  Service-to-service calls are gRPC per the README (the extractor has no gRPC rules today; recorded
+  honestly with style sync).
+
+elements:
+  - {id: frontend,             type: container,  kind: web-app, tech: Go, note: "serves the website over HTTP"}
+  - {id: cartservice,          type: container,  kind: service, tech: C# .NET, note: "stores the cart in Redis"}
+  - {id: productcatalogservice, type: container, kind: service, tech: Go}
+  - {id: currencyservice,      type: container,  kind: service, tech: Node.js}
+  - {id: paymentservice,       type: container,  kind: service, tech: Node.js, note: "mock card charge"}
+  - {id: shippingservice,      type: container,  kind: service, tech: Go}
+  - {id: emailservice,         type: container,  kind: service, tech: Python}
+  - {id: checkoutservice,      type: container,  kind: service, tech: Go, note: "orchestrates payment, shipping, email"}
+  - {id: recommendationservice, type: container, kind: service, tech: Python}
+  - {id: adservice,            type: container,  kind: service, tech: Java}
+  - {id: loadgenerator,        type: container,  kind: job,     tech: Python · Locust}
+  - {id: redis-cart,           type: data-store, tech: Redis}
+  - {id: ecb,                  type: external-system, note: "European Central Bank rates, per the README; uncertain from docs alone"}
+
+relationships:
+  - {from: loadgenerator, to: frontend, style: sync, note: "drives shopping flows against the website"}
+  - {from: frontend, to: adservice, style: sync, note: "gRPC"}
+  - {from: frontend, to: recommendationservice, style: sync, note: "gRPC"}
+  - {from: frontend, to: checkoutservice, style: sync, note: "gRPC"}
+  - {from: frontend, to: productcatalogservice, style: sync, note: "gRPC"}
+  - {from: frontend, to: cartservice, style: sync, note: "gRPC"}
+  - {from: frontend, to: shippingservice, style: sync, note: "gRPC"}
+  - {from: frontend, to: currencyservice, style: sync, note: "gRPC"}
+  - {from: recommendationservice, to: productcatalogservice, style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: paymentservice, style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: emailservice, style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: productcatalogservice, style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: cartservice, style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: shippingservice, style: sync, note: "gRPC"}
+  - {from: checkoutservice, to: currencyservice, style: sync, note: "gRPC"}
+  - {from: cartservice, to: redis-cart, style: sync}
+  - {from: currencyservice, to: ecb, style: sync, note: "uncertain from docs alone"}
+
+# Not scored: people (Visitor -> frontend), the frontend-external ingress Service, gRPC topics as channels.

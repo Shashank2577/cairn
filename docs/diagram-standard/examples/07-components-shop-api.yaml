@@ -1,0 +1,18 @@
+diagram: component
+title: Components of shop-api
+scope: shop-api (container)
+description: The FastAPI app mounts the orders router, which writes through the database module and announces new orders through the events module, using types from shop-contracts.
+source_note: replaces "Module Architecture Overview" and "Module Dependencies"
+elements:
+  - {id: web, name: shop-web, type: container, kind: web-app, tech: Express, desc: Calls the orders routes, at: [0,0], evidence: ["shop-web/src/api.js"]}
+  - {id: app, name: App entry, type: component, tech: shop_api/main.py, desc: Builds the FastAPI app and starts uvicorn, at: [1,0], evidence: ["shop-api/shop_api/main.py:6"]}
+  - {id: orders, name: Orders routes, type: component, tech: shop_api/orders.py, desc: "POST and GET /api/orders", at: [2,0], focus: true, evidence: ["shop-api/shop_api/orders.py:6"]}
+  - {id: dbm, name: Order storage, type: component, tech: shop_api/db.py, desc: SQL for the orders table, at: [3,0], evidence: ["shop-api/shop_api/db.py"]}
+  - {id: ev, name: Event publisher, type: component, tech: shop_api/events.py, desc: Publishes events as JSON, at: [3,1], evidence: ["shop-api/shop_api/events.py"]}
+  - {id: contracts, name: shop-contracts, type: library, tech: Python package 1.2.0, desc: Order and OrderCreated types, at: [2,1], evidence: ["shop-api/pyproject.toml: shop-contracts"]}
+relationships:
+  - {from: web, to: app, what: Sends order requests, how: "HTTP :8000", style: sync, evidence: ["shop-web/src/api.js:3"]}
+  - {from: app, to: orders, what: Mounts the router, how: include_router(), style: sync, evidence: ["shop-api/shop_api/main.py:7"]}
+  - {from: orders, to: dbm, what: Saves and loads orders, how: insert_order(), get_order(), style: sync, evidence: ["shop-api/shop_api/orders.py:3"]}
+  - {from: orders, to: ev, what: Announces new orders, how: publish(), style: sync, evidence: ["shop-api/shop_api/orders.py:13"]}
+  - {from: orders, to: contracts, what: Uses Order types, how: import shop_contracts, style: build, evidence: ["shop-api/shop_api/orders.py:2"]}

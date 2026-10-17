@@ -1,0 +1,22 @@
+%% The two comment spellings the standard defines, including two that match nothing in the chart:
+%% those must warn rather than vanish, because a person wrote them expecting them to count.
+flowchart LR
+  %% cairn:diagram {"diagram":"container","title":"Containers of Shop","scope":"Shop","description":"Orders, payment and delivery."}
+  %% cairn web type=container kind=web-app tech="Node.js" desc="Serves the catalogue" evidence="shop-web/server.js:5"
+  web["Storefront"] -->|"Creates orders"| api["Orders API"]
+  %% cairn api->db how="SQL" evidence="shop-api/shop_api/orders.py:8"
+  api --> db[("Orders")]
+  %% cairn db type=data-store tech="PostgreSQL 16" desc="One row per order" evidence="shop-api/compose.yml: db"
+  %% cairn api type=container kind=service tech="Python" desc="Creates and reads orders" evidence="shop-api/main.py:3"
+  %% cairn db tech="postgres" focus=true
+  %% cairn:boundary shop {"id":"shop","name":"Shop","type":"software system","contains":["web","api","db"]}
+  subgraph shop["Shop · software system"]
+    web
+    api
+    db
+  end
+  %% cairn web->db what="Never happens"
+  %% cairn:rel nothing->nowhere {}
+  %% cairn:ghost {"type":"person"}
+  %% cairn:rel nothing->nowhere not json at all
+  %% an ordinary comment, ignored without a word

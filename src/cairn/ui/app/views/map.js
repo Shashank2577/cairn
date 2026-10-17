@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { html, Icon, Empty, Load, Tag, Skeleton, Tabs } from "../components/ui.js";
 import { ArchMap } from "../components/archmap.js";
+import { SystemDiagram, systemDiagramStyle } from "../components/c4view.js";
 import { CommunityMap, buildRegions, loadPack } from "../components/communitymap.js";
 import { RepoMap, LinkCard } from "../components/repomap.js";
 import { Markdown } from "../lib/md.js";
@@ -13,18 +14,26 @@ import { link, replace, go } from "../router.js";
 import { fmt, plural, ago, base, failText } from "../lib/format.js";
 import { loadCytoscape, themeColors, onThemeChange } from "../lib/cyto.js";
 
-const TABS = [["explore", "Explore"], ["architecture", "Architecture"], ["views", "Engine views"], ["wiki", "Wiki"], ["report", "Report"]];
+const TABS = [["explore", "Explore"], ["system", "System"], ["graph", "Connections"], ["architecture", "Architecture"], ["wiki", "Wiki"], ["report", "Report"]];
+const SYSTEM_LEVELS = [["context", "Context"], ["containers", "Containers"], ["components", "Components"], ["flows", "Flows"], ["code", "Code"]];
+/** What each engine view is for, in a sentence, so the tab is not three unexplained pictures. */
+const GRAPH_VIEWS = [
+  ["graph", "Interactive graph", "Every node in this repository's map. Pan, zoom, click a node to see what it is and what it connects to."],
+  ["callflow", "Architecture and call flow", "Which functions call which, and where the architecture sits: the code's own reading of itself."],
+  ["tree", "Folder tree", "The repository as nested folders, collapsible, for finding the place something lives."],
+];
 
 export function MapView() {
   const { pid, route, ov } = useApp();
   const tab = TABS.some(t => t[0] === route.rest[0]) ? route.rest[0] : "explore";
   const L = ov?.layers?.map;
   return html`<div class=${"page view-in map-page" + (tab === "explore" ? " wide" : "")}>
+    ${tab === "system" ? html`<style>${systemDiagramStyle}</style>` : null}
     <div class="page-h"><div><h1>Map</h1>
       <p class="lede">The code and documents of ${ov?.project || "this project"} as one graph${L?.nodes ? `: ${fmt(L.nodes)} nodes and ${fmt(L.edges)} links in ${fmt(L.areas)} communities` : ""}. Communities are groups of code and docs that link to each other more than to anything else.</p></div></div>
     <${Tabs} label="Map views" current=${tab} keyColor="var(--code)" items=${TABS.map(([id, label]) => ({ id, label, href: link.project(pid, "map", id === "explore" ? [] : [id]) }))}/>
     ${!L?.nodes && ov ? html`<${Empty} title="The map is empty"><p>Cairn hasn't parsed this repository yet. Run a sync and the graph of its code and documents appears here.</p></${Empty}>`
-      : tab === "explore" ? html`<${Explore}/>` : tab === "architecture" ? html`<${Architecture}/>` : tab === "views" ? html`<${EngineViews}/>` : tab === "wiki" ? html`<${Wiki}/>` : html`<${Report}/>`}
+      : tab === "explore" ? html`<${Explore}/>` : tab === "system" ? html`<${SystemView}/>` : tab === "graph" ? html`<${GraphViews}/>` : tab === "architecture" ? html`<${Architecture}/>` : tab === "wiki" ? html`<${Wiki}/>` : html`<${Report}/>`}
   </div>`;
 }
 
@@ -283,6 +292,18 @@ function RepoView({ d3, crumbs, narrow }) {
   const openComm = (r, c) => go(link.project(r.id, "map", [], { scope: `community:${c.cid}` }));
   const openEvidence = (l, e) => go(e.node ? link.project(l.source, "map", [], { scope: `around:${e.node}`, node: e.node }) : link.impact(l.source, e.file));
   const shownLink = hover || pinned;
+  // Grouped by declared product, so repositories that system.yaml calls one product are read as one
+  // thing rather than five unrelated circles. Ungrouped repositories keep their own heading.
+  const groups = [];
+  for (const r of data?.nodes || []) {
+    const key = r.product?.system || "";
+    let g = groups.find(x => x.key === key);
+    if (!g) groups.push(g = { key, label: r.product?.system || "Not in a declared product", repos: [] });
+    g.repos.push(r);
+  }
+  const count = k => (data?.links || []).filter(l => l.kind === k).length;
+  const importN = count("imports"), dependN = count("depends"), sharedN = count("shares"), declaredN = count("declared");
+  const products = groups.filter(g => g.key);
   return html`
     <div class="gstage cstage">
       ${crumbs}
@@ -293,7 +314,12 @@ function RepoView({ d3, crumbs, narrow }) {
             active=${hover} pinned=${pinned} onLink=${setHover} onPin=${l => { setPinned(p => p && p.source === l.source && p.target === l.target && p.kind === l.kind ? null : l); if (narrow) setTimeout(() => document.querySelector(".lcard")?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 60); }}
             hoverRepo=${hoverRepo} onHoverRepo=${setHoverRepo} onOpen=${openRepo} onOpenCommunity=${openComm}/>`}
       ${data ? html`<div class="gstatus2 sub">
-        <span>${plural(data.nodes.length, "repository", "repositories")} with a map${data.links.length ? `, ${plural(data.links.filter(l => l.kind === "imports").length, "import link")}${data.links.some(l => l.kind === "depends") ? ` and ${plural(data.links.filter(l => l.kind === "depends").length, "manifest-only link")}` : ""}` : ", and no packages shared between them"}.
+        <span>${plural(data.nodes.length, "repository", "repositories")} with a map${products.length ? `, in ${plural(products.length, "declared product")}` : ""}${
+          importN ? `, ${plural(importN, "import link")}` : ""}${
+          dependN ? ` and ${plural(dependN, "manifest-only link")}` : ""}${
+          sharedN ? ` and ${plural(sharedN, "shared-infrastructure link")}` : ""}${
+          declaredN ? ` and ${plural(declaredN, "declared link")}` : ""}${
+          !data.links.length ? ", and no packages shared between them" : ""}.
           ${data.nodes.length < 2 ? " Only one repository you can see has a map so far." : ""}</span>
         ${teams.length > 1 ? html`<span class="seg" role="radiogroup" aria-label="Team">${[["", "All teams"], ...teams.map(t => [t.id, t.name])].map(([id, name]) => html`<button role="radio" aria-checked=${team === id} aria-pressed=${team === id} onClick=${() => { setTeam(id); setPinned(null); }}>${name}</button>`)}</span>` : null}
       </div>` : null}
@@ -302,12 +328,14 @@ function RepoView({ d3, crumbs, narrow }) {
       ${shownLink && data ? html`<${LinkCard} l=${shownLink} repos=${data.nodes} pinned=${!!pinned && !hover} onEvidence=${openEvidence} onClose=${() => setPinned(null)}/>`
         : html`<div class="panel guide">
           <h3>How to read this map</h3>
-          <p class="sub">Each large circle is a repository, sized by the nodes in its map; the small circles inside are its largest communities. An arrow runs from a repository to the one whose package it imports, thicker when more files import it. A dashed arrow means a manifest lists the package but no file imports it. Hover an arrow to see where; click a repository to open its map.</p>
-          ${data ? html`<h4>Repositories</h4><ul class="repolist">${data.nodes.map((r, i) => html`<li class=${hoverRepo === r.id ? "on" : ""}><button type="button" onClick=${() => openRepo(r)} onMouseEnter=${() => setHoverRepo(r.id)} onMouseLeave=${() => setHoverRepo(null)}>
-            <span class="rl-h"><span class="sw" style=${{ background: colors[i % colors.length] }}></span><b>${r.name}</b>${r.id === pid ? html`<span class="tag outline">here</span>` : null}<span class="spacer"></span><span class="sub num">${fmt(r.nodes)} nodes</span></span>
-            ${r.description ? html`<span class="rl-d">${r.description}</span>` : null}
+          <p class="sub">Each large circle is a repository, sized by the nodes in its map; the small circles inside are its largest communities. An arrow runs from a repository to the one whose package it imports, thicker when more files import it. A dashed arrow means a manifest lists the package but no file imports it. When repositories share no packages — a service mesh calls itself over HTTP, not through imports — the arrow instead joins two repositories that use the same external thing, a database or a broker, and lists which. Repositories that <code>system.yaml</code> calls one product are grouped together in the list, and only link to each other. Hover an arrow to see where; click a repository to open its map.</p>
+          ${data ? html`<h4>Repositories</h4>${groups.map(g => html`<div class="prodgrp">
+            <div class="prodgrp-h sub">${g.key ? html`<b>${g.label}</b> <span>${plural(g.repos.length, "repository", "repositories")} · declared in system.yaml</span>` : html`<span>${g.label}</span>`}</div>
+            <ul class="repolist">${g.repos.map((r, i) => { const c = colors[data.nodes.indexOf(r) % colors.length]; return html`<li class=${hoverRepo === r.id ? "on" : ""}><button type="button" onClick=${() => openRepo(r)} onMouseEnter=${() => setHoverRepo(r.id)} onMouseLeave=${() => setHoverRepo(null)}>
+            <span class="rl-h"><span class="sw" style=${{ background: c }}></span><b>${r.name}</b>${r.id === pid ? html`<span class="tag outline">here</span>` : null}<span class="spacer"></span><span class="sub num">${fmt(r.nodes)} nodes</span></span>
+            ${r.product?.description ? html`<span class="rl-d">${r.product.description}</span>` : r.description ? html`<span class="rl-d">${r.description}</span>` : null}
             <span class="rl-m">${(r.packages || []).map(p => html`<code class="pkg" title=${p.ecosystem}>${p.name}</code>`)}<span class="sub">${[plural(r.files || 0, "file"), ...langsOf(r)].join(", ")}</span></span>
-          </button></li>`)}</ul>` : html`<${Skeleton} rows="4"/>`}
+          </button></li>`; })}</ul></div>`)}` : html`<${Skeleton} rows="4"/>`}
         </div>`}
     </aside>`;
 }
@@ -661,6 +689,76 @@ function Inspector({ res, pid, onPick, setPath, onFocus, commName }) {
   }}</${Load}></div>`;
 }
 
+/* ------------------------------------------------------------------ graph engine views */
+/** The map at full size: every node, where the System tab deliberately shows only a dozen boxes.
+ *
+ * These are the graph engine's own pages, rendered by it and shown in a sandboxed frame. Kept because
+ * they answer "what is in this repository" at a scale the System tab cannot and should not: one box per
+ * service is a summary, one box per function is the thing itself. Each view says what it is for, so the
+ * tab is three pictures with names rather than three pictures. */
+function GraphViews() {
+  const { pid, route } = useApp();
+  const cur = route.q.get("view");
+  const view = GRAPH_VIEWS.find(v => v[0] === cur) || GRAPH_VIEWS[0];
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [view[0], pid]);
+  const src = `/api/p/${encodeURIComponent(pid)}/graph/views/${encodeURIComponent(view[0])}`;
+  return html`<div class="graphviews">
+    <div class="row" style="margin:-6px 0 12px;justify-content:space-between;gap:14px;flex-wrap:wrap">
+      <div class="seg" role="tablist" aria-label="Map views">
+        ${GRAPH_VIEWS.map(([id, label]) => html`<a role="tab" aria-selected=${id === view[0]} aria-current=${id === view[0]}
+          href=${link.project(pid, "map", ["graph"], { view: id })}>${label}</a>`)}
+      </div>
+      <a class="btn sm" href=${api.p(pid).viewUrl(view[0])} target="_blank" rel="noopener">
+        <${Icon} name="ext" size="15"/>Open in a new tab</a>
+    </div>
+    <p class="sub" style="margin:0 0 10px;max-width:88ch">${view[2]}</p>
+    ${failed ? html`<${Empty} title="This view did not load">
+        <p>The engine draws it in a sandboxed frame; some browsers block that. Open it in a new tab, or run a
+        sync if the map has not been built yet.</p></${Empty}>`
+      : html`<iframe class="engine-frame" title=${view[1]} src=${src} sandbox="allow-scripts allow-popups"
+          referrerpolicy="no-referrer" loading="lazy" onError=${() => setFailed(true)}></iframe>`}
+  </div>`;
+}
+
+/* ------------------------------------------------------------------ system */
+function SystemView() {
+  const { pid, route } = useApp();
+  const level = SYSTEM_LEVELS.some(l => l[0] === route.rest[1]) ? route.rest[1] : "containers";
+  const scope = route.q.get("scope") || "";
+  const [flows, setFlows] = useState([]);
+  const list = useFetch(() => (level === "flows" && !scope ? api.p(pid).systemFlows() : Promise.resolve([])), [pid, level, scope]);
+  useEffect(() => { if (list.data) setFlows(list.data); }, [list.data]);
+  const setScope = s => {
+    const q = new URLSearchParams(route.q);
+    s ? q.set("scope", s) : q.delete("scope");
+    const qs = q.toString();
+    replace(link.project(pid, "map", ["system", level]) + (qs ? "?" + qs : ""));
+  };
+  // When system.yaml declares siblings, this tab is not about the repository you opened it from — it is
+  // about the product. Saying so stops the page claiming to be one repository while the picture beside it
+  // is five.
+  const view = useFetch(() => api.p(pid).systemView(level, scope || undefined), [pid, level, scope]);
+  const sys = view.data?.system, repos = view.data?.repos || [];
+  const isProduct = repos.length > 1;
+  return html`<div>
+    <div class="row" style="margin:-6px 0 14px;gap:14px;flex-wrap:wrap">
+      <div class="seg" role="tablist" aria-label="System levels">
+        ${SYSTEM_LEVELS.map(([id, label]) => html`<a role="tab" aria-selected=${id === level} aria-current=${id === level}
+          href=${link.project(pid, "map", ["system", id])}>${label}</a>`)}
+      </div>
+      ${level === "flows" && flows.length > 1 ? html`<select class="input" style="max-width:420px" aria-label="Choose a flow"
+        value=${scope} onChange=${e => setScope(e.target.value)}>
+          ${flows.map((f, i) => html`<option key=${f.title} value=${i === 0 ? "" : f.scope}>${f.title}</option>`)}
+        </select>` : null}
+    </div>
+    ${isProduct ? html`<p class="sub" style="margin:-4px 0 12px;max-width:88ch">
+      <b>${sys}</b> — ${plural(repos.length, "repository", "repositories")} declared as one product in
+      <code>system.yaml</code>: ${repos.join(", ")}. Every level below draws all of them.</p>` : null}
+    <${SystemDiagram} pid=${pid} level=${level} scope=${scope}/>
+  </div>`;
+}
+
 /* ------------------------------------------------------------------ other tabs */
 function Architecture() {
   const { pid } = useApp();
@@ -680,22 +778,9 @@ function Architecture() {
 }
 
 function EngineViews() {
-  const { pid, route } = useApp();
-  const res = useFetch(() => api.p(pid).views(), [pid]);
-  const cur = route.q.get("view");
-  return html`<${Load} res=${res} rows="3">${views => {
-    if (!views.length) return html`<${Empty} title="No engine views yet"><p>The graph engine writes interactive views (full graph, call flow, file tree) on each sync. Run a sync to create them.</p></${Empty}>`;
-    const v = views.find(x => x.kind === cur) || views[0];
-    const src = api.p(pid).viewUrl(v.kind);
-    return html`<div>
-      <div class="row" style="margin:-6px 0 12px;justify-content:space-between">
-        <div class="seg" role="tablist" aria-label="Engine views">${views.map(x => html`<a role="tab" aria-selected=${x.kind === v.kind} aria-current=${x.kind === v.kind} href=${link.project(pid, "map", ["views"], { view: x.kind })}>${x.title}</a>`)}</div>
-        <a class="btn sm" href=${src} target="_blank" rel="noopener"><${Icon} name="ext" size="15"/>Open in a new tab</a>
-      </div>
-      <p class="sub" style="margin:0 0 10px">Drawn by the graph engine itself, isolated from this page. If it stays blank, open it in a new tab.</p>
-      <iframe class="engine-frame" title=${v.title} src=${src} sandbox="allow-scripts allow-popups" referrerpolicy="no-referrer" loading="lazy"></iframe>
-    </div>`;
-  }}</${Load}>`;
+  // Removed in T032: engine views are no longer served as UI routes. The graph exports remain
+  // on the command line (`cairn graph export …`); the page uses the system model's own views.
+  return html`<${Empty} title="Engine views removed"><p>The interactive graph, call flow and file tree views are now part of the System tab. The graph engine's exports remain on the command line.</p></${Empty}>`;
 }
 
 function Wiki() {

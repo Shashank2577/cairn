@@ -1,0 +1,20 @@
+# Ground truth for the Java/Spring + Go fixture, written BEFORE Cairn's extraction was first run on it
+# (2026-10-08). It states the intended design of the two repositories below, not Cairn output.
+fixture: orders
+layout: two repositories grouped by system.yaml (checkout-spring, inventory-go)
+written: 2026-10-08, before extraction
+
+elements:
+  - {id: checkout-spring, type: container, kind: service, tech: Java Spring Boot, note: "REST API for checkouts; calls inventory; consumes stock.reserved"}
+  - {id: inventory-go,    type: container, kind: service, tech: Go net/http,       note: "reserves stock; Postgres; publishes stock.reserved"}
+  - {id: postgresql,      type: data-store, tech: PostgreSQL, note: "compose service db, postgres:16"}
+  - {id: kafka,           type: channel,    tech: Kafka,      note: "compose service kafka, bitnami/kafka"}
+
+relationships:
+  - {from: checkout-spring, to: inventory-go, what: reserves and reads stock, style: sync,  note: "RestTemplate POST /api/reservations, GET /api/stock/{sku}; base URL from inventory.url"}
+  - {from: inventory-go,    to: postgresql,   what: reads and writes stock,   style: sync,  note: "database/sql with pgx; SELECT/UPDATE stock, INSERT reservations"}
+  - {from: inventory-go,    to: kafka,        what: publishes stock.reserved, style: async, note: "segmentio/kafka-go Writer"}
+  - {from: checkout-spring, to: kafka,        what: consumes stock.reserved,  style: async, note: "@KafkaListener(topics = \"stock.reserved\")"}
+
+# Traps that must create nothing: an unused KafkaTemplate import in checkout (import without use), a Go test
+# file calling localhost, and an example compose file under docs/.

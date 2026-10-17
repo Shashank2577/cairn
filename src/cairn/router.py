@@ -22,6 +22,7 @@ import tempfile
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .project import Project
@@ -85,6 +86,29 @@ PROVIDERS = ("anthropic", "openai", "claude-code")
 NO_USAGE = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
 
 
+# Where the Claude Code CLI is usually installed. A server started by a hook, an IDE or a service manager often has a
+# minimal PATH that misses these, which made deep mode look "off" although the CLI was there.
+CLAUDE_DIRS = (Path("/opt/homebrew/bin"), Path("/usr/local/bin"), Path.home() / ".local" / "bin",
+               Path.home() / ".claude" / "local")
+CLAUDE_FIX = "install or sign in to Claude Code (`claude`), or set ANTHROPIC_API_KEY / an OpenAI-compatible endpoint"
+
+
+def find_claude() -> str | None:
+    """The Claude Code CLI: on PATH first, then the usual install directories. On Windows the npm shim is
+    `claude.cmd`, which a bare `claude` misses."""
+    names = ("claude.cmd", "claude.exe", "claude") if os.name == "nt" else ("claude",)
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return found
+    for directory in CLAUDE_DIRS:
+        for name in names:
+            candidate = Path(directory) / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+    return None
+
+
 def resolve_provider(configured: str, base_url: str | None = None) -> str | None:
     """`auto` picks, in order: an Anthropic key, an OpenAI-compatible key or endpoint, then the
     signed-in Claude Code CLI (the user's subscription, no key needed). None when nothing is usable."""
@@ -94,7 +118,7 @@ def resolve_provider(configured: str, base_url: str | None = None) -> str | None
         return "anthropic"
     if os.environ.get("OPENAI_API_KEY") or base_url:
         return "openai"
-    if shutil.which("claude") and not os.environ.get("CAIRN_NO_CLI_MODELS"):
+    if find_claude() and not os.environ.get("CAIRN_NO_CLI_MODELS"):
         return "claude-code"
     return None
 
@@ -115,18 +139,39 @@ class Router:
         if self.provider == "anthropic":
             return os.environ.get("ANTHROPIC_API_KEY")
         if self.provider == "claude-code":
-            return "subscription" if shutil.which("claude") else None
+            return "subscription" if find_claude() else None
         return os.environ.get("OPENAI_API_KEY") or ("local" if self.base_url else None)
 
     @property
     def available(self) -> bool:
         return self.provider is not None and bool(self.api_key)
 
-    def deep_enabled(self) -> bool:
+    def deep_state(self) -> dict:
+        """Deep mode on or off with the backend, the reason and the fix: the one answer status, doctor, the API
+        and the UI all show."""
+        claude = find_claude()
+        out = {"enabled": False, "backend": self.provider, "claude_path": claude, "reason": "", "fix": ""}
         flag = self.project.cfg("deep.enabled", "auto")
         if flag is False or str(flag).lower() in ("false", "off", "no"):
-            return False
-        return self.available
+            out.update(reason="turned off by deep.enabled = false in the project config",
+                       fix='set deep.enabled = "auto" in .cairn/config.toml')
+        elif self.available:
+            using = {"anthropic": "using ANTHROPIC_API_KEY", "openai": "using an OpenAI-compatible key or endpoint",
+                     "claude-code": f"using the Claude Code CLI at {claude}"}.get(self.provider or "", "available")
+            out.update(enabled=True, reason=using)
+        elif self.provider == "claude-code":
+            out.update(reason="the Claude Code CLI was not found on PATH or in the usual install folders "
+                              f"({', '.join(str(d) for d in CLAUDE_DIRS)})", fix=CLAUDE_FIX)
+        elif self.provider == "anthropic":
+            out.update(reason="no ANTHROPIC_API_KEY (or CAIRN_API_KEY) is set", fix=CLAUDE_FIX)
+        elif self.provider == "openai":
+            out.update(reason="no OPENAI_API_KEY and no models.base_url is set", fix=CLAUDE_FIX)
+        else:
+            out.update(reason="no model backend: no API key, no endpoint and no Claude Code CLI found", fix=CLAUDE_FIX)
+        return out
+
+    def deep_enabled(self) -> bool:
+        return bool(self.deep_state()["enabled"])
 
     def model(self, tier: str) -> str:
         return str(self.project.cfg(f"models.{tier}", "")) or {
@@ -281,7 +326,7 @@ class Router:
     @staticmethod
     def _claude_code_args(model: str, system: str, cached: str, output: str) -> list[str]:
         # the resolved path: on Windows a bare name misses `claude.cmd` (the npm install) that `which` finds
-        args = [shutil.which("claude") or "claude", "-p", "--model", model, "--output-format", output, "--setting-sources", "local",
+        args = [find_claude() or "claude", "-p", "--model", model, "--output-format", output, "--setting-sources", "local",
                 "--strict-mcp-config", "--tools", "", "--no-session-persistence"]
         if output == "stream-json":
             args += ["--verbose", "--include-partial-messages"]

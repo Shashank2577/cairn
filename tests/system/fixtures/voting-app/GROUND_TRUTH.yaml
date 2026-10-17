@@ -1,0 +1,27 @@
+# Ground truth for the real open-source fixture, written BEFORE any Cairn extraction was run on it.
+# Sources: the project's README "Architecture" section and docker-compose.yml at the pinned commit, plus
+# general knowledge of this well-known sample app. Not derived from Cairn output.
+fixture: example-voting-app
+upstream: https://github.com/dockersamples/example-voting-app
+licence: Apache-2.0
+commit: 63e9150ca17af4ed05880d4245e486481f73fcb4
+layout: monorepo (one repository, several deploy units)
+written: 2026-10-08, before extraction
+
+# Elements Cairn is expected to compute (people are not extractable and are excluded from scoring).
+elements:
+  - {id: vote,   type: container,  kind: web-app, tech: Python Flask,   note: "vote/ - front-end web app that lets you vote"}
+  - {id: result, type: container,  kind: web-app, tech: Node.js Express, note: "result/ - shows results in real time (socket.io)"}
+  - {id: worker, type: container,  kind: worker,  tech: .NET,            note: "worker/ - consumes votes and stores them"}
+  - {id: seed,   type: container,  kind: job,     tech: shell / ab,       note: "seed-data/ - optional load generator (compose profile 'seed')"}
+  - {id: redis,  type: channel,    tech: redis,   note: "redis:alpine - collects new votes (used as a list queue)"}
+  - {id: db,     type: data-store, tech: postgres, note: "postgres:15-alpine - stores votes"}
+
+relationships:
+  - {from: vote,   to: redis,  what: queues votes,        style: async, note: "Redis list push"}
+  - {from: worker, to: redis,  what: consumes votes,      style: async, note: "Redis list pop"}
+  - {from: worker, to: db,     what: stores votes,        style: sync,  note: "SQL insert/update votes table"}
+  - {from: result, to: db,     what: reads vote counts,   style: sync,  note: "SQL select from votes"}
+  - {from: seed,   to: vote,   what: posts votes,         style: sync,  note: "HTTP POST via ab in a shell script; expected to be hard to extract"}
+
+# Not scored: people (Voter -> vote, Viewer -> result) and compose depends_on edges (startup order, not traffic).

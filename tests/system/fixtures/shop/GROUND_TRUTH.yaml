@@ -1,0 +1,26 @@
+# Ground truth for the four-repository shop fixture. Converted unchanged in substance from the prototype's
+# GROUND_TRUTH.md (specs/002-system-model/prototype/sandbox), which was written before the prototype ran.
+# Not derived from Cairn output.
+fixture: shop
+layout: four repositories grouped by system.yaml (shop-web, shop-api, shop-worker, shop-contracts)
+written: 2026-10-08 (prototype), converted 2026-10-08 before the build's extraction ran on it
+
+elements:
+  - {id: shop-web,       type: container,       kind: web-app, tech: Node.js Express, note: "Node/Express web app"}
+  - {id: shop-api,       type: container,       kind: service, tech: Python FastAPI,  note: "Python/FastAPI service"}
+  - {id: shop-worker,    type: container,       kind: worker,  tech: Python,          note: "Python worker"}
+  - {id: shop-contracts, type: library,         tech: Python package,                 note: "library, not a running container"}
+  - {id: postgresql,     type: data-store,      tech: PostgreSQL,                     note: "database"}
+  - {id: redis,          type: channel,         tech: Redis,                          note: "message bus / pub-sub"}
+  - {id: sendgrid,       type: external-system, tech: SendGrid,                       note: "email"}
+  - {id: customer,       type: person,                                                note: "declared in system.yaml actors"}
+
+relationships:
+  - {from: customer,    to: shop-web,       what: places orders,                style: sync,  note: "HTTPS (declared)"}
+  - {from: shop-web,    to: shop-api,       what: creates and reads orders,     style: sync,  note: "HTTP, POST /api/orders, GET /api/orders/{id}"}
+  - {from: shop-api,    to: postgresql,     what: reads and writes orders,      style: sync,  note: "SQL / psycopg"}
+  - {from: shop-api,    to: redis,          what: publishes order.created,      style: async, note: "Redis pub/sub"}
+  - {from: shop-worker, to: redis,          what: subscribes to order.created,  style: async, note: "Redis pub/sub"}
+  - {from: shop-worker, to: sendgrid,       what: sends confirmation email,     style: sync,  note: "HTTPS API"}
+  - {from: shop-api,    to: shop-contracts, what: uses shared types,            style: build, note: "package dependency, build time"}
+  - {from: shop-worker, to: shop-contracts, what: uses shared types,            style: build, note: "package dependency, build time"}

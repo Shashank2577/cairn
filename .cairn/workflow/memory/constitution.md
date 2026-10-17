@@ -1,6 +1,11 @@
 <!--
 Sync Impact Report
-Version: 1.0.0 → 1.1.0 (2026-09-25)
+Version: 1.1.0 → 1.1.1 (2026-10-08, PATCH, feature 002-system-model, approved via the spec)
+Modified principles: II (provenance vocabulary: EXTRACTED and INFERRED, plus DECLARED for facts a person
+states, AMBIGUOUS for derivations with more than one candidate, and STALE for claims whose evidence was not
+found at the last sync). No principle added or removed.
+Templates reviewed: plan/spec/tasks — compatible, no edits required.
+Previous: 1.0.0 → 1.1.0 (2026-09-25)
 Modified principles: I (attribution now lives in NOTICE and licenses/, per ADR-0005); VII (state may
 also live on a team server the team runs, per ADR-0007; model calls go to whichever provider is
 available, including the signed-in Claude Code CLI, per ADR-0004).
@@ -24,7 +29,10 @@ concepts. Attribution lives in `NOTICE` and `licenses/`, and nowhere else.
 Every core answer (impact, why, trace, drift checks) MUST have a deterministic path built
 from ASTs, git history, spec artifacts and session logs, and MUST work with zero API keys.
 Model calls enrich, rank or narrate; they never gate a feature. Every claim carries
-provenance: `EXTRACTED` (read from a source) or `INFERRED` (derived), plus its source id.
+provenance: `EXTRACTED` (read from a source) or `INFERRED` (derived), plus its source id. Three
+further labels refine these and never replace evidence: `DECLARED` (stated by a person, for example in
+`system.yaml`), `AMBIGUOUS` (derived, with more than one candidate, all of them listed) and `STALE` (its
+evidence was not found at the last sync; shown, never silently deleted).
 
 ### III. One Command, Zero Friction
 `cairn` in any git repository — new or ten years old — must reach a useful state without
@@ -77,4 +85,4 @@ This constitution supersedes other practices. Amendments require an ADR, a versi
 (semver: MAJOR for principle removal/redefinition, MINOR for additions, PATCH for wording),
 and a Sync Impact Report at the top of this file.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-24 | **Last Amended**: 2026-09-25
+**Version**: 1.1.1 | **Ratified**: 2026-09-24 | **Last Amended**: 2026-10-08

@@ -50,6 +50,7 @@ export function Overview() {
           <span>${never ? "Never synced" : `Synced ${ago(ov.last_sync)}`}</span>
           <span title=${ov.capture?.agents?.length > 3 ? listOf(ov.capture.agents) : null}>${(ov.capture ? ov.capture.on : L.sessions?.connected) ? (ov.capture?.agents?.length ? `Recording sessions from ${fewOf(ov.capture.agents)}` : "Recording agent sessions") : "Session recording is off"}</span>
           <span>${ov.models?.available ? `Models on through ${ov.models.provider}` : "No model: deterministic answers only"}</span>
+          ${ov.models?.deep_state ? html`<span title=${ov.models.deep_state.enabled ? ov.models.deep_state.reason : `${ov.models.deep_state.reason}. Fix: ${ov.models.deep_state.fix}`}>${ov.models.deep_state.enabled ? "Deep on" : `Deep off: ${ov.models.deep_state.reason}`}</span>` : null}
         </div>
       </div>
     </header>

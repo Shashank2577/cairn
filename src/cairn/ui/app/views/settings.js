@@ -81,6 +81,7 @@ export function ProjectSettings() {
       <section class="setsec">
         <div class="seth"><h2>Deep tier</h2><p class="sub">Full syncs read new commits, sessions and documents as episodes and keep the fact graph on the Timeline current.</p></div>
         <div class="setbody">
+          ${ov?.models?.deep_state ? html`<p class="modelstate"><${Tag} tone=${ov.models.deep_state.enabled ? "memory" : "risk"}>${ov.models.deep_state.enabled ? "on" : "off"}</${Tag}> ${ov.models.deep_state.reason}.${ov.models.deep_state.enabled ? "" : html` Fix: ${ov.models.deep_state.fix}.`}</p>` : null}
           <div class="seg" role="radiogroup" aria-label="Deep tier">${[["auto", "When a model is available"], [true, "Always"], [false, "Never"]].map(([k, l]) => {
             const cur = val("deep.enabled", "auto"); const on = cur === k || (k === true && cur === "on") || (k === false && cur === "off");
             return html`<button role="radio" aria-checked=${on} aria-pressed=${on} disabled=${off("deep.enabled")} onClick=${() => set("deep.enabled", k)}>${l}</button>`; })}</div>
@@ -99,6 +100,14 @@ export function ProjectSettings() {
           ${locked.has("context.budget") ? html`<div class="field">${hint("context.budget")}</div>` : null}
         </div>
       </section>
+      ${ov?.budgets?.length ? html`<section class="setsec">
+        <div class="seth"><h2>Limits</h2><p class="sub">Every limit Cairn applies, in plain words: what it caps, how much it has used and what happens at the limit.</p></div>
+        <div class="setbody limits">
+          ${ov.budgets.map(b => html`<div class="limit"><h3>${b.name}</h3><p>${b.meaning}</p>
+            <dl class="kv"><dt>Value</dt><dd>${fmt(b.value)} ${b.unit}</dd>
+              ${b.used != null ? html`<dt>Used</dt><dd>${fmt(b.used)} ${b.used_note ? `(${b.used_note})` : ""}</dd>` : null}
+              <dt>At the limit</dt><dd>${b.when_exceeded}</dd></dl></div>`)}</div>
+      </section>` : null}
       <section class="setsec">
         <div class="seth"><h2>Repository</h2><p class="sub">Where Cairn reads this project from.</p></div>
         <div class="setbody"><dl class="kv">

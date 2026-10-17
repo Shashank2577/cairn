@@ -5,7 +5,35 @@ import { html, Icon, Logo, SheetMark, Avatar } from "./ui.js";
 import { useApp, useDismiss } from "../state.js";
 import { api, env } from "../api.js";
 import { link, citeHref, go } from "../router.js";
-import { ago, fmt, ROLE_LABEL, canRole, allowed, STEP_LABEL, failText } from "../lib/format.js";
+import { ago, fmt, plural, ROLE_LABEL, canRole, allowed, STEP_LABEL, failText } from "../lib/format.js";
+
+/* ------------------------------------------------------- server banner */
+/** One banner when the server fails: it says whether the server itself is stale or gone, or which request failed. */
+export function ServerBanner() {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    let last = 0;
+    const onError = async e => {
+      const now = Date.now();
+      if (now - last < 4000) return;  // one banner, not one per failing panel
+      last = now;
+      const { status, path, message } = e.detail || {};
+      let health = null;
+      try { health = await (await fetch("/api/health", { headers: { accept: "application/json" } })).json(); } catch (err) { /* unreachable */ }
+      if (!health) setInfo({ title: "Can't reach the Cairn server", body: "It may have stopped. Run `cairn up` in a terminal to start it.", fix: "cairn up" });
+      else if (health.code_root_exists === false || health.ui_ok === false)
+        setInfo({ title: "The Cairn server is running from files that no longer exist", body: "Its code or UI files were deleted or replaced, so pages and dropdowns fail.", fix: "cairn up" });
+      else setInfo({ title: "The server hit an error", body: `${path || "A request"} failed${status ? ` (${status})` : ""}${message ? `: ${message}` : ""}. The rest of the page still works.` });
+    };
+    window.addEventListener("cairn:api-error", onError);
+    return () => window.removeEventListener("cairn:api-error", onError);
+  }, []);
+  if (!info) return null;
+  return html`<div class="srv-banner" role="alert">
+    <div><b>${info.title}.</b> ${info.body}${info.fix ? html` Fix: run <code>${info.fix}</code> in a terminal (it restarts the server; other repositories are interrupted for a few seconds), then reload.` : null}</div>
+    <button class="btn ghost sm" onClick=${() => setInfo(null)}>Dismiss</button>
+  </div>`;
+}
 
 /* ---------------------------------------------------------------- top bar */
 export function TopBar({ onMenu }) {
@@ -54,14 +82,39 @@ function ProjectSwitcher() {
       ${session.projects.length > 5 ? html`<div class="filter"><input class="input" placeholder="Find a project" value=${filter} onInput=${e => setFilter(e.target.value)} aria-label="Find a project" autofocus/></div>` : null}
       <div class="menu list" role="listbox" aria-label="Projects">
         ${teams.map(t => {
-          const ps = list.filter(p => (p.team_id ?? null) === t.id);
-          if (!ps.length) return null;
-          return html`<div class="mh">${t.name}</div>${ps.map(p => html`
+          const mine = list.filter(p => (p.team_id ?? null) === t.id);
+          if (!mine.length) return null;
+          // Team, then product: system.yaml says five repositories are one product, and the switcher
+          // is where you pick between things — so it shows products, not the repositories inside them.
+          const byProduct = new Map();
+          for (const p of mine) {
+            const k = p.product?.system || "";
+            if (!byProduct.has(k)) byProduct.set(k, []);
+            byProduct.get(k).push(p);
+          }
+          const singles = byProduct.get("") || [];
+          const products = [...byProduct.entries()].filter(([k]) => k);
+          const rows = ps => ps.map(p => html`
             <button class="prow" role="option" aria-current=${p.id === project.id} aria-selected=${p.id === project.id} onClick=${() => pick(p)}>
               <${SheetMark} seed=${p.id} size="28"/>
               <span style="min-width:0"><span class="pn">${p.name}</span><span class="pp">${p.root || p.git_url || ""}</span></span>
               <span class="pr">${p.last_sync ? ago(p.last_sync) : "Never synced"}<br/>${ROLE_LABEL[p.role] || ""}</span>
-            </button>`)}`;
+            </button>`);
+          // The product is itself something you can open: the System view is the whole product, drawn
+          // from every repository in it. Anchored to the repository that owns system.yaml, which is
+          // where that linked model lives — picking a sibling would show the same picture under a
+          // name that suggests it is only that repository's.
+          const prows = ([k, ps]) => {
+            const anchor = ps.find(p => p.product?.anchor) || ps[0];
+            return html`<button class="prow pprod" role="option" aria-selected="false" title=${`Open ${k} as one system`} onClick=${() => { setOpen(false); setFilter(""); go(link.project(anchor.id, "map", ["system"])); }}>
+              <span class="pprod-i"><${Icon} name="folder" size="17"/></span>
+              <span style="min-width:0"><span class="pn">${k}</span><span class="pp">${plural(ps.length, "repository", "repositories")} · open as one system</span></span>
+              <span class="pr">${ROLE_LABEL[anchor.role] || ""}</span>
+            </button>`;
+          };
+          return html`<div class="mh">${t.name}</div>${
+            products.map(([k, ps]) => prows([k, ps]))
+          }${singles.length ? rows(singles) : null}`;
         })}
         ${!list.length ? html`<div class="mh">No project matches “${filter}”.</div>` : null}
         ${session.mode === "team" && session.teams.some(t => canRole(t.role, "admin")) ? html`<hr/>

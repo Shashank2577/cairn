@@ -90,6 +90,16 @@ cross-repo hits and local impact in one call — and a `system.yaml` that names 
 form one product. Neither exists yet; the pieces above are what works today, and they already carry
 the flow end to end.
 
+## The system model
+
+A `system.yaml` in a repository's `.cairn/` folder names the product it belongs to and its sibling
+repositories. From that, `cairn sync` computes a system model: containers, data stores, channels,
+libraries and the relationships between them, each claim carrying evidence ([architecture](architecture.md#the-system-model)).
+Agents see where they are in the product through the brief's system line and the context pack's
+"System consumers" section. `cairn docs export` writes the architecture document set from the model
+(one Markdown per level, with Mermaid and SVG diagrams and evidence tables), and `cairn system --view
+context|containers|components|flows|code` draws any level in the terminal. See [cli.md](cli.md#docs-export).
+
 ## Hosting: self-hosted path
 
 The default. One small server, one binary, no infrastructure dependencies unless you add them.

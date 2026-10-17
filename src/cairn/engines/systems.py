@@ -9,6 +9,16 @@ declares those siblings with zero infrastructure::
       - path: ../ASG-Edgeplus-Api-Gateway
       - path: ../ASG-Edgeplus-User-Service
 
+Optional additions (all declared facts, labelled declared in the system model; old files stay valid and
+an invalid entry is skipped with a reason, never fatal)::
+
+    actors:                       # people Cairn cannot see in code
+      - {name: Customer, desc: Places orders, uses: shop-web, what: Places orders, how: HTTPS}
+    repos:
+      - {path: ../shop-web, kind: web-app, description: Storefront}   # per-repo kind, role, description
+    relationships:                # traffic no code or deploy file shows
+      - {from: shop-api, to: Billing, what: Bills orders, how: HTTPS, style: sync}
+
 This is the file-local complement to the heavier ``cairn graph global add`` + ``/api/repos/map``
 mechanism (global graph under ``$CAIRN_HOME/graph/``); the two stay independent. Sibling brains
 are queried read-only straight from SQLite — no Cairn objects are constructed for them, so a
@@ -18,13 +28,13 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-import yaml
-
 from ..linker import GENERIC
+from ..system.safeyaml import UnsafeYAML
+from ..system.safeyaml import load_file as _load_yaml
 
 # The GENERIC drop list comes from the linker; STRUCTURAL adds platform words that match across
 # almost any two repos (``.github/``, ``Adapter`` classes, source dirs) and would flood the
@@ -134,8 +144,8 @@ def discover(root: Path | None = None) -> System | None:
     if decl is None:
         return None
     try:
-        data = yaml.safe_load(decl.read_text(encoding="utf-8"))
-    except (yaml.YAMLError, OSError):
+        data = _load_yaml(decl)
+    except (UnsafeYAML, OSError):
         return None
     if not isinstance(data, dict):
         return None
@@ -153,10 +163,12 @@ def discover(root: Path | None = None) -> System | None:
         if path == root:
             continue  # a repo is never its own sibling
         db = path / ".cairn" / "brain.db"
+        label = str(entry.get("name") or path.name)
         if not path.is_dir():
-            skipped.append({"path": raw, "reason": "directory not found"})
+            skipped.append({"path": raw, "reason": "directory not found", "name": label, "root": str(path)})
         elif not db.is_file():
-            skipped.append({"path": raw, "reason": "no .cairn/brain.db (run `cairn init` there)"})
+            skipped.append({"path": raw, "reason": "no .cairn/brain.db (run `cairn init` there)", "name": label,
+                            "root": str(path)})
         else:
             siblings.append(Sibling(name=str(entry.get("name") or path.name), root=path, db=db))
     return System(name=name, root=root, siblings=tuple(siblings), skipped=tuple(skipped),
@@ -215,3 +227,118 @@ def system_context(root: Path | None = None) -> dict | None:
                         "memories": mem})
     return {"system": sysdef.name, "root": str(sysdef.root), "declared_in": sysdef.declared_in,
             "members": members, "skipped": list(sysdef.skipped)}
+
+
+# ---- optional declarations (FR-012, FR-029a) ---------------------------------------------------------
+KINDS = ("web-app", "service", "worker", "cli", "job", "function", "mobile-app")
+ROLES = ("container", "library")
+STYLES = ("sync", "async", "build")
+_TEXT_LIMIT = 200
+
+
+@dataclass(frozen=True)
+class Declared:
+    """What ``system.yaml`` declares beyond ``system`` and ``repos``. Every fact here is labelled declared."""
+    system: str
+    declared_in: str
+    actors: tuple[dict, ...] = ()
+    repos: dict = field(default_factory=dict)          # repo name -> {kind, role, description, line}
+    relationships: tuple[dict, ...] = ()
+    skipped: tuple[dict, ...] = ()                     # {entry, reason}
+    lines: dict = field(default_factory=dict)          # entry -> line in the file
+
+
+def _text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, (str, int, float)):
+        return None
+    s = " ".join(str(value).split())
+    return s[:_TEXT_LIMIT] or None
+
+
+def declarations(root: Path | None = None) -> Declared | None:
+    """The optional declarations in this repository's ``system.yaml``, validated; None without a file."""
+    root = Path(root or Path.cwd()).resolve()
+    decl = next((p for name in DECLARATIONS for p in [root / name] if p.is_file()), None)
+    if decl is None:
+        return None
+    try:
+        data = _load_yaml(decl)
+        text = decl.read_text(encoding="utf-8", errors="replace")
+    except (UnsafeYAML, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    skipped: list[dict] = []
+    lines: dict[str, int] = {}
+
+    def line_of(needle: str) -> int | None:
+        i = text.find(needle)
+        return text.count("\n", 0, i) + 1 if i >= 0 else None
+
+    actors: list[dict] = []
+    raw_actors = data.get("actors")
+    if raw_actors is not None and not isinstance(raw_actors, list):
+        skipped.append({"entry": "actors", "reason": "expected a list"})
+        raw_actors = []
+    for i, a in enumerate(raw_actors or []):
+        if not isinstance(a, dict) or not _text(a.get("name")):
+            skipped.append({"entry": f"actors[{i}]", "reason": "an actor needs a name"})
+            continue
+        item = {k: _text(a.get(k)) for k in ("name", "desc", "uses", "what", "how")}
+        item["line"] = line_of(str(a.get("name")))
+        actors.append(item)
+    repos: dict[str, dict] = {}
+    for i, entry in enumerate(data.get("repos") or []):
+        if isinstance(entry, str) or not isinstance(entry, dict):
+            continue
+        raw = str(entry.get("path") or "").strip()
+        if not raw:
+            continue
+        p = Path(raw)
+        path = (p if p.is_absolute() else root / p).resolve()
+        name = str(entry.get("name") or path.name)
+        meta: dict[str, Any] = {"line": line_of(raw)}
+        kind, role = entry.get("kind"), entry.get("role")
+        if kind is not None:
+            if kind in KINDS:
+                meta["kind"] = kind
+            else:
+                skipped.append({"entry": f"repos[{i}].kind", "reason": f"kind must be one of {', '.join(KINDS)}"})
+        if role is not None:
+            if role in ROLES:
+                meta["role"] = role
+            else:
+                skipped.append({"entry": f"repos[{i}].role", "reason": f"role must be one of {', '.join(ROLES)}"})
+        if entry.get("description") is not None:
+            desc = _text(entry.get("description"))
+            if desc:
+                meta["description"] = desc
+            else:
+                skipped.append({"entry": f"repos[{i}].description", "reason": "description must be text"})
+        if len(meta) > 1:
+            repos[name] = meta
+    rels: list[dict] = []
+    raw_rels = data.get("relationships")
+    if raw_rels is not None and not isinstance(raw_rels, list):
+        skipped.append({"entry": "relationships", "reason": "expected a list"})
+        raw_rels = []
+    for i, r in enumerate(raw_rels or []):
+        if not isinstance(r, dict) or not _text(r.get("from")) or not _text(r.get("to")):
+            skipped.append({"entry": f"relationships[{i}]", "reason": "a relationship needs from and to"})
+            continue
+        frm, to = _text(r.get("from")), _text(r.get("to"))
+        if frm == to:
+            skipped.append({"entry": f"relationships[{i}]", "reason": "self reference"})
+            continue
+        style = r.get("style") or "sync"
+        if style not in STYLES:
+            skipped.append({"entry": f"relationships[{i}]", "reason": f"style must be one of {', '.join(STYLES)}"})
+            continue
+        rels.append({"from": frm, "to": to, "what": _text(r.get("what")), "how": _text(r.get("how")),
+                     "style": style, "line": line_of(f"from: {r.get('from')}") or line_of(str(r.get("from")))})
+    lines["actors"] = line_of("actors:") or 1
+    lines["relationships"] = line_of("relationships:") or 1
+    return Declared(system=str(data.get("system") or root.name), declared_in=decl.as_posix(), actors=tuple(actors),
+                    repos=repos, relationships=tuple(rels), skipped=tuple(skipped), lines=lines)

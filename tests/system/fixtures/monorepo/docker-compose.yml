@@ -1,0 +1,30 @@
+# Ground truth for the monorepo fixture: one repository, three deploy units built from sibling
+# directories by this file. The build context of each service is its own directory, which is the edge
+# case FR-006 names: containers are per deploy unit, not per repository.
+services:
+  gateway:
+    build: ./edge
+    ports:
+      - "8080:80"
+    environment:
+      BILLING_URL: http://billing:8080
+    depends_on:
+      - billing
+  billing:
+    build: ./billing
+    environment:
+      DATABASE_URL: postgresql://db:5432/billing
+      STRIPE_API_KEY: sk_live_example
+      KAFKA_URL: kafka:9092
+    depends_on:
+      - db
+  notify:
+    build: ./notify
+    environment:
+      KAFKA_URL: kafka:9092
+    depends_on:
+      - bus
+  db:
+    image: postgres:16
+  bus:
+    image: bitnami/kafka:3.7

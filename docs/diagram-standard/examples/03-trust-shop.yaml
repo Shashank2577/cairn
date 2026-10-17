@@ -1,0 +1,20 @@
+diagram: container
+title: Containers of Shop, network and trust boundaries
+scope: Shop as deployed by docker-compose
+description: Only the storefront and the API publish ports to the host; the database, Redis and the worker are reachable only on the compose network; nothing checks who calls the API.
+source_note: replaces the zoned "Security Architecture" template; zones are drawn only where an isolation fact exists
+elements:
+  - {id: customer, name: Customer, type: person, desc: Reaches the storefront from the internet, at: [0,0], provenance: declared, evidence: ["system.yaml: actors"]}
+  - {id: web, name: shop-web, type: container, kind: web-app, tech: "Node.js · port 3000 published", desc: Public storefront, at: [1,0], evidence: ["shop-api/docker-compose.yml: web ports 3000:3000"]}
+  - {id: api, name: shop-api, type: container, kind: service, tech: "FastAPI · port 8000 published", desc: Orders API, no authentication found, at: [2,0], focus: true, provenance: inferred, evidence: ["shop-api/docker-compose.yml: api ports 8000:8000", "shop-api/shop_api/orders.py: no auth dependency on routes"]}
+  - {id: db, name: PostgreSQL, type: data-store, tech: postgres 16, desc: Orders, internal only, at: [3,0], evidence: ["shop-api/docker-compose.yml: db (no ports)"]}
+  - {id: redis, name: Redis, type: channel, tech: redis 7, desc: Order events, internal only, at: [3,1], evidence: ["shop-api/docker-compose.yml: redis (no ports)"]}
+  - {id: worker, name: shop-worker, type: container, kind: worker, tech: Python, desc: Holds the SendGrid key, at: [2,1], evidence: ["shop-api/docker-compose.yml: services.worker environment (a SendGrid credential)"]}
+boundaries:
+  - {id: net, name: compose network, type: network isolation, trust: true, contains: [db, redis, worker, api, web]}
+relationships:
+  - {from: customer, to: web, what: Places orders, how: "HTTPS · host port 3000", style: sync, evidence: ["shop-api/docker-compose.yml: web ports"]}
+  - {from: web, to: api, what: Creates and reads orders, how: "HTTP · api:8000", style: sync, evidence: ["shop-api/docker-compose.yml: API_BASE_URL"]}
+  - {from: api, to: db, what: Reads and writes orders, how: "SQL · DATABASE_URL", style: sync, evidence: ["shop-api/docker-compose.yml: DATABASE_URL"]}
+  - {from: api, to: redis, what: Publishes order.created, how: "Redis · REDIS_URL", style: async, evidence: ["shop-api/docker-compose.yml: REDIS_URL"]}
+  - {from: worker, to: redis, what: Subscribes to order.created, how: "Redis · REDIS_URL", style: async, evidence: ["shop-api/docker-compose.yml: worker REDIS_URL"]}

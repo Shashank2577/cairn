@@ -147,9 +147,10 @@ def cairn_why(target: str, budget: int = 1200) -> str:
 def cairn_search(query: str, kinds: list[str] | None = None, limit: int = 12) -> str:
     """Call to find anything in the memory graph when the task names a symbol, file, spec, task, commit, decision
     or memory you don't recognise: returns a short hit list of ids and paths. kinds ⊆ symbol,file,spec,task,req,
-    commit,memory,obs,fact."""
+    commit,memory,obs,fact,text (any line of code or config, with its function's lines)."""
+    from .textsearch import cite
     hits = _project().search(query, kinds, limit)
-    return "\n".join(f"- {h['title']} [{h['id']}]" + (f" {h['path']}" if h.get("path") else "") for h in hits) or "No matches."
+    return "\n".join(f"- {h['title']} [{h['id']}]" + (f" {cite(h)}" if h.get("path") else "") for h in hits) or "No matches."
 
 
 def cairn_trace(mode: str, a: str, b: str = "") -> str:
@@ -191,6 +192,29 @@ def cairn_remember(text: str, kind: str = "fact", supersedes: str = "", scope: s
     kind: convention|decision|gotcha|preference|fact. scope: project|team|user."""
     res = _project().remember(text, kind, supersedes or None, source="agent", scope=scope)
     return json.dumps(res)
+
+
+def cairn_system(level: str = "containers", scope: str = "") -> str:
+    """Call when a task may reach outside this repository — a route, a topic handler or a shared contract
+    other containers use — to see where this repository sits in its product: the computed system model as
+    text, one level deep, with evidence and 0 model calls. level: containers (default), context,
+    components, flows or code. scope: a container, repository or entry point."""
+    from .system.views import view as system_view
+    c = _project()
+    try:
+        desc = system_view(c.project.root, level, scope or None)
+    except ValueError as exc:  # an unknown level or scope: answer with what to use instead
+        return str(exc)
+    names = {e["id"]: e["name"] for e in desc["elements"]}
+    lines = [f"{desc['title']} — {desc['scope']}"]
+    for e in desc["elements"]:
+        kind = e.get("kind") or e["type"]
+        lines.append(f"- {e['name']} ({kind}) — {e['desc']} [{e['provenance']}] — {e['evidence'][0]}")
+    for r in desc.get("relationships") or []:
+        label = " · ".join(x for x in (r.get("what"), r.get("how")) if x)
+        ends = f"{names.get(r['from'], r['from'])} → {names.get(r['to'], r['to'])}"
+        lines.append(f"  {ends}" + (f" — {label}" if label else "") + f" [{r['provenance']}] ({r['evidence'][0]})")
+    return "\n".join(lines)
 
 
 def cairn_recall(query: str, limit: int = 8) -> str:
@@ -328,10 +352,13 @@ def session_tools(mode: str = "core") -> list[Callable[..., str]]:
     return out
 
 
+SYSTEM_TOOLS = [cairn_system]  # the system model: opt-in, because most tasks never cross a repository
+
+
 def all_tools(mode: str = "core") -> list[Callable[..., str]]:
     tools = list(CORE) + session_tools(mode)
     if mode == "all":
-        tools += _graph_tools() + _timeline_tools()
+        tools += SYSTEM_TOOLS + _graph_tools() + _timeline_tools()
     return tools
 
 

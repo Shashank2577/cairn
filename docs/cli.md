@@ -163,6 +163,13 @@ To point at another repository, put `--root <path>` before the subcommand:
 | `cairn agents list` | Detected agents. |
 | `cairn models [--ledger]` | Which model does which job, and the calls and tokens per tier. |
 
+## Docs export
+
+| Command | What it does |
+|---|---|
+| `cairn docs export [--out docs/architecture]` | Write the architecture document set from the computed system model: context, containers, components, flows and code, each as Markdown with a Mermaid diagram, an SVG and an evidence table. Empty sections are omitted. Each document records the commit it describes. Zero model calls. |
+| `cairn docs export --narrate` | Opt in to model-written names and descriptions (fast tier, ledgered under `system.narrate`, capped by `[system] narrate_tokens`). Narrated sentences are labelled inferred and cite the computed elements they describe. Disabling it changes no element or relationship. |
+
 ## Team platform
 
 These commands act as the machine's operator: whoever can read `$CAIRN_HOME/platform.db`. Role

@@ -1,0 +1,22 @@
+# Faithful transcription of "High-Level Data Flow" (core-templates.md:103): systems and processing steps mixed
+diagram: container
+title: High-Level Data Flow
+elements:
+  - {id: USER, name: User Input, type: person}
+  - {id: API, name: API Requests, type: container}
+  - {id: VALID, name: Validation, type: component}
+  - {id: TRANS, name: Transformation, type: component}
+  - {id: CALC, name: Computation, type: component}
+  - {id: DB, name: Database, type: data-store}
+  - {id: CACHE, name: Cache, type: data-store}
+  - {id: RESP, name: API Response, type: container}
+  - {id: REPORT, name: Reports, type: container}
+relationships:
+  - {from: USER, to: VALID}
+  - {from: API, to: VALID}
+  - {from: VALID, to: TRANS}
+  - {from: TRANS, to: CALC}
+  - {from: CALC, to: DB}
+  - {from: CALC, to: CACHE}
+  - {from: DB, to: RESP}
+  - {from: CACHE, to: REPORT}
