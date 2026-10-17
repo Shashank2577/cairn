@@ -14,7 +14,7 @@ from .platforms import normalize_platform_source
 from .projects import is_project_excluded, project_context
 from .settings import csv
 from .store import USER_PROMPT_DEDUPE_WINDOW_MS, Store
-from .tags import is_internal_protocol_payload, redact_value, strip_memory_tags
+from .tags import is_internal_protocol_payload, redact, redact_value, strip_memory_tags
 
 log = logging.getLogger("cairn.recall")
 
@@ -47,7 +47,7 @@ def session_init(store: Store, *, content_session_id: str, project: str | None =
     if raw and is_internal_protocol_payload(raw):
         return {"skipped": True, "reason": "internal_protocol"}
     text = _truncate_bytes(raw or MEDIA_PROMPT, MAX_USER_PROMPT_BYTES) if (raw and raw.strip()) else MEDIA_PROMPT
-    cleaned = strip_memory_tags(text)
+    cleaned = redact(strip_memory_tags(text))
     project = project or "unknown"
     with store.tx():
         sid = store.create_sdk_session(content_session_id, project, cleaned, custom_title, src, cwd)
@@ -131,7 +131,7 @@ def queue_summarize(store: Store, *, content_session_id: str, last_assistant_mes
         number = prompt_number if prompt_number else store.get_prompt_number(content_session_id, sid)
         if not check_prompt_privacy(store, content_session_id, number, sid)["allow"]:
             return {"status": "skipped", "reason": "private"}
-        cleaned = strip_memory_tags(str(last_assistant_message)) if last_assistant_message else last_assistant_message
+        cleaned = redact(strip_memory_tags(str(last_assistant_message))) if last_assistant_message else last_assistant_message
         mid = store.enqueue(sid, content_session_id, "summarize", last_assistant_message=cleaned, prompt_number=number,
                             cwd=cwd)
     return {"status": "queued", "sessionDbId": sid, "messageId": mid}
