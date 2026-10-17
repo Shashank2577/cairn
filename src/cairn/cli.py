@@ -32,6 +32,9 @@ app.add_typer(agents_app, name="agents")
 from .system.diagram.cli import diagram_app  # noqa: E402
 
 app.add_typer(diagram_app, name="diagram")
+from .review.cli import review_app  # noqa: E402
+
+app.add_typer(review_app, name="review")
 
 
 def _mount_platform() -> None:
