@@ -222,25 +222,29 @@ def _maybe_json(value: Any) -> Any:
     return value
 
 
+OBSERVATION_TRAILER = """If a <parameters> or <outcome> block above contains an "<elided chars=... />" marker, that field was truncated to fit the observer's context window. Describe only what you can see in the kept portion and do not infer details about the elided range.
+
+Return either one or more <observation>...</observation> blocks, or <skip_summary reason="noise" /> if this tool use should be skipped.
+Concrete debugging findings from logs, queue state, database rows, session routing, or code-path inspection count as durable discoveries and should be recorded.
+Never reply with prose such as "Skipping", "No substantive tool executions", or any explanation outside XML. Non-XML text is discarded."""
+
+
 def build_observation_prompt(tool_name: str, tool_input: Any, tool_output: Any, created_at_epoch_ms: int,
-                             cwd: str | None = None, max_chars: int = OBS_PROMPT_FIELD_MAX_CHARS) -> str:
+                             cwd: str | None = None, max_chars: int = OBS_PROMPT_FIELD_MAX_CHARS,
+                             trailer: bool = True) -> str:
+    """One tool event. ``trailer=False`` leaves the closing instructions off so a batch states them once."""
     ti = _maybe_json(tool_input)
     to = _maybe_json(tool_output)
     when = datetime.fromtimestamp(created_at_epoch_ms / 1000, tz=timezone.utc).isoformat(timespec="milliseconds")
     when = when.replace("+00:00", "Z")
     wd = f"\n  <working_directory>{cwd}</working_directory>" if cwd else ""
-    return f"""<observed_from_primary_session>
+    block = f"""<observed_from_primary_session>
   <what_happened>{tool_name}</what_happened>
   <occurred_at>{when}</occurred_at>{wd}
   <parameters>{truncate_observation_field(strip_image_payloads_from_field(ti), max_chars)}</parameters>
   <outcome>{truncate_observation_field(strip_image_payloads_from_field(to), max_chars)}</outcome>
-</observed_from_primary_session>
-
-If a <parameters> or <outcome> block above contains an "<elided chars=... />" marker, that field was truncated to fit the observer's context window. Describe only what you can see in the kept portion and do not infer details about the elided range.
-
-Return either one or more <observation>...</observation> blocks, or <skip_summary reason="noise" /> if this tool use should be skipped.
-Concrete debugging findings from logs, queue state, database rows, session routing, or code-path inspection count as durable discoveries and should be recorded.
-Never reply with prose such as "Skipping", "No substantive tool executions", or any explanation outside XML. Non-XML text is discarded."""
+</observed_from_primary_session>"""
+    return f"{block}\n\n{OBSERVATION_TRAILER}" if trailer else block
 
 
 def build_summary_prompt(last_assistant_message: str, mode: Mode) -> str:

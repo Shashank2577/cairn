@@ -131,7 +131,7 @@ def test_model_observations_and_summaries_are_parsed_and_stored(repo):
     assert tasks == ["recall_observe", "recall_observe", "recall_summarize"]
     assert "<user_request>Fix the double charge on retry</user_request>" in router.calls[0]["system"]
     assert "<what_happened>Read</what_happened>" in router.calls[0]["prompt"] and router.calls[0]["tier"] == "fast"
-    assert router.calls[1]["tier"] is None and "OBSERVER CONVERSATION SO FAR" in router.calls[1]["cached"]
+    assert router.calls[1]["tier"] is None and "OBSERVER CONVERSATION SO FAR" in router.calls[1]["prompt"]
     assert "CRITICAL TAG REQUIREMENT" in router.calls[2]["prompt"] and "Fixed: charges" in router.calls[2]["prompt"]
     assert health.read(Store.open(repo))["consecutiveFailures"] == 0
     assert q(repo, "SELECT COUNT(*) n FROM vector_docs WHERE doc_type='observation'")[0]["n"] >= 3
@@ -146,7 +146,7 @@ def test_conversation_continues_across_runs_and_prompts(repo):
     second = [c for c in router.calls if c["task"] == "recall_observe"][2]
     assert "continuing to observe" in second["system"]  # the continuation framing for prompt 2
     assert "<user_request>Now add a refund</user_request>" in second["system"]
-    assert "Retry guard prevents a double charge" in second["cached"]  # earlier exchanges are replayed
+    assert "Retry guard prevents a double charge" in second["prompt"]  # earlier exchanges are replayed in the prompt
     conv = Store.open(repo).get_conversation(1)
     assert conv["history"]["prompt_number"] == 2 and len(conv["history"]["exchanges"]) == 6
 
@@ -283,7 +283,8 @@ def test_worker_module_entry_point(repo):
     assert status["queueDepth"] == 0 and not status["worker"]["running"]
 
 
-def test_oversized_fields_are_condensed_or_truncated(repo):
+def test_oversized_fields_are_condensed_or_truncated(repo, monkeypatch):
+    monkeypatch.setenv("CAIRN_RECALL_OBSERVER_CONDENSE", "1")  # opt in: condensing is a model call
     hooks.run("session-init", {"session_id": "s1", "cwd": str(repo), "prompt": "read a huge file"})
     hooks.run("observation", {"session_id": "s1", "cwd": str(repo), "tool_name": "Bash",
                               "tool_input": {"command": "cat big.log"}, "tool_response": {"stdout": "y" * 40_000}})
@@ -344,7 +345,8 @@ def test_batched_events_and_a_bounded_replay_window(repo, monkeypatch):
     observe = [c for c in router.calls if c["task"] == "recall_observe"]
     assert len(observe) == 2  # one call per prompt's batch of events
     assert observe[0]["prompt"].count("<observed_from_primary_session>") == 2
-    assert observe[1]["cached"].count('<turn role="user">') == 1  # only the last exchange is replayed
+    assert observe[1]["prompt"].count('<turn role="user">') == 1  # only the last exchange is replayed
+    assert not observe[1]["cached"]  # replay is plain prompt text: a sliding window is never a reusable cache block
     conv = Store.open(repo).get_conversation(1)
     assert len(conv["history"]["exchanges"]) == 1
     [obs] = q(repo, "SELECT * FROM observations")
@@ -378,8 +380,8 @@ def test_a_catch_up_batch_stays_small_and_cheap(repo, monkeypatch):
     assert observe and not [c for c in router.calls if c["task"] == "recall_compress"]
     assert len(observe) <= 4  # 60 events in batches of 20, not 12 batches of 5
     for call in observe:
-        assert len(call["prompt"]) < 48_000 + 20 * 1_500  # the budget plus per-event framing
-        assert len(call["cached"]) < 24_000 + 2_000
+        assert len(call["prompt"]) < 48_000 + 20 * 1_500 + 24_000 + 2_000  # events + framing + the bounded replay
+        assert not call["cached"]
 
 
 def test_background_work_never_moves_to_a_stronger_model(cairn):
@@ -390,3 +392,66 @@ def test_background_work_never_moves_to_a_stronger_model(cairn):
     assert router.tier_for("classify", 10_000_000) == "fast"
     assert router.tier_for("why", 10_000_000) == "deep"            # never auto-escalates to frontier
     assert router.tier_for("summarize", 0) == "fast"
+
+
+def _big_bash(repo, n=1):
+    base = {"session_id": "s1", "cwd": str(repo)}
+    hooks.run("session-init", {**base, "prompt": "read a huge file"})
+    for i in range(n):
+        hooks.run("observation", {**base, "tool_name": "Bash", "tool_input": {"command": f"cat big{i}.log"},
+                                  "tool_response": {"stdout": "y" * 40_000}, "tool_use_id": f"b{i}"})
+
+
+def test_oversized_fields_are_cut_without_a_model_call_by_default(repo):
+    _big_bash(repo)
+    router = ScriptedRouter()
+    worker.run_once(repo, router=router)
+    assert not [c for c in router.calls if c["task"] == "recall_compress"]
+    assert "<elided chars=" in next(c["prompt"] for c in router.calls if c["task"] == "recall_observe")
+
+
+def test_a_batch_states_the_closing_instructions_once(repo, monkeypatch):
+    monkeypatch.setenv("CAIRN_RECALL_OBSERVE_BATCH", "5")
+    _big_bash(repo, n=3)
+    router = ScriptedRouter()
+    worker.run_once(repo, router=router)
+    prompt = next(c["prompt"] for c in router.calls if c["task"] == "recall_observe")
+    assert prompt.count("<observed_from_primary_session>") == 3
+    assert prompt.count("Return either one or more <observation>") == 1
+    assert prompt.rstrip().endswith("Non-XML text is discarded.")
+    one = prompts.build_observation_prompt("Bash", {"command": "ls"}, "x", 0)
+    assert one.count("Return either one or more <observation>") == 1  # a lone event still carries them
+
+
+def test_a_reply_that_looks_like_xml_but_does_not_parse_is_retried_on_the_stronger_tier(repo):
+    _big_bash(repo)
+    router = ScriptedRouter(replies={"recall_observe": lambda p: "<observation><type>bugfix</type>"})  # truncated reply
+    worker.run_once(repo, router=router)
+    observe = [c for c in router.calls if c["task"] == "recall_observe"]
+    assert [c["tier"] for c in observe] == [None, "balanced"]  # one retry, no more
+
+
+def test_prose_replies_and_valid_xml_are_never_retried(repo):
+    _big_bash(repo)
+    router = ScriptedRouter(replies={"recall_observe": "Skipping: nothing to record"})
+    worker.run_once(repo, router=router)
+    assert len([c for c in router.calls if c["task"] == "recall_observe"]) == 1
+
+
+def test_escalation_can_be_turned_off_or_made_size_based(repo, monkeypatch):
+    monkeypatch.setenv("CAIRN_RECALL_OBSERVER_ESCALATE", "off")
+    _big_bash(repo)
+    router = ScriptedRouter(replies={"recall_observe": lambda p: "<observation><type>bugfix</type>"})
+    worker.run_once(repo, router=router)
+    assert len([c for c in router.calls if c["task"] == "recall_observe"]) == 1
+
+
+def test_a_large_edit_goes_to_the_stronger_tier_only_when_asked(repo, monkeypatch):
+    monkeypatch.setenv("CAIRN_RECALL_OBSERVER_ESCALATE_CHARS", "2000")
+    base = {"session_id": "s1", "cwd": str(repo)}
+    hooks.run("session-init", {**base, "prompt": "rewrite"})
+    hooks.run("observation", {**base, "tool_name": "Edit", "tool_input": {"file_path": str(repo / "a.py"), "old_string": "a",
+              "new_string": "b" * 3000}, "tool_response": {"filePath": str(repo / "a.py")}, "tool_use_id": "e1"})
+    router = ScriptedRouter()
+    worker.run_once(repo, router=router)
+    assert next(c for c in router.calls if c["task"] == "recall_observe")["tier"] == "balanced"

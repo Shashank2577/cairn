@@ -83,17 +83,13 @@ class ObserverLLM:
                 messages += [{"role": "user", "content": ex["user"]}, {"role": "assistant", "content": ex["assistant"]}]
             messages.append({"role": "user", "content": prompt})
             return chat(task, messages, system=system, max_tokens=max_tokens, tier=tier)
-        cached = render_exchanges(exchanges)
+        # The replay is plain prompt text, not a cache block: its window slides every call, so no later call can read it,
+        # and a cache marker on it only adds the write premium (measured in specs/002-observation-token-cost/findings.md).
+        replay = render_exchanges(exchanges)
         kwargs: dict[str, Any] = {"system": system, "max_tokens": max_tokens}
-        if cached:
-            kwargs["cached_context"] = cached
         if tier:
             kwargs["tier"] = tier
-        try:
-            return self.router.complete(task, prompt, **kwargs)
-        except TypeError:  # a minimal router without cached_context/tier support
-            return self.router.complete(task, (cached + "\n\n" + prompt) if cached else prompt, system=system,
-                                        max_tokens=max_tokens)
+        return self.router.complete(task, (replay + "\n\n" + prompt) if replay else prompt, **kwargs)
 
     def compress(self, text: str, budget: int) -> str | None:
         """One bounded condensing call for an oversized tool payload (never retried)."""
@@ -378,7 +374,8 @@ class SessionObserver:
             blocks = []
             per_field = field_chars(int(self.settings.get("observer_prompt_chars") or 48_000), len(messages))
             # condensing oversized fields costs a model call each: only for ordinary batches, not a catch-up
-            condense = self.llm if len(messages) <= int(self.settings.get("observe_batch") or 1) else None
+            condense = self.llm if (self.settings.get("observer_condense")
+                                    and len(messages) <= int(self.settings.get("observe_batch") or 1)) else None
             for m in messages:
                 ti = optimize_field(prompts.strip_image_payloads_from_field(m.get("tool_input")), condense)
                 raw_out = prompts.strip_image_payloads_from_field(m.get("tool_response"))
@@ -387,11 +384,15 @@ class SessionObserver:
                 to = optimize_field(raw_out, condense)
                 blocks.append(prompts.build_observation_prompt(str(m.get("tool_name")), ti, to,
                                                                int(m.get("created_at_epoch") or time.time() * 1000),
-                                                               m.get("cwd"), per_field))
-            prompt = "\n\n".join(blocks)
+                                                               m.get("cwd"), per_field, trailer=False))
+            prompt = "\n\n".join(blocks) + "\n\n" + prompts.OBSERVATION_TRAILER  # the closing rules once per call, not per event
             task = TASK_OBSERVE
             tier = "fast" if self.settings.get("tier_routing") and all(
                 m.get("tool_name") in SIMPLE_TOOLS for m in messages) else None
+            big = int(self.settings.get("observer_escalate_chars") or 0)
+            if big and any(m.get("tool_name") in WRITE_TOOL_NAMES and len(str(m.get("tool_input") or "")) >= big
+                           for m in messages):
+                tier = "balanced"  # opt-in: large edits to the stronger tier
             max_tokens = 4000
         replay = replay_window(conv["exchanges"], int(self.settings.get("observer_replay_exchanges") or 0),
                                int(self.settings.get("observer_replay_chars") or 24_000))
@@ -399,6 +400,12 @@ class SessionObserver:
             text = self.llm.chat(conv["system"], replay, prompt, task=task, tier=tier, max_tokens=max_tokens)
         except Exception as exc:  # noqa: BLE001 - every model failure is classified, never raised
             return self._failed(session, conv, messages, exc)
+        if (not is_summary and tier != "balanced" and self.settings.get("observer_escalate") == "parse"
+                and classify_observer_output(text) == "xml" and not parse_agent_xml(text, self.mode)["valid"]):
+            try:  # the reply looked like XML but did not parse: one retry on the stronger tier
+                text = self.llm.chat(conv["system"], replay, prompt, task=task, tier="balanced", max_tokens=max_tokens)
+            except Exception as exc:  # noqa: BLE001
+                return self._failed(session, conv, messages, exc)
         discovery = _estimate(conv["system"]) + sum(_estimate(e["user"]) + _estimate(e["assistant"])
                                                     for e in replay) + _estimate(prompt) + _estimate(text)
         return self._respond(session, conv, messages, prompt, text or "", discovery)

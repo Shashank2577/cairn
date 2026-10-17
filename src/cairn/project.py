@@ -25,7 +25,7 @@ ambient = true                   # a short Cairn context nugget on code prompts 
 
 [models]
 provider = "auto"                # auto | anthropic | openai | claude-code  (auto: API key, else your Claude Code login)
-fast = "claude-haiku-4-5-20251001"   # classification, summaries at volume
+fast = "claude-haiku-5-5"           # classification, summaries at volume
 balanced = "claude-sonnet-5"         # extraction, linking tie-breaks
 deep = "claude-opus-5-5"             # why / impact / drift synthesis, ask
 frontier = "claude-fable-5-1"        # opt-in whole-system reviews only
