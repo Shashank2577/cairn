@@ -330,7 +330,15 @@ def _system_diagram_cached(root: str, level: str, scope: str | None, stamp: tupl
     """
     from .system.diagram.svg import render_inline
     from .system.views import view as system_view_fn
-    desc = system_view_fn(Path(root), level, scope)
+    try:
+        desc = system_view_fn(Path(root), level, scope)
+    except ValueError:
+        if not scope:
+            raise
+        # A saved link names a scope from an older model (a flow whose id embeds a commit hash, say). Draw the
+        # current model's own view instead of nothing.
+        desc = system_view_fn(Path(root), level, None)
+        desc["stale_scope"] = scope
     if not desc.get("elements"):
         raise ValueError("nothing to draw at this level yet; run a sync so the system model is built")
     return render_inline(desc), json.dumps(desc, default=str)
@@ -562,6 +570,30 @@ def project_router(hub: Hub) -> APIRouter:
     @r.get("/graph/data", dependencies=read)
     def graph_data(pid: str, scope: str = "all", limit: int = 600):
         return graphviews.data(c(pid).map, scope, max(10, min(limit, 5000)))
+
+    @r.get("/graph/browse", dependencies=read)
+    def graph_browse(pid: str, path: str = "", offset: int = 0, limit: int = graphviews.ROW_CAP, sort: str = "name"):
+        """One level of the repository, with what Cairn knows about each row. Never the whole tree."""
+        cairn = c(pid)
+        facts = {"commits": {}, "fixes": {}, "specs": {}, "memories": {}}
+        for r_ in cairn.brain.q("SELECT path, commits, risky FROM filestats"):
+            facts["commits"][r_["path"]], facts["fixes"][r_["path"]] = r_["commits"] or 0, r_["risky"] or 0
+        for name, sql in (("specs", "SELECT dst, COUNT(DISTINCT src) n FROM links WHERE rel='owns' AND dst LIKE 'file:%' GROUP BY dst"),
+                          ("memories", "SELECT dst, COUNT(DISTINCT src) n FROM links WHERE rel='mentions' AND src LIKE 'memory:%' "
+                                       "AND dst LIKE 'file:%' GROUP BY dst")):
+            facts[name] = {r_["dst"][5:]: r_["n"] for r_ in cairn.brain.q(sql)}
+        return graphviews.browse(cairn.map, path, facts, max(0, offset), limit, "risk" if sort == "risk" else "name")
+
+    @r.get("/graph/find", dependencies=read)
+    def graph_find(pid: str, q: str = ""):
+        return graphviews.find(c(pid).map, q)
+
+    @r.get("/graph/focus", dependencies=read)
+    def graph_focus(pid: str, id: str, depth: int = 2, limit: int = 150):
+        out = graphviews.focus(c(pid).map, id, depth, max(10, min(limit, 400)))
+        if out is None:
+            raise HTTPException(404, "no such node")
+        return out
 
     @r.get("/graph/node", dependencies=read)
     def graph_node(pid: str, id: str):

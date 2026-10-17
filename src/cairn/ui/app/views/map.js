@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks"
 import { html, Icon, Empty, Load, Tag, Skeleton, Tabs } from "../components/ui.js";
 import { ArchMap } from "../components/archmap.js";
 import { SystemDiagram, systemDiagramStyle } from "../components/c4view.js";
+import { Browse } from "../components/browse.js";
+import { FocusGraph } from "../components/focusgraph.js";
 import { CommunityMap, buildRegions, loadPack } from "../components/communitymap.js";
 import { RepoMap, LinkCard } from "../components/repomap.js";
 import { Markdown } from "../lib/md.js";
@@ -14,24 +16,25 @@ import { link, replace, go } from "../router.js";
 import { fmt, plural, ago, base, failText } from "../lib/format.js";
 import { loadCytoscape, themeColors, onThemeChange } from "../lib/cyto.js";
 
-const TABS = [["explore", "Explore"], ["system", "System"], ["graph", "Connections"], ["architecture", "Architecture"], ["wiki", "Wiki"], ["report", "Report"]];
+const TABS = [["system", "System"], ["explore", "Explore"], ["graph", "Connections"], ["architecture", "Architecture"], ["wiki", "Wiki"], ["report", "Report"]];
 const SYSTEM_LEVELS = [["context", "Context"], ["containers", "Containers"], ["components", "Components"], ["flows", "Flows"], ["code", "Code"]];
-/** What each engine view is for, in a sentence, so the tab is not three unexplained pictures. */
-const GRAPH_VIEWS = [
-  ["graph", "Interactive graph", "Every node in this repository's map. Pan, zoom, click a node to see what it is and what it connects to."],
-  ["callflow", "Architecture and call flow", "Which functions call which, and where the architecture sits: the code's own reading of itself."],
-  ["tree", "Folder tree", "The repository as nested folders, collapsible, for finding the place something lives."],
+/** The graph engine's whole-repository pages. Opt-in only: they draw every node, which is the point and the cost. */
+const WHOLE_VIEWS = [
+  ["graph", "Whole graph", "Every node in this repository's map at once. Slow on a large repository and unreadable past a few hundred nodes; use the neighbourhood view to read it."],
+  ["callflow", "Call flow", "Which functions call which, and where the architecture sits: the code's own reading of itself."],
 ];
 
 export function MapView() {
   const { pid, route, ov } = useApp();
-  const tab = TABS.some(t => t[0] === route.rest[0]) ? route.rest[0] : "explore";
+  // System is the front door. A bare link that carries Explore's own parameters (an Impact "show in map" link, an
+  // old bookmark) still means Explore.
+  const tab = TABS.some(t => t[0] === route.rest[0]) ? route.rest[0] : ["scope", "node", "area", "q"].some(k => route.q.get(k)) ? "explore" : "system";
   const L = ov?.layers?.map;
   return html`<div class=${"page view-in map-page" + (tab === "explore" ? " wide" : "")}>
     ${tab === "system" ? html`<style>${systemDiagramStyle}</style>` : null}
     <div class="page-h"><div><h1>Map</h1>
       <p class="lede">The code and documents of ${ov?.project || "this project"} as one graph${L?.nodes ? `: ${fmt(L.nodes)} nodes and ${fmt(L.edges)} links in ${fmt(L.areas)} communities` : ""}. Communities are groups of code and docs that link to each other more than to anything else.</p></div></div>
-    <${Tabs} label="Map views" current=${tab} keyColor="var(--code)" items=${TABS.map(([id, label]) => ({ id, label, href: link.project(pid, "map", id === "explore" ? [] : [id]) }))}/>
+    <${Tabs} label="Map views" current=${tab} keyColor="var(--code)" items=${TABS.map(([id, label]) => ({ id, label, href: link.project(pid, "map", id === "system" ? [] : [id]) }))}/>
     ${!L?.nodes && ov ? html`<${Empty} title="The map is empty"><p>Cairn hasn't parsed this repository yet. Run a sync and the graph of its code and documents appears here.</p></${Empty}>`
       : tab === "explore" ? html`<${Explore}/>` : tab === "system" ? html`<${SystemView}/>` : tab === "graph" ? html`<${GraphViews}/>` : tab === "architecture" ? html`<${Architecture}/>` : tab === "wiki" ? html`<${Wiki}/>` : html`<${Report}/>`}
   </div>`;
@@ -107,7 +110,7 @@ function Explore() {
     const q = new URLSearchParams(route.q);
     for (const [k, v] of Object.entries(patch)) v ? q.set(k, v) : q.delete(k);
     const s = q.toString();
-    replace(link.project(pid, "map") + (s ? "?" + s : ""));
+    replace(link.project(pid, "map", ["explore"]) + (s ? "?" + s : ""));
   };
   const summary = useFetch(() => api.p(pid).graphSummary(), [pid]);
   const cdata = useFetch(() => api.p(pid).graphData("communities", 60), [pid]);
@@ -288,7 +291,7 @@ function RepoView({ d3, crumbs, narrow }) {
   const [hover, setHover] = useState(null), [pinned, setPinned] = useState(null), [hoverRepo, setHoverRepo] = useState(null);
   const colors = Array.from({ length: 12 }, (_, i) => `var(--c${i})`);
   const data = res.data;
-  const openRepo = r => go(link.project(r.id, "map"));
+  const openRepo = r => go(link.project(r.id, "map", ["explore"]));
   const openComm = (r, c) => go(link.project(r.id, "map", [], { scope: `community:${c.cid}` }));
   const openEvidence = (l, e) => go(e.node ? link.project(l.source, "map", [], { scope: `around:${e.node}`, node: e.node }) : link.impact(l.source, e.file));
   const shownLink = hover || pinned;
@@ -689,35 +692,54 @@ function Inspector({ res, pid, onPick, setPath, onFocus, commName }) {
   }}</${Load}></div>`;
 }
 
-/* ------------------------------------------------------------------ graph engine views */
-/** The map at full size: every node, where the System tab deliberately shows only a dozen boxes.
+/* ------------------------------------------------------------------ connections */
+/** Connections: find your way around the repository without drawing all of it.
  *
- * These are the graph engine's own pages, rendered by it and shown in a sandboxed frame. Kept because
- * they answer "what is in this repository" at a scale the System tab cannot and should not: one box per
- * service is a summary, one box per function is the thing itself. Each view says what it is for, so the
- * tab is three pictures with names rather than three pictures. */
+ * Browse opens one folder level at a time (a tree that expanded everything hung on a repository of a thousand
+ * files, and a list of folders says nothing about them). Neighbourhood draws one node and what surrounds it,
+ * capped and counted. The engine's whole-graph pages stay behind an explicit opt-in. */
 function GraphViews() {
   const { pid, route } = useApp();
-  const cur = route.q.get("view");
-  const view = GRAPH_VIEWS.find(v => v[0] === cur) || GRAPH_VIEWS[0];
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [view[0], pid]);
-  const src = `/api/p/${encodeURIComponent(pid)}/graph/views/${encodeURIComponent(view[0])}`;
+  const q = route.q;
+  const view = ["focus", "whole"].includes(q.get("view")) ? q.get("view") : "browse";
+  const nav = p => {
+    const next = { view: "browse", path: "", mark: "", sort: "name", offset: 0, node: "", file: "", depth: 2, limit: 150, ...Object.fromEntries(q.entries()), ...p };
+    const keep = {};
+    if (next.view === "browse") Object.assign(keep, { path: next.path, mark: next.mark, sort: next.sort === "risk" ? "risk" : "", offset: next.offset || "" });
+    if (next.view === "focus") Object.assign(keep, { node: next.node, file: next.file, depth: Number(next.depth) === 2 ? "" : next.depth, limit: Number(next.limit) === 150 ? "" : next.limit });
+    if (next.view === "whole") Object.assign(keep, { engine: next.engine });
+    go(link.project(pid, "map", ["graph"], { view: next.view === "browse" ? "" : next.view, ...Object.fromEntries(Object.entries(keep).filter(([, v]) => v !== "" && v != null && v !== 0)) }));
+  };
+  const items = [["browse", "Browse"], ["focus", "Neighbourhood"], ["whole", "Whole graph"]];
   return html`<div class="graphviews">
     <div class="row" style="margin:-6px 0 12px;justify-content:space-between;gap:14px;flex-wrap:wrap">
-      <div class="seg" role="tablist" aria-label="Map views">
-        ${GRAPH_VIEWS.map(([id, label]) => html`<a role="tab" aria-selected=${id === view[0]} aria-current=${id === view[0]}
-          href=${link.project(pid, "map", ["graph"], { view: id })}>${label}</a>`)}
+      <div class="seg" role="tablist" aria-label="Connections views">
+        ${items.map(([id, label]) => html`<button role="tab" aria-selected=${id === view} onClick=${() => nav({ view: id, ...(id === "browse" ? { path: "" } : {}) })}>${label}</button>`)}
       </div>
-      <a class="btn sm" href=${api.p(pid).viewUrl(view[0])} target="_blank" rel="noopener">
-        <${Icon} name="ext" size="15"/>Open in a new tab</a>
     </div>
-    <p class="sub" style="margin:0 0 10px;max-width:88ch">${view[2]}</p>
-    ${failed ? html`<${Empty} title="This view did not load">
-        <p>The engine draws it in a sandboxed frame; some browsers block that. Open it in a new tab, or run a
-        sync if the map has not been built yet.</p></${Empty}>`
-      : html`<iframe class="engine-frame" title=${view[1]} src=${src} sandbox="allow-scripts allow-popups"
-          referrerpolicy="no-referrer" loading="lazy" onError=${() => setFailed(true)}></iframe>`}
+    <p class="sub" style="margin:0 0 12px;max-width:88ch">${view === "browse" ? "Open one folder at a time. Each row says how big it is, what its best-connected code is, how many files depend on it and what Cairn remembers about it."
+      : view === "focus" ? "One symbol, file or area and what surrounds it: nearest first, capped, with the count of what is left out."
+      : "The engine's pages for the entire map. They draw every node, so they are off until you ask for them."}</p>
+    ${view === "browse" ? html`<${Browse} pid=${pid} path=${q.get("path") || ""} mark=${q.get("mark") || ""} sort=${q.get("sort") === "risk" ? "risk" : "name"} offset=${Number(q.get("offset")) || 0} nav=${nav}/>`
+      : view === "focus" ? html`<${FocusGraph} pid=${pid} node=${q.get("node") || ""} file=${q.get("file") || ""} depth=${Math.min(3, Math.max(1, Number(q.get("depth")) || 2))} limit=${Math.min(400, Math.max(10, Number(q.get("limit")) || 150))} nav=${nav}/>`
+      : html`<${WholeGraph} pid=${pid} engine=${q.get("engine") || ""} nav=${nav}/>`}
+  </div>`;
+}
+
+function WholeGraph({ pid, engine, nav }) {
+  const cur = WHOLE_VIEWS.find(v => v[0] === engine);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [engine, pid]);
+  if (!cur) return html`<${Empty} title="Draw the whole map?">
+    <p>This loads every node of the repository into one picture. On a large repository that is tens of thousands of nodes: it can take a long while and cannot be read. The Neighbourhood view is the readable way in.</p>
+    <div class="row tight" style="gap:8px;justify-content:center;flex-wrap:wrap">${WHOLE_VIEWS.map(([id, label]) => html`<button key=${id} class="btn" onClick=${() => nav({ view: "whole", engine: id })}>Draw the ${label.toLowerCase()}</button>`)}</div></${Empty}>`;
+  const src = `/api/p/${encodeURIComponent(pid)}/graph/views/${encodeURIComponent(cur[0])}`;
+  return html`<div>
+    <div class="row" style="margin:0 0 10px;gap:10px;flex-wrap:wrap"><span class="sub" style="max-width:80ch">${cur[2]}</span>
+      <button class="btn sm" onClick=${() => nav({ view: "whole", engine: "" })}>Stop drawing it</button>
+      <a class="btn sm" href=${api.p(pid).viewUrl(cur[0])} target="_blank" rel="noopener"><${Icon} name="ext" size="15"/>Open in a new tab</a></div>
+    ${failed ? html`<${Empty} title="This view did not load"><p>The engine draws it in a sandboxed frame; some browsers block that. Open it in a new tab, or run a sync if the map has not been built yet.</p></${Empty}>`
+      : html`<iframe class="engine-frame" title=${cur[1]} src=${src} sandbox="allow-scripts allow-popups" referrerpolicy="no-referrer" onError=${() => setFailed(true)}></iframe>`}
   </div>`;
 }
 
@@ -739,6 +761,9 @@ function SystemView() {
   // about the product. Saying so stops the page claiming to be one repository while the picture beside it
   // is five.
   const view = useFetch(() => api.p(pid).systemView(level, scope || undefined), [pid, level, scope]);
+  const stale = view.data?.stale_scope;
+  // A saved link can name a flow from an older model. The server drew the current one; drop the dead scope from the address.
+  useEffect(() => { if (stale && scope) setScope(""); }, [stale]);
   const sys = view.data?.system, repos = view.data?.repos || [];
   const isProduct = repos.length > 1;
   return html`<div>
@@ -755,6 +780,7 @@ function SystemView() {
     ${isProduct ? html`<p class="sub" style="margin:-4px 0 12px;max-width:88ch">
       <b>${sys}</b> — ${plural(repos.length, "repository", "repositories")} declared as one product in
       <code>system.yaml</code>: ${repos.join(", ")}. Every level below draws all of them.</p>` : null}
+    ${stale ? html`<p class="sub" role="status" style="margin:-4px 0 12px">That link pointed at a view from an earlier version of the model, so this is the current one.</p>` : null}
     <${SystemDiagram} pid=${pid} level=${level} scope=${scope}/>
   </div>`;
 }
@@ -771,7 +797,7 @@ function Architecture() {
     return html`<div>
       <p class="sub" style="margin:-6px 0 14px;max-width:84ch">Every ${unit} sits above the code it uses, in ${plural(layers, "layer")}: entry points at the top, foundations at the bottom.
         ${small.length ? ` ${plural(small.length, unit)} ${small.length === 1 ? "is" : "are"} in a small import cycle (dashed red).` : ""}
-        ${big > 8 ? ` ${big} ${unit}s import each other in one large cycle, so most of the code moves together.` : !small.length ? " There are no import cycles." : ""}
+        ${big > 8 ? ` ${big} ${unit}s are tangled into one group that imports itself round and round, so a change inside it can reach the rest of it.` : !small.length ? " There are no import cycles." : ""}
  Hover a ${unit} to trace its links; click to ${g.level === "folder" ? "explore it in the graph" : "see what breaks if it changes"}.</p>
       <${ArchMap} g=${g} pid=${pid}/></div>`;
   }}</${Load}>`;
