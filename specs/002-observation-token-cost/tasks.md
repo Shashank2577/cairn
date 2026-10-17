@@ -47,6 +47,12 @@
 - [ ] T024 Implement T023 and the `observe_batch` default — `src/cairn/engines/recall/observer.py`, `src/cairn/engines/recall/settings.py`
 - [ ] T025 (optional) Read-only shell skip — `src/cairn/engines/recall/ingest.py`, `tests/engines/test_recall_capture.py`
 
+- [ ] T029 Test first: fast-tier default model, `models.escalate` parse-failure fallback and opt-in size rule — `tests/test_router_cost.py`
+- [ ] T030 Implement T029 — `src/cairn/router.py`
+- [ ] T031 Test first: an outcome-skipped event leaves a one-line derived record and never a model call — `tests/engines/test_recall_capture.py`
+- [ ] T032 Implement the outcome skip rule S1–S3 with the high-value guard — `src/cairn/engines/recall/ingest.py`, `src/cairn/engines/recall/fallback.py`
+- [x] T033 Haiku 5.5 replays, escalation shares and outcome-skip measurement — `specs/002-observation-token-cost/measure/run_haiku55.sh`, `specs/002-observation-token-cost/measure/skip_escalate.py`, `specs/002-observation-token-cost/measure/report_h55.py`
+
 ## Phase 6: Prove it (after the code)
 
 - [ ] T026 Re-run `run_matrix2.sh` and `run_heldout.sh` on fresh snapshots of two repositories; put the after-numbers beside the before-numbers in `specs/002-observation-token-cost/findings.md`

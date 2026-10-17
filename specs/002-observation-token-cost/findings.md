@@ -239,3 +239,105 @@ python measure/families.py <out> --repo <name>                          # replic
 python measure/report_tables.py <matrix> <heldout> <gemma>              # the tables above
 ```
 Snapshots: `sqlite3 .backup` copies of `.cairn/sessions.db` and `.cairn/brain.db`; the harness never writes to the source repository.
+
+
+## 8. Addendum after review feedback: Haiku 5.5, escalation, outcome-based skip, direct API
+
+Decisions received from the user's session: use the direct API when a key exists (the CLI stays the no-key fallback); default the observer to
+Haiku 5.5 and escalate complex events to Sonnet 5.5; design the skip rule on outcome, not tool name; batch Bash events; keep a one-line
+deterministic record for every skipped event; treat the cache counterfactual ($116.5 spent vs about $54.9 if the cache writes had been reads) as the baseline to beat.
+
+**Who starts `claude -p`.** Confirmed in code: `router.py` builds the args and the recall worker (`[recall] worker_spawn`) calls it; the fix is in Cairn (§5, plan changes 1–2).
+`resolve_provider("auto")` already picks an Anthropic key first, then an OpenAI-compatible endpoint, then the CLI, so a key already routes to the direct path.
+This machine has no key, so the direct path remains **estimated** (§2); everything below that ran a model ran through the CLI.
+
+**Models (measured through the CLI on a trivial call, `claude-haiku-5-5` and `claude-sonnet-5-5` both accepted).** The CLI's own cost report implies
+**$0.10 / $0.50 per MTok for Haiku 5.5** (matches the message) and **$2 / $10 for Sonnet 5.5** (inferred, one call; verify before shipping). These are 10× and 2× below
+Haiku 4.5's $1 / $5 used in §1–§5, so the dollars below are not comparable with those; tokens are.
+
+### 8.1 Same windows on Haiku 5.5 (main window, seed 7; one run each, so within the noise discussed in §4)
+
+### cairn
+| run (Haiku 5.5, 50 events) | model calls | input-side tok | cache-written | output | thinking | obs | tok/event | est. $/event | HV | outcome | grounding |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| h55_baseline | 10 | 261,491 | 261,471 | 25,023 | 2,805 | 23 | 5,730 | $0.00130 | 100% | 87% | 100% |
+| h55_lean | 10 | 249,693 | 0 | 19,049 | 2,540 | 25 | 5,375 | $0.00069 | 97% | 87% | 98% |
+| h55_lean2 | 5 | 111,356 | 0 | 13,633 | 3,175 | 15 | 2,500 | $0.00036 | 100% | 87% | 98% |
+| h55_nocache | 10 | 266,518 | 0 | 45,956 | 8,246 | 53 | 6,249 | $0.00099 | 97% | 96% | 97% |
+
+Escalation cost model on `h55_lean2` tokens (per event: in 2,227, out 273):
+
+| escalation rule | events to Sonnet | input to Sonnet | est. $/event | vs all-Haiku-5.5 |
+|---|---|---|---|---|
+| none | 0.0% | 0.0% | $0.00036 | 1.0x |
+| edit/write input >= 4k | 4.5% | 16.6% | $0.00149 | 4.2x |
+| result >= 20k | 8.7% | 26.9% | $0.00219 | 6.1x |
+| any of the three | 17.8% | 50.5% | $0.00380 | 10.6x |
+
+### spreix-notetaker
+| run (Haiku 5.5, 50 events) | model calls | input-side tok | cache-written | output | thinking | obs | tok/event | est. $/event | HV | outcome | grounding |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| h55_baseline | 19 | 348,326 | 344,394 | 50,386 | 13,901 | 23 | 7,974 | $0.00188 | 94% | 91% | 99% |
+| h55_lean | 13 | 199,125 | 0 | 13,845 | 1,527 | 22 | 4,259 | $0.00054 | 91% | 73% | 100% |
+| h55_lean2 | 9 | 94,934 | 0 | 13,149 | 4,126 | 16 | 2,162 | $0.00032 | 91% | 91% | 97% |
+| h55_nocache | 19 | 349,034 | 0 | 65,594 | 23,340 | 25 | 8,293 | $0.00135 | 89% | 100% | 96% |
+
+Escalation cost model on `h55_lean2` tokens (per event: in 1,899, out 263):
+
+| escalation rule | events to Sonnet | input to Sonnet | est. $/event | vs all-Haiku-5.5 |
+|---|---|---|---|---|
+| none | 0.0% | 0.0% | $0.00032 | 1.0x |
+| edit/write input >= 4k | 2.3% | 8.7% | $0.00085 | 2.7x |
+| result >= 20k | 4.5% | 19.1% | $0.00149 | 4.6x |
+| any of the three | 11.7% | 41.5% | $0.00286 | 8.9x |
+
+
+Notes: (a) on Haiku 5.5 `MAX_THINKING_TOKENS=0` does not zero thinking (2.5–4k tokens remain in `h55_lean*`); it still cuts total output by 40–70% against `h55_nocache`.
+(b) Quality on Haiku 5.5 is at least as good as on 4.5 on every checked metric (grounding 97–100%), and lean2 keeps HV recall and outcome recall level with the others.
+(c) The cache-write column of `h55_baseline` is again ≈ all input: the model change does not fix the cache behaviour; §1.3 applies to 5.5.
+
+### 8.2 Escalation rule: what share of events goes to Sonnet 5.5, and what it costs (measured shares; ESTIMATED cost)
+
+Shares come from `measure/skip_escalate.py` over **all** captured events (spreix 14,886; cairn 4,997). Dollars apply Sonnet 5.5's price to the escalated share of the `h55_lean2` tokens
+(assuming Sonnet would use the same number of tokens, which is not measured). Triggers available deterministically before the call: large edit/write input, large result, error with a large result.
+A **failed parse** is the fourth trigger; across the 558 model calls of this study, 0 observer replies failed to parse (all outcomes `stored`), so it would add about 0% (the harness reads
+all 14 tokens of `Outcome`; none was `dropped`/`preserved`).
+
+| rule | spreix: events / input | cairn: events / input |
+| --- | --- | --- |
+| Edit/Write input ≥ 4,000 chars | 2.3% / 8.7% | 4.5% / 16.6% |
+| result ≥ 20,000 chars | 4.5% / 19.1% | 8.7% / 26.9% |
+| error marker and result ≥ 8,000 chars | 6.7% / 23.1% | 9.1% / 24.6% |
+| any of the three | 11.7% / 41.5% | 17.8% / 50.5% |
+
+The cost multiplier in the tables of §8.1 shows the problem: because escalated events are the *big* ones, 2–4% of events carry 9–17% of the input, and escalating them multiplies the total cost by **2.7× (spreix) / 4.2× (cairn)**;
+the broad rule is **9–11×**. Haiku 5.5 alone is already cheaper than escalating 2% of events. **Recommendation: no automatic escalation by size.** Escalate only on a failed parse (≈ 0% measured) and make a
+size rule opt-in (`models.escalate = "edit>=4000"`), until a quality measurement shows Sonnet 5.5 recovers something Haiku 5.5 misses (not measured here; the grader reaches 91–100% HV and 97–100% grounding on Haiku 5.5 already).
+
+### 8.3 Outcome-based skip rule (measured, `measure/skip_escalate.py`)
+
+| rule | spreix events / observer input | cairn events / observer input |
+| --- | --- | --- |
+| S1 trivial read-only command (`cd`, `ls`, `pwd`, `echo`, `cat`, `git status/log/diff`…), successful, short | 2.5% / 0.7% | 0.4% / 0.1% |
+| S2 tiny (< 120 chars) successful non-state-changing result | 0.9% / 0.1% | 0.6% / 0.1% |
+| S3 exact repeat (same tool, input and result in the same session) | 0.4% / 0.7% | 0.9% / 1.3% |
+| **total** | **3.8% / 1.5%** | **1.9% / 1.5%** |
+
+State-changing commands (redirects, `rm`, `mv`, `git add/commit/push`, installs) are never skipped. The grader's high-value classifier flags 32 of the 508 S1/S2 events on spreix (0 on cairn),
+so the rule needs a guard against them before it ships. **Even designed on outcome, a skip rule removes at most 1.5% of the input tokens**: the user's session is right that 81% of events are Bash, but
+most of them are builds, tests, git and ssh sessions with real results. Batching (§3.3) is the lever that acts on those: batch 10 halves input-side tokens (spreix 280k → 72k per 50 events in `lean2`, of which batching and the replay window are the two changes).
+Every skipped event would still get a one-line deterministic record from the existing `fallback.turn_evidence` path (`ran \`cmd\``, exit state), so the timeline stays complete; that is a design in the plan, not measured here.
+
+### 8.4 Against the cache counterfactual (ESTIMATED extrapolation to spreix's 14,886 events from two 50-event windows each)
+
+| | est. cost for 14,886 events |
+| --- | --- |
+| today, ledger-based (user's session figure) | $116.5 (my range $97.9–$132.5 depending on 5-minute vs 1-hour writes) |
+| the cache counterfactual: writes had been reads | ≈ $54.9 |
+| `lean2` on Haiku 4.5 (replays: $0.0023–0.0024 per event) | ≈ $34–36 |
+| `lean2` on Haiku 5.5, no escalation ($0.00032 per event) | **≈ $4.8** |
+| `lean2` on Haiku 5.5 + Edit/Write ≥ 4k escalation ($0.00085) | ≈ $12.7 |
+| `lean2` on Haiku 5.5 + any-of-three escalation ($0.00286) | ≈ $42.6 |
+
+`lean2` on Haiku 5.5 beats the cache counterfactual by about 11×, and `lean2` on Haiku 4.5 alone already beats it. A cache that works is not the way to the floor: the prefix would have to be identical across calls
+(§1.3), and the cheapest design simply sends fewer tokens.

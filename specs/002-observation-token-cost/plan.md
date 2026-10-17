@@ -52,6 +52,12 @@ first (Constitution II), token discipline (V), right model for the job (VI).
 9. **Read-only shell skip (optional, P3)** — `ingest.py`: `skip_commands` default for listing-only Bash with a short
    successful result. Measured share is 3–5% of observer input; ship only if review wants it.
 
+10. **Models and routing** (added after review) — `src/cairn/router.py` `model()`: fast tier default `claude-haiku-5-5`; the direct API path is already
+    chosen first by `resolve_provider("auto")` when a key exists, the CLI stays the no-key fallback. Escalation to `claude-sonnet-5-5` only on a failed parse by default,
+    size rules opt-in via `models.escalate` (§8.2 of findings.md: size-based escalation multiplies cost 2.7–4.2× for 2–4% of events).
+11. **Outcome-based skip with a timeline record** (added after review) — `src/cairn/engines/recall/ingest.py`: rule S1–S3 of §8.3 behind `skip_rule = "outcome"` (default off until a guard
+    for high-value commands exists); a skipped event is stored as a one-line derived record (`fallback.turn_evidence`), never dropped.
+
 Not changed: `worker_model` default (stays model-when-available; deterministic when not), the fast-tier model (Haiku 4.5
 is already the cheapest Claude model; `models.fast` can point at a local OpenAI-compatible model, measured in `findings.md`).
 
