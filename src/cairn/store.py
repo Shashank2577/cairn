@@ -15,6 +15,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
+from .review.store import SCHEMA as review_schema
+
 SCHEMA_VERSION = 2
 
 SCHEMA = """
@@ -140,6 +142,7 @@ class Brain:
         self.db.row_factory = sqlite3.Row
         with self._lock:
             self.db.executescript(SCHEMA)
+            self.db.executescript(review_schema)
             # write only on change: readers (agent hooks) must not queue behind a sync's write transaction
             have = self.get_kv("schema_version")
             if have != str(SCHEMA_VERSION):

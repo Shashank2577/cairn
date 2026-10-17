@@ -46,4 +46,11 @@ def budgets(project: Project, brain: Brain | None = None, now: float | None = No
         row("memory.wall_seconds", "Memory learning time limit", "seconds", 300, None,
             "The longest a sync may spend learning decisions and gotchas from the repository.",
             "It stops and the remaining items are learned on the next sync."),
+        row("review.budget_tokens", "Review allowance", "tokens", 60000, None,
+            "The most model tokens one review may spend. A review with no model spends none.",
+            "The review stops asking the model, keeps the findings it has and is marked partial. "
+            "The checks that need no model are unaffected."),
+        row("review.wall_seconds", "Review time limit", "seconds", 180, None,
+            "The longest one review may run.",
+            "The review stops, keeps the findings it has and is marked partial."),
     ]

@@ -19,7 +19,8 @@ def _project(tmp_path, toml: str = "") -> Project:
 def test_every_budget_is_explained_in_plain_words(tmp_path):
     rows = budgets(_project(tmp_path))
     assert [r["key"] for r in rows] == ["context.budget", "deep.budget_tokens", "deep.wall_seconds",
-                                        "memory.wall_seconds"]
+                                        "memory.wall_seconds",
+                                        "review.budget_tokens", "review.wall_seconds"]
     for r in rows:
         assert r["name"] and r["meaning"] and r["when_exceeded"] and r["unit"] in ("tokens", "seconds")
         assert "budget" not in r["name"].lower()  # the word is the confusion; the name says what is limited
