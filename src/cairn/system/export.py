@@ -94,8 +94,10 @@ def bundle(root: Path, *, levels: tuple[str, ...] = SECTIONS) -> Bundle:
         if not descs:
             continue
         if level == "flows":
-            entries = len(descs)
             groups = _shapes(descs)
+            if len(groups) == 1 and len(descs) > 1:
+                continue    # every entry point draws the same picture: it says nothing about any of them
+            entries = len(descs)
             shapes = len(groups)
             kept = groups[:MAX_FLOW_DOCS]
             docs += [_doc(g[0], level, product, commit, used, g) for g in kept]

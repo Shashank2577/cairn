@@ -341,6 +341,15 @@ def _system_diagram_cached(root: str, level: str, scope: str | None, stamp: tupl
         # current model's own view instead of nothing.
         desc = system_view_fn(Path(root), level, None)
         desc["stale_scope"] = scope
+    if level == "flows" and not scope:
+        from .system.export import _shapes
+        from .system.flows import flows as all_flows
+        from .system.link import link
+        built = all_flows(Path(root), link(Path(root)))
+        if len(built) > 1 and len(_shapes(built)) == 1:
+            raise ValueError(f"all {len(built)} entry points reach the same containers and stores, so a flow "
+                             "would be the same picture for each. Cairn cannot tell them apart without "
+                             "following calls inside the code; flows help when a request crosses services.")
     if not desc.get("elements"):
         raise ValueError("nothing to draw at this level yet; run a sync so the system model is built")
     return render_inline(desc), json.dumps(desc, default=str)
