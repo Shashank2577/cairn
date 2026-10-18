@@ -739,8 +739,11 @@ def project_router(hub: Hub) -> APIRouter:
         from .system.export import _shapes
         from .system.flows import entry_points
         names = sorted({e.name for e in entry_points(link(root))}, key=len, reverse=True)
+        groups = _shapes(built)
+        if len(groups) == 1 and len(built) > 1:
+            return []      # every entry point draws the same picture: nothing to choose between, no tab
         out = []
-        for group in _shapes(built):
+        for group in groups:
             d = group[0]
             name = next((n for n in names if n in d["title"]), d["title"])
             more = len(group) - 1

@@ -25,6 +25,7 @@ KIND_LABEL = {"container": "Container", "data-store": "Data store", "channel": "
               "component": "Component", "system": "System", "code": "Code claim"}
 MAX_FLOW_DOCS = 12          # distinct flow shapes that get a document of their own; the rest stay in the index
 FLOWS_SLUG = "flows"
+MAX_CODE_BOXES = 30         # a code view of more boxes than this is a list of routes, not a diagram worth a document
 
 
 @dataclass
@@ -103,6 +104,8 @@ def bundle(root: Path, *, levels: tuple[str, ...] = SECTIONS) -> Bundle:
             docs += [_doc(g[0], level, product, commit, used, g) for g in kept]
             docs.append(_flows_index(groups, kept, product, commit, docs))
             continue
+        if level == "code":
+            descs = [d for d in descs if len(d.get("elements", [])) <= MAX_CODE_BOXES]
         docs += [_doc(d, level, product, commit, used) for d in descs]
     return Bundle(commit=commit, head=head, product=product, docs=docs, flow_entries=entries, flow_shapes=shapes)
 
