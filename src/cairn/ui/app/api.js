@@ -205,6 +205,9 @@ export const api = {
       systemView: (level = "containers", scope) => get(P + "/system/view", { level, scope }),
       systemFlows: scope => get(P + "/system/flows", { scope }),
       docs: () => get(P + "/docs"),
+      docsGenerateStatus: () => get(P + "/docs/generate"),
+      docsGenerate: model => post(P + "/docs/generate", { model }),
+      docsGenerateCancel: () => post(P + "/docs/generate/cancel"),
       docsFile: name => get(`${P}/docs/files/${enc(name)}`),
       docsFileUrl: name => `${P}/docs/files/${enc(name)}`,
       docsOne: slug => get(`${P}/docs/${enc(slug)}`),
@@ -222,7 +225,9 @@ export const api = {
       path: (a, b) => get(P + "/graph/path", { a, b }),
       query: q => get(P + "/graph/query", { q }),
       views: () => get(P + "/graph/views"),
-      viewUrl: kind => env.mock || env.fallback.has("graph") ? `/ui/mock/views/${enc(kind)}.html` : `${P}/graph/views/${enc(kind)}`,
+      // The engine draws its pages in its own colours; the server dresses them in the page's for this theme.
+      viewUrl: kind => env.mock || env.fallback.has("graph") ? `/ui/mock/views/${enc(kind)}.html`
+        : `${P}/graph/views/${enc(kind)}?theme=${document.documentElement.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")}`,
       wiki: () => get(P + "/graph/wiki"),
       wikiPage: slug => get(`${P}/graph/wiki/${enc(slug)}`),
       writeWiki: () => post(P + "/graph/wiki", {}),

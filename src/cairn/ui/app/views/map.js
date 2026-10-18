@@ -18,6 +18,11 @@ import { loadCytoscape, themeColors, onThemeChange } from "../lib/cyto.js";
 
 const TABS = [["system", "System"], ["explore", "Explore"], ["graph", "Connections"], ["architecture", "Architecture"], ["wiki", "Wiki"], ["report", "Report"]];
 const SYSTEM_LEVELS = [["context", "Context"], ["containers", "Containers"], ["components", "Components"], ["flows", "Flows"]];
+/** The graph engine's whole-repository pages. Opt-in only: they draw every node, which is the point and the cost. */
+const WHOLE_VIEWS = [
+  ["graph", "Whole graph", "Every node in this repository's map at once. Slow on a large repository and unreadable past a few hundred nodes; use the neighbourhood view to read it."],
+  ["callflow", "Call flow", "Which functions call which, and where the architecture sits: the code's own reading of itself."],
+];
 
 export function MapView() {
   const { pid, route, ov } = useApp();
@@ -692,19 +697,20 @@ function Inspector({ res, pid, onPick, setPath, onFocus, commName }) {
  *
  * Browse opens one folder level at a time (a tree that expanded everything hung on a repository of a thousand
  * files, and a list of folders says nothing about them). Neighbourhood draws one node and what surrounds it,
- * capped and counted. The engine's whole-graph pages are not drawn here. */
+ * capped and counted. The engine's whole-graph pages stay behind an explicit opt-in. */
 function GraphViews() {
   const { pid, route } = useApp();
   const q = route.q;
-  const view = q.get("view") === "focus" ? "focus" : "browse";
+  const view = ["focus", "whole"].includes(q.get("view")) ? q.get("view") : "browse";
   const nav = p => {
     const next = { view: "browse", path: "", mark: "", sort: "name", offset: 0, node: "", file: "", depth: 2, limit: 150, ...Object.fromEntries(q.entries()), ...p };
     const keep = {};
     if (next.view === "browse") Object.assign(keep, { path: next.path, mark: next.mark, sort: next.sort === "risk" ? "risk" : "", offset: next.offset || "" });
     if (next.view === "focus") Object.assign(keep, { node: next.node, file: next.file, depth: Number(next.depth) === 2 ? "" : next.depth, limit: Number(next.limit) === 150 ? "" : next.limit });
+    if (next.view === "whole") Object.assign(keep, { engine: next.engine });
     go(link.project(pid, "map", ["graph"], { view: next.view === "browse" ? "" : next.view, ...Object.fromEntries(Object.entries(keep).filter(([, v]) => v !== "" && v != null && v !== 0)) }));
   };
-  const items = [["browse", "Browse"], ["focus", "Neighbourhood"]];
+  const items = [["browse", "Browse"], ["focus", "Neighbourhood"], ["whole", "Whole graph"]];
   return html`<div class="graphviews">
     <div class="row" style="margin:-6px 0 12px;justify-content:space-between;gap:14px;flex-wrap:wrap">
       <div class="seg" role="tablist" aria-label="Connections views">
@@ -712,10 +718,28 @@ function GraphViews() {
       </div>
     </div>
     <p class="sub" style="margin:0 0 12px;max-width:88ch">${view === "browse" ? "Open one folder at a time. Each row says how big it is, what its best-connected code is, how many files depend on it and what Cairn remembers about it."
-      : view === "focus" ? "One symbol, file or area and what surrounds it: nearest first, capped, with the count of what is left out." : ""}</p>
+      : view === "focus" ? "One symbol, file or area and what surrounds it: nearest first, capped, with the count of what is left out."
+      : "The engine's pages for the entire map. They draw every node, so they are off until you ask for them."}</p>
     ${view === "browse" ? html`<${Browse} pid=${pid} path=${q.get("path") || ""} mark=${q.get("mark") || ""} sort=${q.get("sort") === "risk" ? "risk" : "name"} offset=${Number(q.get("offset")) || 0} nav=${nav}/>`
       : view === "focus" ? html`<${FocusGraph} pid=${pid} node=${q.get("node") || ""} file=${q.get("file") || ""} depth=${Math.min(3, Math.max(1, Number(q.get("depth")) || 2))} limit=${Math.min(400, Math.max(10, Number(q.get("limit")) || 150))} nav=${nav}/>`
-      : null}
+      : html`<${WholeGraph} pid=${pid} engine=${q.get("engine") || ""} nav=${nav}/>`}
+  </div>`;
+}
+
+function WholeGraph({ pid, engine, nav }) {
+  const cur = WHOLE_VIEWS.find(v => v[0] === engine);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [engine, pid]);
+  if (!cur) return html`<${Empty} title="Draw the whole map?">
+    <p>This loads every node of the repository into one picture. On a large repository that is tens of thousands of nodes: it can take a long while and cannot be read. The Neighbourhood view is the readable way in.</p>
+    <div class="row tight" style="gap:8px;justify-content:center;flex-wrap:wrap">${WHOLE_VIEWS.map(([id, label]) => html`<button key=${id} class="btn" onClick=${() => nav({ view: "whole", engine: id })}>Draw the ${label.toLowerCase()}</button>`)}</div></${Empty}>`;
+  const src = api.p(pid).viewUrl(cur[0]);
+  return html`<div>
+    <div class="row" style="margin:0 0 10px;gap:10px;flex-wrap:wrap"><span class="sub" style="max-width:80ch">${cur[2]}</span>
+      <button class="btn sm" onClick=${() => nav({ view: "whole", engine: "" })}>Stop drawing it</button>
+      <a class="btn sm" href=${api.p(pid).viewUrl(cur[0])} target="_blank" rel="noopener"><${Icon} name="ext" size="15"/>Open in a new tab</a></div>
+    ${failed ? html`<${Empty} title="This view did not load"><p>The engine draws it in a sandboxed frame; some browsers block that. Open it in a new tab, or run a sync if the map has not been built yet.</p></${Empty}>`
+      : html`<iframe class="engine-frame" title=${cur[1]} src=${src} sandbox="allow-scripts allow-popups" referrerpolicy="no-referrer" onError=${() => setFailed(true)}></iframe>`}
   </div>`;
 }
 

@@ -101,3 +101,54 @@ def test_flow_picker_lists_distinct_flows_with_a_scope_the_view_accepts(client):
     assert flows and len({f["title"] for f in flows}) == len(flows)
     for f in flows:
         assert client.get(f"/api/p/{client.pid}/system/view", params={"level": "flows", "scope": f["scope"]}).status_code == 200
+
+
+# --------------------------------------------------------------------------- generating with the documentation skill
+def _fake_claude(tmp_path, body: str):
+    script = tmp_path / "claude"
+    script.write_text("#!/bin/sh\n" + body + "\n")
+    script.chmod(0o755)
+    return str(script)
+
+
+def _wait_for(client, state, seconds=10):
+    import time
+    for _ in range(int(seconds * 20)):
+        got = client.get(f"/api/p/{client.pid}/docs/generate").json()
+        if got["state"] == state:
+            return got
+        time.sleep(0.05)
+    raise AssertionError(f"never reached {state}: {got}")
+
+
+def test_generate_runs_the_cli_once_and_reports_its_cost(client, tmp_path, monkeypatch):
+    from cairn import docgen
+    docgen._jobs.clear()
+    seen = tmp_path / "args.txt"
+    monkeypatch.setattr(docgen, "find_claude", lambda: _fake_claude(
+        tmp_path, f'echo "$@" > {seen}; sleep 0.3; echo \'{{"result":"ok","total_cost_usd":0.42,"num_turns":7,"is_error":false}}\''))
+    first = client.post(f"/api/p/{client.pid}/docs/generate", json={"model": "haiku"})
+    assert first.status_code == 200 and first.json()["state"] == "running"
+    assert client.post(f"/api/p/{client.pid}/docs/generate", json={}).status_code == 409      # one run at a time
+    done = _wait_for(client, "done")
+    assert done["cost_usd"] == 0.42 and done["turns"] == 7
+    args = seen.read_text()
+    assert "claude-haiku-5-5" in args and "--max-budget-usd 3.0" in args and "code-documentation" in args
+    assert "Do not change source code" in args
+
+
+def test_generate_says_why_it_cannot_start(client, monkeypatch):
+    from cairn import docgen
+    docgen._jobs.clear()
+    monkeypatch.setattr(docgen, "find_claude", lambda: None)
+    res = client.post(f"/api/p/{client.pid}/docs/generate", json={})
+    assert res.status_code == 409 and "Claude Code CLI" in res.json()["detail"]
+    assert client.post(f"/api/p/{client.pid}/docs/generate", json={"model": "gpt"}).status_code == 409
+
+
+def test_generate_can_be_cancelled(client, tmp_path, monkeypatch):
+    from cairn import docgen
+    docgen._jobs.clear()
+    monkeypatch.setattr(docgen, "find_claude", lambda: _fake_claude(tmp_path, "sleep 30"))
+    client.post(f"/api/p/{client.pid}/docs/generate", json={})
+    assert client.post(f"/api/p/{client.pid}/docs/generate/cancel").json()["state"] == "cancelled"

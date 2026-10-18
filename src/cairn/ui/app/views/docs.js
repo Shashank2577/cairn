@@ -2,7 +2,7 @@
 // flows, code), computed live from the current system model and previewed here. Nothing calls a model unless
 // the opt-in under "Narrate" is ticked; the evidence in every document links to Impact.
 import { useEffect, useRef, useState } from "preact/hooks";
-import { html, Icon, Empty, Load } from "../components/ui.js";
+import { html, Icon, Empty, Load, ConfirmButton } from "../components/ui.js";
 import { useApp, useFetch } from "../state.js";
 import { api, env } from "../api.js";
 import { link } from "../router.js";
@@ -72,6 +72,35 @@ function Doc({ pid, slug }) {
   }}</${Load}>`;
 }
 
+/** Write docs/ with the documentation skill: opt-in, says what it costs, shows progress, can be cancelled. */
+function Generate({ pid, can, onDone }) {
+  const { toast } = useApp();
+  const res = useFetch(() => api.p(pid).docsGenerateStatus(), [pid]);
+  const [model, setModel] = useState("haiku");
+  const job = res.data || { state: "idle" };
+  const running = job.state === "running";
+  useEffect(() => { if (!running) return; const t = setInterval(res.reload, 5000); return () => clearInterval(t); }, [running]);
+  const was = useRef(job.state);
+  useEffect(() => { if (was.current === "running" && job.state === "done") onDone(); was.current = job.state; }, [job.state]);
+  const mins = job.started ? Math.round(((job.ended || Date.now() / 1000) - job.started) / 60) : 0;
+  const run = async () => { try { await api.p(pid).docsGenerate(model); res.reload(); } catch (e) { toast({ title: "Couldn't start", tone: "risk", body: e.message }); } };
+  const cancel = async () => { await api.p(pid).docsGenerateCancel(); res.reload(); };
+  return html`<div class="docs-narrate docs-generate"><b>Generate documentation (uses a model).</b>
+    ${running ? html`<p>Writing <code>docs/</code> with the ${job.skill} skill on ${job.model}: ${plural(mins, "minute")} so far. Cairn finds the code, the skill writes and checks each document.
+        <button class="btn xs" onClick=${cancel}>Cancel</button></p>`
+      : html`<p>Runs the ${res.data?.skill || "documentation"} skill in this repository: it finds code through Cairn and writes architecture, data flow, API, data model and security documents into <code>docs/</code>, replacing the files it made before.
+        One run is ${res.data?.models?.[model] || "a few hundred thousand tokens"} on your Claude sign-in, stopped at $${res.data?.budget_usd ?? 3} by the CLI. Nothing starts until you confirm.</p>
+      <div class="row tight" style="gap:8px;align-items:center">
+        <select class="input" value=${model} onChange=${e => setModel(e.target.value)} aria-label="Model">
+          <option value="haiku">Haiku (cheapest)</option><option value="sonnet">Sonnet (more depth)</option></select>
+        <${ConfirmButton} class="btn sm" label=${job.state === "idle" ? "Generate documentation" : "Generate again"} confirm=${"Confirm: spend up to $" + (res.data?.budget_usd ?? 3)} disabled=${!can.write} onConfirm=${run}/>
+        ${can.write ? null : html`<span class="sub">Your role can't write to the repository.</span>`}</div>`}
+    ${job.state === "done" ? html`<p class="sub">Finished in ${plural(mins, "minute")}${job.cost_usd != null ? `, $${job.cost_usd.toFixed(2)}` : ""}${job.turns ? `, ${plural(job.turns, "step")}` : ""}. The documents are listed under Documentation.</p>` : null}
+    ${job.state === "failed" ? html`<p class="sub" style="color:var(--risk)">The run failed: ${job.message || job.tail || "no output"}</p>` : null}
+    ${job.state === "cancelled" ? html`<p class="sub">Cancelled. Files already written stay in <code>docs/</code>.</p>` : null}
+  </div>`;
+}
+
 export function Docs() {
   const { pid, route, can, toast, ov, sync, startSync } = useApp();
   const res = useFetch(() => api.p(pid).docs(), [pid]);
@@ -126,6 +155,7 @@ export function Docs() {
           <button class="btn sm" onClick=${doExport} disabled=${!!busy || !can.write} title=${can.write ? "Write the same files into the repository" : "Your role can't write to the repository"}><${Icon} name="doc" size="15"/><span>${busy === "export" ? "Writing…" : `Export to ${list.export_dir}`}</span></button>
           <span class="sub">${plural(list.docs.length, "document")}${list.flow_entries > list.flow_shapes ? ` · ${fmt(list.flow_entries)} entry points condensed into ${plural(list.flow_shapes, "distinct flow")}` : ""}</span>
         </div>
+        <${Generate} pid=${pid} can=${can} onDone=${res.reload}/>
         <div class="docs-narrate"><label><input type="checkbox" checked=${narrate && modelsOn} disabled=${!modelsOn} onChange=${e => setNarrate(e.target.checked)}/>
           <span><b>Narrate (opt-in, uses a model).</b> Add model-written names and short descriptions to the files you export or download, each labelled inferred. Capped at ${fmt(list.narrate_tokens)} tokens per export on the fast model, and recorded in the ledger.
           ${modelsOn ? " Off by default: without it nothing here calls a model." : " Unavailable: no model is set up (Settings)."}</span></label></div>

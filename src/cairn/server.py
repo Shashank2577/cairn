@@ -765,6 +765,30 @@ def project_router(hub: Hub) -> APIRouter:
                 "docs": [{"slug": d.slug, "title": d.title, "level": d.level, "summary": d.summary,
                           "diagram": d.desc is not None} for d in b.docs]}
 
+    @r.get("/docs/generate", dependencies=read)
+    def docs_generate_status(pid: str):
+        """The documentation run for this project: idle, running, done or failed, with its cost when done."""
+        from . import docgen
+        return {**docgen.status(c(pid).project.root), "models": {k: docgen.ESTIMATE[k] for k in docgen.MODELS},
+                "budget_usd": docgen.DEFAULT_BUDGET_USD, "skill": docgen.DEFAULT_SKILL}
+
+    @r.post("/docs/generate")
+    def docs_generate(pid: str, payload: dict = Body(default={}), principal=Depends(require("project.write"))):
+        """Start the documentation skill in this repository (opt-in: it spends the caller's model quota and writes ``docs/``)."""
+        from . import docgen
+        root = c(pid).project.root
+        try:
+            job = docgen.start(root, payload.get("model") or "haiku", skill=c(pid).project.cfg("docs.skill", docgen.DEFAULT_SKILL))
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc))
+        audit(pid, principal, "docs.generate", pid, model=job["model"], budget_usd=job["budget_usd"])
+        return job
+
+    @r.post("/docs/generate/cancel")
+    def docs_generate_cancel(pid: str, principal=Depends(require("project.write"))):
+        from . import docgen
+        return docgen.cancel(c(pid).project.root)
+
     @r.get("/docs/files/{name}", dependencies=read)
     def docs_file(pid: str, name: str):
         """One file of the repository's ``docs/`` folder: the styled HTML page for a frame, or the Markdown."""
@@ -848,7 +872,7 @@ def project_router(hub: Hub) -> APIRouter:
         return [{"kind": k, "title": t} for k, t in GRAPH_VIEWS.items()]
 
     @r.get("/graph/views/{kind}", dependencies=read)
-    def graph_view(pid: str, kind: str, limit: int | None = None):
+    def graph_view(pid: str, kind: str, limit: int | None = None, theme: str | None = None):
         """The graph engine's own interactive pages, for the page's Graph tab.
 
         These are the engine's views of the code map — every node, not the system model's dozen — so they
@@ -865,6 +889,8 @@ def project_router(hub: Hub) -> APIRouter:
         html = render()
         if not html:
             raise HTTPException(404, "not enough of a map to draw this view yet; run a sync")
+        from .graph_theme import themed
+        html = themed(html, kind, theme or "")   # the page's own colours, not the engine's
         # Shown in a frame on this page: allow same-origin framing only.
         return HTMLResponse(html, headers={"X-Frame-Options": "SAMEORIGIN",
                                            "Content-Security-Policy": "frame-ancestors 'self'; sandbox allow-scripts allow-popups"})
