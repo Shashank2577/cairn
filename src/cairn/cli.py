@@ -400,6 +400,10 @@ def doctor():
         row(False, "Session capture", "off (config)", "set [sessions] capture = true in .cairn/config.toml")
     row(c.router.available, "Model", c.router.provider if c.router.available else "none (model features off)",
         "sign in to Claude Code (claude), or set ANTHROPIC_API_KEY / an OpenAI-compatible endpoint")
+    from .modelpins import stale_pins
+    pins = stale_pins(c.project)
+    row(not pins, "Model pins", "current" if not pins else "; ".join(
+        f"{p['tier']} is pinned to {p['pinned']} (the default is now {p['default']})" for p in pins), "cairn models --upgrade")
     deep = c.router.deep_state()  # the same answer the API and the UI show
     row(deep["enabled"], "Deep", ("on · " if deep["enabled"] else "off · ") + deep["reason"], deep["fix"])
     from .engines import vectors
@@ -1192,9 +1196,18 @@ def agents_list():
 
 
 @app.command()
-def models(ledger: bool = typer.Option(False, "--ledger", help="Show calls and tokens per tier.")):
+def models(ledger: bool = typer.Option(False, "--ledger", help="Show calls, tokens and estimated dollars per tier."),
+           upgrade: bool = typer.Option(False, "--upgrade", help="Replace a model pin left over from an older default.")):
     """Which model does which job, and what it cost."""
     c = _cairn()
+    if upgrade:
+        from .modelpins import upgrade_pins
+        done = upgrade_pins(c.project)
+        for d in done:
+            console.print(f"[{MOSS}]✓[/] {d['tier']}: {escape(d['pinned'])} → {escape(d['default'])}")
+        if not done:
+            console.print(Text("No model pin from an older default; nothing to change.", style=SLATE))
+        c = _cairn()
     t = Table(box=None, padding=(0, 2), header_style=f"bold {SLATE}")
     t.add_column("Tier", style=f"bold {AMBER}")
     t.add_column("Model", style=INK)
