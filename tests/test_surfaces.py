@@ -832,6 +832,20 @@ def test_settings_reject_values_that_make_no_sense(cairn, tmp_path):
     assert got["locked"] == [] and "models.provider" in got["rules"]  # a local project can change everything
 
 
+def test_settings_expose_defaults_and_the_recall_and_deep_keys(cairn, tmp_path):
+    c, p = _client(cairn, tmp_path)
+    got = c.get(f"{p}/settings").json()
+    assert got["defaults"]["deep.budget_tokens"] == 150000 and got["defaults"]["recall.observe_batch"] == 5
+    assert got["defaults"]["context.ambient"] is True
+    ok = c.patch(f"{p}/settings", json={"recall.observe_batch": 10, "recall.worker_spawn": False, "context.ambient": False,
+                                        "deep.wall_seconds": 120, "memory.seed": False})
+    assert ok.status_code == 200
+    now = c.get(f"{p}/settings").json()
+    assert now["recall"]["observe_batch"] == 10 and now["recall"]["worker_spawn"] is False and now["context"]["ambient"] is False
+    for body in ({"recall.observe_batch": 0}, {"deep.wall_seconds": 1}, {"recall.worker_spawn": "yes"}):
+        assert c.patch(f"{p}/settings", json=body).status_code == 400, body
+
+
 def test_a_failed_sync_step_is_reported_as_failed(cairn, monkeypatch):
     from cairn import sync
     from cairn.engines import mapper

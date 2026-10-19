@@ -41,7 +41,7 @@ from .platform.web import (
     optional_principal,
     require,
 )
-from .project import Project
+from .project import DEFAULTS as CONFIG_DEFAULTS, Project
 from .router import PRICES_AS_OF, cost_usd
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -527,6 +527,7 @@ def project_router(hub: Hub) -> APIRouter:
         # what this server lets a project change: the page disables the rest and says who sets them
         out["locked"] = sorted(k for k in SETTINGS if k in OPERATOR_KEYS and not proj.trusted)
         out["rules"] = SETTING_RULES_TEXT
+        out["defaults"] = {k: CONFIG_DEFAULTS[k.split(".", 1)[0]].get(k.split(".", 1)[1]) for k in SETTINGS}  # what an unset key means
         return out
 
     @r.get("/settings", dependencies=read)
@@ -1418,9 +1419,12 @@ def memory_result(cairn: Cairn, res: dict, previous: dict | None) -> dict:
 SETTINGS: dict[str, type | tuple] = {
     "models.provider": str, "models.fast": str, "models.balanced": str, "models.deep": str, "models.frontier": str,
     "models.base_url": str, "sessions.capture": bool, "deep.enabled": (bool, str), "deep.budget_tokens": int,
-    "context.budget": int}
+    "context.budget": int, "context.ambient": bool, "deep.wall_seconds": int, "memory.seed": bool, "memory.rerank": bool,
+    "memory.wall_seconds": int, "recall.worker_spawn": bool, "recall.observe_batch": int, "recall.context_observations": int}
 PROVIDERS = ("auto", "anthropic", "openai", "claude-code")
-SETTING_LIMITS = {"context.budget": (200, 20_000), "deep.budget_tokens": (1_000, 5_000_000)}
+SETTING_LIMITS = {"context.budget": (200, 20_000), "deep.budget_tokens": (1_000, 5_000_000),
+                  "deep.wall_seconds": (10, 7_200), "memory.wall_seconds": (10, 7_200),
+                  "recall.observe_batch": (1, 50), "recall.context_observations": (0, 500)}
 SETTING_RULES_TEXT = {
     "models.provider": "one of " + ", ".join(PROVIDERS),
     **{f"models.{t}": "a model name" for t in ("fast", "balanced", "deep", "frontier")},
