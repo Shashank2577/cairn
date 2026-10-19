@@ -67,3 +67,19 @@ def test_engine_views_are_listed_only_when_there_is_a_graph_to_draw(cairn, tmp_p
         assert client.get(f"/api/p/{pid}/graph/views").json() == []
     finally:
         graph.write_bytes(backup)
+
+
+def test_a_map_too_big_for_one_page_answers_413_with_the_reason(cairn, tmp_path, monkeypatch):
+    """The engine refuses to draw a huge graph as one HTML page; that was a bodiless 500 in a blank frame."""
+    from cairn.engines.graph import api as graph_api
+    config = ServerConfig(mode="local")
+    app = server.create_app(platform=Platform(home=tmp_path / "home", config=config), config=config,
+                            register=[cairn.project.root])
+    client = TestClient(app, base_url="http://127.0.0.1")
+    pid = client.get("/api/session").json()["projects"][0]["id"]
+
+    def refuse(*a, **k):
+        raise ValueError("Graph has 6000 nodes - too large for HTML viz (limit: 5000).")
+    monkeypatch.setattr(graph_api, "graph_view_html", refuse)
+    res = client.get(f"/api/p/{pid}/graph/views/graph")
+    assert res.status_code == 413 and "6000 nodes" in res.json()["detail"] and "Browse" in res.json()["detail"]

@@ -887,7 +887,10 @@ def project_router(hub: Hub) -> APIRouter:
                   "callflow": lambda: graph_api.callflow_view_html(root, asset_base=GRAPH_ASSETS)}.get(kind)
         if render is None:
             raise HTTPException(404, "no such view")
-        html = render()
+        try:
+            html = render()
+        except ValueError as exc:  # the engine refuses a graph too big to draw as one page; say so, don't 500
+            raise HTTPException(413, f"{exc} The Browse and Neighbourhood views handle a map this size.") from exc
         if not html:
             raise HTTPException(404, "not enough of a map to draw this view yet; run a sync")
         from .graph_theme import themed
