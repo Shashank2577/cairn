@@ -1217,14 +1217,27 @@ def models(ledger: bool = typer.Option(False, "--ledger", help="Show calls, toke
     console.print(brand("models" + ("" if c.router.available else "  (no key: deterministic tier only)")))
     console.print(t)
     if ledger:
-        rows = c.brain.ledger()
+        from . import modelcost
+        cost = modelcost.summary(c.brain, c.project, provider=c.router.provider)
         lt = Table(box=None, padding=(0, 2), header_style=f"bold {SLATE}")
-        for col in ("tier", "model", "calls", "input", "output", "cache_read"):
-            lt.add_column(col)
-        for r in rows:
-            lt.add_row(*(f"{r[k]:,}" if isinstance(r[k], int) else str(r[k] or 0) for k in
-                         ("tier", "model", "calls", "input", "output", "cache_read")))
-        console.print(lt if rows else Text("No model calls yet.", style=SLATE))
+        for col, right in (("tier", False), ("model", False), ("calls", True), ("input", True), ("output", True),
+                           ("thinking", True), ("cache read", True), ("cache write 1h", True), ("cache write", True),
+                           ("est. $", True)):
+            lt.add_column(col, justify="right" if right else "left")
+        for t in cost["tiers"]:
+            lt.add_row(t["tier"], t["model"], *(f"{t[k]:,}" for k in ("calls", "input", "output", "thinking", "cache_read",
+                       "cache_write_1h", "cache_write")), "n/a" if t["usd"] is None else f"${t['usd']:.4f}")
+        console.print(lt if cost["tiers"] else Text("No model calls yet.", style=SLATE))
+        if cost["tiers"]:
+            console.print(Text("tokens: measured (provider usage reports) · dollars: estimated from list price "
+                               "(override in [models.prices]); thinking is included in output", style=SLATE))
+        obs = cost["observer"]
+        for name, key in (("before (cache writes on)", "before"), ("after (cache writes off)", "after")):
+            o = obs[key]
+            if o:
+                per = f"{o['tokens_per_event']:,.0f} tokens/event" if o["tokens_per_event"] else f"{o['tokens_per_call']:,} tokens/call"
+                usd = f", ~${o['usd_per_event']:.5f}/event" if o["usd_per_event"] else ""
+                console.print(f"observer {name}: {o['calls']:,} calls, {per}{usd}")
 
 
 # ---- hook entry points -------------------------------------------------------------------------------
