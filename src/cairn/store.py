@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ledger(
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, task TEXT NOT NULL, tier TEXT NOT NULL,
   model TEXT NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
-  cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0, ok INTEGER NOT NULL);
+  cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0, ok INTEGER NOT NULL,
+  thinking_tokens INTEGER NOT NULL DEFAULT 0, cache_write_1h INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS queries(
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, surface TEXT NOT NULL, kind TEXT NOT NULL,
   target TEXT NOT NULL DEFAULT '', sent_tokens INTEGER NOT NULL, source_tokens INTEGER,
@@ -97,7 +98,20 @@ CREATE TABLE IF NOT EXISTS sm_flow_step(
   what TEXT, how TEXT, style TEXT NOT NULL DEFAULT 'sync', provenance TEXT NOT NULL DEFAULT 'extracted',
   evidence TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(flow_id, idx));
 """,
+    3: "",  # columns: see _add_ledger_detail
 }
+
+
+# 3: what the provider reports per call beyond the four counters: thinking tokens (inside output_tokens) and how much of the
+# cache write was the 1-hour entry (2x input price). ALTER has no IF NOT EXISTS, so each column is added only when missing.
+LEDGER_DETAIL = ("thinking_tokens", "cache_write_1h")
+
+
+def _add_ledger_detail(db: sqlite3.Connection) -> None:
+    have = {r[1] for r in db.execute("PRAGMA table_info(ledger)")}
+    for col in LEDGER_DETAIL:
+        if col not in have:
+            db.execute(f"ALTER TABLE ledger ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
 
 
 def migrate(db: sqlite3.Connection, current: int) -> int:
@@ -105,6 +119,8 @@ def migrate(db: sqlite3.Connection, current: int) -> int:
     v = current
     for target in sorted(k for k in MIGRATIONS if k > current):
         db.executescript(MIGRATIONS[target])
+        if target == 3:
+            _add_ledger_detail(db)
         v = target
     return v
 
@@ -369,16 +385,18 @@ class Brain:
     # ---- ledger --------------------------------------------------------------------------------
     def log_call(self, task: str, tier: str, model: str, usage: dict, ok: bool) -> None:
         with self._lock:
-            self.db.execute("INSERT INTO ledger(ts,task,tier,model,input_tokens,output_tokens,cache_read,cache_write,ok)"
-                            " VALUES(?,?,?,?,?,?,?,?,?)",
+            self.db.execute("INSERT INTO ledger(ts,task,tier,model,input_tokens,output_tokens,cache_read,cache_write,ok,"
+                            "thinking_tokens,cache_write_1h) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                             (time.time(), task, tier, model, usage.get("input", 0), usage.get("output", 0),
-                             usage.get("cache_read", 0), usage.get("cache_write", 0), int(ok)))
+                             usage.get("cache_read", 0), usage.get("cache_write", 0), int(ok),
+                             usage.get("thinking", 0), usage.get("cache_write_1h", 0)))
             self.db.commit()
 
     def ledger(self, since: float = 0) -> list[dict]:
         return [dict(r) for r in self.q(
             "SELECT tier, model, COUNT(*) calls, SUM(input_tokens) input, SUM(output_tokens) output, "
-            "SUM(cache_read) cache_read, SUM(cache_write) cache_write, "
+            "SUM(cache_read) cache_read, SUM(cache_write) cache_write, SUM(thinking_tokens) thinking, "
+            "SUM(cache_write_1h) cache_write_1h, "
             "SUM(input_tokens + cache_read + cache_write) input_total FROM ledger WHERE ts>=? GROUP BY tier, model "
             "ORDER BY calls DESC", (since,))]
 
