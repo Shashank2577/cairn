@@ -33,7 +33,7 @@
 - [x] T013 Test first: `MAX_THINKING_TOKENS=0` is set only for tasks in `NO_THINKING_TASKS`; deep-tier tasks keep the default — `tests/test_router_cost.py`
 - [x] T014 Implement T013 — `src/cairn/router.py`
 - [x] T015 Test first: Anthropic request has no `cache_control` when the observer sends its replay in the prompt — `tests/test_router_cost.py`
-- [ ] T016 (deferred: open question 10) Ledger rows keep the provider's thinking and cache-TTL counts; `cairn models --ledger` labels tokens measured and dollars estimated — `src/cairn/router.py`, `src/cairn/store.py`, `tests/test_router_cost.py`
+- [x] T016 Ledger rows keep the provider's thinking and cache-TTL counts; `cairn models --ledger` labels tokens measured and dollars estimated — `src/cairn/router.py`, `src/cairn/store.py`, `tests/test_router_cost.py`
 
 ## Phase 5: Observer (after review)
 
