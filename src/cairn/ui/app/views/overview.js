@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { html, Icon, Empty, Load, ContourField, Tag, Meter, Skeleton } from "../components/ui.js";
 import { ScaleBar, Ratio } from "../components/scalebar.js";
+import { ModelCost } from "../components/modelcost.js";
 import { Stepper } from "../components/stepper.js";
 import { useNarration, useModelReady, NarrationPanel } from "../components/narrate.js";
 import { useApp, useFetch, useLive } from "../state.js";
@@ -18,6 +19,7 @@ export function Overview() {
   const { pid, project, ov, reloadOv, route } = useApp();
   const n = useNarration(pid);
   const sav = useFetch(() => api.p(pid).savings(12), [pid]);
+  const mdl = useFetch(() => api.p(pid).models(), [pid]);
   const feed = useFetch(() => api.p(pid).feed({ limit: 8 }), [pid]);
   const drift = useFetch(() => api.p(pid).drift(), [pid]);
   const wf = useFetch(() => api.p(pid).workflow(), [pid]);
@@ -67,6 +69,11 @@ export function Overview() {
         ${specs.data?.features?.length && wf.data ? html`<${ActiveSpec} specs=${specs.data} wf=${wf.data}/>` : null}
       </section>
     </div>
+    <section class="sec" aria-labelledby="h-cost">
+      <div class="sec-h"><div><h2 id="h-cost">Model cost</h2><p class="sub">What Cairn's own model calls (writing session observations, summaries, timeline facts) cost, and what the cheaper defaults saved.</p></div>
+        <a class="small" href=${link.project(pid, "settings")}>Details and models</a></div>
+      <${Load} res=${mdl} rows="4">${r => html`<${ModelCost} r=${r}/>`}</${Load}>
+    </section>
     <section class="sec ruled" aria-labelledby="h-layers">
       <div class="sec-h"><div><h2 id="h-layers">Layers</h2><p class="sub">Where the answers come from. Each layer rebuilds on every sync.</p></div></div>
       <${Layers} L=${L} ov=${ov}/>

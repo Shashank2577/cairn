@@ -26,6 +26,9 @@ LIST_PRICES: dict[str, tuple[float, float]] = {
     "claude-fable-5-1": (10.0, 50.0), "claude-fable-5": (10.0, 50.0),
 }
 READ, WRITE_5M, WRITE_1H = 0.1, 1.25, 2.0
+# A call with no cache write only counts as "cache writes off" when its input was big enough that the old behaviour would have
+# written an entry (Haiku 4.5's cache minimum is 4,096 tokens); smaller calls never wrote one and say nothing either way.
+CACHE_MINIMUM = 4096
 
 # What spec 002 measured replaying the same captured events through the old and the new defaults: two repositories x two
 # windows, averaged. Tokens are measured; dollars are estimated at list price.
@@ -77,10 +80,11 @@ def _capture_counts(project: Project, lo: float, hi: float | None) -> tuple[int,
     try:
         db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
         try:
-            top = hi if hi is not None else 4_102_444_800
+            top = hi if hi is not None else 4_102_444_800  # year 2100
+            lo, top = int(lo * 1000), int(top * 1000)  # the capture store keeps epoch milliseconds
             q = "SELECT COUNT(*) FROM {} WHERE created_at_epoch >= ? AND created_at_epoch < ?"
-            return (db.execute(q.format("tool_uses"), (int(lo), int(top))).fetchone()[0],
-                    db.execute(q.format("observations"), (int(lo), int(top))).fetchone()[0])
+            return (db.execute(q.format("tool_uses"), (lo, top)).fetchone()[0],
+                    db.execute(q.format("observations"), (lo, top)).fetchone()[0])
         finally:
             db.close()
     except sqlite3.Error:
@@ -116,8 +120,8 @@ def summary(brain: Brain, project: Project, since: float = 0, provider: str | No
     rows = [dict(r) for r in brain.q(
         "SELECT task, tier, model, ok, COUNT(*) calls, SUM(input_tokens) input, SUM(output_tokens) output, "
         "SUM(cache_read) cache_read, SUM(cache_write) cache_write, SUM(cache_write_1h) cache_write_1h, "
-        "SUM(thinking_tokens) thinking, MIN(ts) first, MAX(ts) last, (cache_write > 0) cached "
-        "FROM ledger WHERE ts>=? GROUP BY task, tier, model, cached", (since,))]
+        "SUM(thinking_tokens) thinking, MIN(ts) first, MAX(ts) last, CASE WHEN cache_write > 0 THEN 'old' WHEN input_tokens + cache_read > ? THEN 'new' ELSE 'small' END cohort "
+        "FROM ledger WHERE ts>=? GROUP BY task, tier, model, cohort", (CACHE_MINIMUM, since))]
 
     def usd_of(group: list[dict]) -> float | None:
         priced = [(r, price(r["model"], project)) for r in group]
@@ -136,7 +140,7 @@ def summary(brain: Brain, project: Project, since: float = 0, provider: str | No
     tasks.sort(key=lambda t: -t["tokens"])
 
     obs = [r for r in rows if r["task"] == "recall_observe"]
-    old, new = [r for r in obs if r["cached"]], [r for r in obs if not r["cached"]]
+    old, new = [r for r in obs if r["cohort"] == "old"], [r for r in obs if r["cohort"] == "new"]
     boundary = min((r["first"] for r in new), default=None)
     mixed = bool(old and new and max(r["last"] for r in old) > boundary)
     before = _cohort(project, old, min((r["first"] for r in old), default=0), boundary, unknown, count=not mixed)
@@ -144,8 +148,8 @@ def summary(brain: Brain, project: Project, since: float = 0, provider: str | No
     total = _sums(rows)
     return {"labels": {"tokens": "measured", "dollars": "estimated"}, "tiers": tiers, "tasks": tasks[:8],
             "observer": {"before": before, "after": after, "mixed": mixed,
-                         "split": "cache writes on (before) vs off (after); events are counted from the first call of the "
-                                  "new behaviour onward"},
+                         "split": "calls that wrote a cache entry (before) vs calls big enough to have written one that did not (after); "
+                                  "events are counted from the first call of the new behaviour onward"},
             "study": STUDY, "totals": {**total, "tokens": _total(total), "usd": usd_of(rows)},
             "thinking_note": "thinking tokens are included in output tokens and billed as output; the API does not report "
                              "them separately, the Claude Code CLI does"}

@@ -61,9 +61,9 @@ def _seed(tmp_path):
     db.executescript("""CREATE TABLE tool_uses(id INTEGER PRIMARY KEY, created_at_epoch INTEGER NOT NULL);
       CREATE TABLE observations(id INTEGER PRIMARY KEY, created_at_epoch INTEGER NOT NULL);""")
     import time
-    now = int(time.time())
-    db.executemany("INSERT INTO tool_uses(created_at_epoch) VALUES(?)", [(now - 1000,)] * 20 + [(now,)] * 10)
-    db.executemany("INSERT INTO observations(created_at_epoch) VALUES(?)", [(now - 1000,)] * 8 + [(now,)] * 5)
+    now = int(time.time() * 1000)  # the capture store keeps epoch milliseconds
+    db.executemany("INSERT INTO tool_uses(created_at_epoch) VALUES(?)", [(now - 1_000_000,)] * 20 + [(now,)] * 10)
+    db.executemany("INSERT INTO observations(created_at_epoch) VALUES(?)", [(now - 1_000_000,)] * 8 + [(now,)] * 5)
     db.commit(); db.close()
     return project, brain
 
@@ -111,7 +111,7 @@ def test_the_report_the_page_reads_has_cost_pins_and_each_tier_default(cairn):
     fast = next(t for t in r["table"] if t["tier"] == "fast")
     assert fast["model"] == "claude-haiku-4-5-20251001" and fast["default"] == "claude-haiku-5-5" and fast["price"] == [1.0, 5.0]
     assert r["cost"]["labels"]["dollars"] == "estimated" and r["totals"] and r["ledger"][0]["thinking_tokens"] == 0
-    assert "cache_write_1h" in r["ledger"][0]
+    assert "cache_write_1h" in r["ledger"][0] and r["ledger"][0]["usd"] is not None
 
 
 def test_cli_ledger_labels_measured_and_estimated(cairn):
@@ -121,3 +121,13 @@ def test_cli_ledger_labels_measured_and_estimated(cairn):
     cairn.brain.log_call("recall_observe", "fast", "claude-haiku-5-5", {"input": 1000, "output": 100, "thinking": 40}, True)
     out = CliRunner().invoke(app, ["models", "--ledger"]).output
     assert "measured" in out and "estimated" in out and "thinking" in out and "$" in out
+
+
+def test_small_calls_without_a_cache_write_are_not_counted_as_after(tmp_path):
+    project = _project(tmp_path)
+    brain = Brain(tmp_path / "b.db")
+    brain.log_call("recall_observe", "fast", "claude-haiku-5-5", {"input": 900, "output": 50}, True)  # too small to ever cache
+    brain.log_call("recall_observe", "fast", "claude-haiku-5-5", {"input": 9000, "output": 50}, True)
+    s = modelcost.summary(brain, project)
+    assert s["observer"]["after"]["calls"] == 1 and s["observer"]["before"] is None
+    assert s["totals"]["calls"] == 2  # the totals still count every call

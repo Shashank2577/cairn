@@ -902,6 +902,12 @@ class Cairn:
             "SELECT ts, task, tier, model, input_tokens, output_tokens, cache_read, cache_write, cache_write_1h, thinking_tokens, "
             "input_tokens + cache_read + cache_write AS input_total, ok FROM ledger WHERE ts>=? "
             "ORDER BY ts DESC LIMIT 300", (since,))]
+        unknown = "5m" if router.provider in ("anthropic", "openai") else "1h"
+        for call in calls:
+            p = modelcost.price(call["model"], self.project)
+            call["usd"] = None if p is None else modelcost.dollars(
+                {"input": call["input_tokens"], "output": call["output_tokens"], "cache_read": call["cache_read"],
+                 "cache_write": call["cache_write"], "cache_write_1h": call["cache_write_1h"]}, p, unknown)
         return {"available": router.available, "provider": router.provider, "table": table, "pins": stale_pins(self.project),
                 "totals": self.brain.ledger(since), "ledger": calls,
                 "cost": modelcost.summary(self.brain, self.project, since, router.provider)}
