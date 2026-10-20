@@ -1,0 +1,58 @@
+WEBVTT
+
+00:00:00.600 --> 00:00:05.000
+Your agent keeps its place, and gets smarter every session.
+
+00:00:05.900 --> 00:00:09.300
+Cairn's Overview page, with sample data: context served.
+
+00:00:09.500 --> 00:00:12.900
+Agents read 19× fewer tokens than opening the files behind the answers.
+
+00:00:13.100 --> 00:00:16.600
+New beside it: bytes pulled raw by tools. 6.5 MB across 1,284 calls.
+
+00:00:16.800 --> 00:00:18.900
+A measurement only. Nothing is trimmed or blocked.
+
+00:00:19.400 --> 00:00:22.600
+Deep into a long session, Claude Code compacts the conversation.
+
+00:00:22.800 --> 00:00:26.000
+Just before, Cairn's PreCompact hook saves a resume snapshot.
+
+00:00:26.200 --> 00:00:29.900
+Last request, files changed, open tasks, decisions. Under 2 KB.
+
+00:00:30.100 --> 00:00:33.400
+Pointers, not content: each line names the cairn_session_* tool to call.
+
+00:00:33.600 --> 00:00:35.800
+No model call. The agent picks up where it was.
+
+00:00:36.400 --> 00:00:39.700
+Cairn also records what not to repeat.
+
+00:00:39.900 --> 00:00:43.400
+Rejected approaches, error-then-fix pairs, retry loops, user corrections.
+
+00:00:43.600 --> 00:00:46.200
+Only explicit signals count, and no model is called.
+
+00:00:46.400 --> 00:00:48.800
+Next session, one search finds them.
+
+00:00:49.400 --> 00:00:52.600
+Memory ages. The Memory page, with sample data.
+
+00:00:52.800 --> 00:00:56.000
+A memory no agent was told for 90 days is marked Stale and ranks lower.
+
+00:00:56.200 --> 00:00:58.700
+Conventions and decisions never age.
+
+00:00:58.900 --> 00:01:00.800
+Nothing is deleted. Being used again restarts the clock.
+
+00:01:02.000 --> 00:01:10.400
+Cairn. Install it once, run it in your repository.

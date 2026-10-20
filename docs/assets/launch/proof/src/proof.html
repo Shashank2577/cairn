@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cairn proof</title>
+<!--
+  Cairn proof video, frame source. Plain HTML/CSS/SVG; no animation library.
+  window.render(t) puts the page in its exact state for time t (seconds), so every frame is deterministic.
+  tools/render.mjs loads this page in headless Chrome, calls render() per frame and pipes screenshots to ffmpeg.
+  Open it in a browser with #t=12.5 to inspect one moment.
+-->
+<style>
+@font-face { font-family: "Overpass"; font-weight: 100 900; src: url("assets/fonts/overpass-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Overpass Mono"; font-weight: 300 700; src: url("assets/fonts/overpass-mono-latin-wght-normal.woff2") format("woff2"); }
+:root {
+  --paper: #F4F5F0; --sheet: #FBFBF8; --raised: #FFFFFF; --ink: #1F2328; --ink-2: #464B45; --muted: #6B7068;
+  --rule: #DADCD2; --rule-strong: #C6C9BD; --contour: #E1E3D9; --contour-strong: #CFD2C5;
+  --code: #9A6434; --agent: #2F6FA3; --memory: #4F7F3F; --spec: #6E4A96; --risk: #B8433A;
+  --code-wash: #F1E7DC; --agent-wash: #E3ECF4; --memory-wash: #E6EEDF; --spec-wash: #ECE5F3; --risk-wash: #F5E3E0;
+  --ui: "Overpass", system-ui, sans-serif; --mono: "Overpass Mono", ui-monospace, Menlo, monospace;
+  --hl: #C9D63A;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+code, .term, #search, .cmd, #chapter .n, .note, .win .url { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--paper); color: var(--ink); font-family: var(--ui); }
+#stage { position: absolute; inset: 0; overflow: hidden; }
+#contours { position: absolute; inset: -40px; }
+.scene { position: absolute; inset: 0; opacity: 0; }
+.abs { position: absolute; }
+
+/* chapter label + progress stones */
+#chapter { position: absolute; left: 226px; top: 24px; display: flex; align-items: baseline; gap: 18px; opacity: 0; background: rgba(244,245,240,.96); padding: 8px 16px 4px; border-radius: 10px; box-shadow: 0 4px 16px -8px rgba(31,35,40,.3); }
+#chapter .n { font-family: var(--mono); font-size: 20px; color: var(--muted); letter-spacing: .04em; }
+#chapter .t { font-size: 32px; font-weight: 700; letter-spacing: -.01em; }
+#stones { position: absolute; right: 226px; top: 30px; display: flex; gap: 12px; opacity: 0; background: rgba(244,245,240,.96); padding: 12px 16px; border-radius: 10px; box-shadow: 0 4px 16px -8px rgba(31,35,40,.3); }
+#stones i { width: 26px; height: 12px; border-radius: 50%; background: var(--contour-strong); display: block; }
+#stones i.on { background: var(--code); }
+
+/* browser window */
+.win { position: absolute; left: 240px; top: 96px; width: 1440px; height: 830px; border-radius: 14px; overflow: hidden;
+  background: var(--sheet); box-shadow: 0 30px 80px -24px rgba(31,35,40,.38), 0 2px 8px rgba(31,35,40,.10); border: 1px solid var(--rule-strong); }
+.win .bar { height: 40px; background: #ECEDE6; border-bottom: 1px solid var(--rule); display: flex; align-items: center; padding: 0 16px; gap: 8px; }
+.win .bar b { width: 12px; height: 12px; border-radius: 50%; background: var(--rule-strong); display: block; }
+.win .bar .url { margin-left: 18px; font-family: var(--mono); font-size: 15px; color: var(--muted); background: var(--sheet);
+  border: 1px solid var(--rule); border-radius: 6px; padding: 3px 14px 1px; }
+.win .view { position: absolute; left: 0; top: 40px; right: 0; bottom: 0; overflow: hidden; }
+.win .view .content { position: absolute; left: 0; top: 0; width: 1440px; }
+.win .view img { display: block; width: 1440px; }
+.cam { position: absolute; inset: 0; transform-origin: 0 0; }
+
+/* hand-drawn style highlight ring + note */
+.ring { position: absolute; border: 3px solid var(--memory); border-radius: 12px; opacity: 0; }
+.ring.amber { border-color: var(--code); }
+.note { position: absolute; font-style: italic; font-size: 24px; font-weight: 600; color: var(--ink); background: var(--hl);
+  padding: 6px 14px 3px; border-radius: 4px; opacity: 0; white-space: nowrap; box-shadow: 0 3px 0 rgba(31,35,40,.12); }
+
+/* captions */
+#cap { position: absolute; left: 0; right: 0; top: 958px; display: flex; justify-content: center; pointer-events: none; }
+#cap span { max-width: 1560px; background: rgba(31,35,40,.92); color: var(--paper); font-size: 36px; font-weight: 600; line-height: 1.25;
+  padding: 14px 30px 10px; border-radius: 10px; text-align: center; opacity: 0; letter-spacing: -.005em; }
+#cap code { font-family: var(--mono); font-size: 32px; color: #DDE7A0; }
+
+/* scene 1: title */
+#s1 .wrap { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+#s1 .kick { font-family: var(--mono); font-size: 24px; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; margin-top: 34px; }
+#s1 h1 { font-size: 104px; font-weight: 800; letter-spacing: -.035em; line-height: 1.02; margin-top: 18px; text-align: center; }
+#s1 h1.l2 { color: var(--memory); margin-top: 6px; }
+.cairn-ico ellipse { fill: var(--code); }
+
+/* scene 3: terminal */
+.term { position: absolute; left: 160px; top: 96px; width: 1600px; height: 830px; border-radius: 14px; overflow: hidden;
+  background: #1F2328; color: #E8EAE3; box-shadow: 0 30px 80px -24px rgba(31,35,40,.45); }
+.term .bar { height: 42px; background: #2A2F33; display: flex; align-items: center; padding: 0 16px; gap: 8px; }
+.term .bar b { width: 12px; height: 12px; border-radius: 50%; background: #4A5055; display: block; }
+.term .bar .ttl { margin-left: 16px; font-family: var(--mono); font-size: 16px; color: #A9AEA6; }
+.term .body { position: absolute; left: 40px; right: 40px; top: 70px; bottom: 30px; font-family: var(--mono); font-size: 21px; line-height: 1.62; }
+.tl { white-space: pre; opacity: 0; }
+.tl .p { color: #C9D63A; }
+.tl .dim { color: #8E948B; }
+.tl .bad { color: #E58A7F; }
+.tl .ok { color: #9CCB86; }
+.tl .tool { color: #9FC4E4; }
+#compact { position: absolute; left: 40px; right: 40px; top: 560px; opacity: 0; }
+#compact .lbl { font-family: var(--mono); font-size: 20px; color: #A9AEA6; margin-bottom: 10px; }
+#compact .track { height: 10px; background: #343A3F; border-radius: 6px; overflow: hidden; }
+#compact .fill { height: 100%; width: 0; background: #A9AEA6; }
+#hook { position: absolute; right: 40px; top: 470px; background: var(--memory); color: #fff; font-family: var(--mono); font-size: 19px;
+  padding: 10px 18px 7px; border-radius: 8px; opacity: 0; }
+#snap { position: absolute; left: 40px; right: 40px; top: 70px; opacity: 0; }
+#snap .div { font-family: var(--mono); font-size: 18px; color: #8E948B; border-top: 1px dashed #4A5055; padding-top: 12px; margin-bottom: 16px; }
+#snap .div b { color: #C9D63A; font-weight: 600; }
+#snap .box { border: 1px solid #3D4449; border-left: 4px solid var(--memory); border-radius: 8px; padding: 18px 22px 14px; background: #232A26; }
+.sl { font-family: var(--mono); font-size: 20px; line-height: 1.6; white-space: pre-wrap; color: #E8EAE3; min-height: 32px; }
+.sl.hd { color: #A9AEA6; }
+.sl.ptr { color: #9CCB86; border-radius: 4px; }
+.sl .k { color: #C9D63A; }
+#meter { position: absolute; left: 40px; right: 40px; bottom: 34px; opacity: 0; display: flex; align-items: center; gap: 22px; font-family: var(--mono); font-size: 20px; color: #A9AEA6; }
+#meter .track { flex: 1; height: 12px; background: #343A3F; border-radius: 6px; position: relative; overflow: hidden; }
+#meter .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--memory); }
+#meter b { color: #E8EAE3; font-weight: 700; }
+#src3 { position: absolute; right: 40px; bottom: 80px; font-family: var(--mono); font-size: 17px; color: #8E948B; opacity: 0; }
+
+/* scene 4: events */
+#s4 .lede { position: absolute; left: 160px; top: 150px; width: 560px; }
+#s4 .lede h2 { font-size: 78px; font-weight: 800; letter-spacing: -.03em; line-height: 1.02; }
+#s4 .lede p { font-size: 30px; color: var(--ink-2); margin-top: 26px; line-height: 1.35; }
+#s4 .lede .pill { display: inline-block; margin-top: 30px; font-family: var(--mono); font-size: 20px; background: var(--memory-wash); color: var(--memory);
+  border: 1px solid #C5D6BA; padding: 8px 14px 5px; border-radius: 6px; }
+.cards { position: absolute; left: 780px; top: 150px; width: 980px; }
+.card { background: var(--raised); border: 1px solid var(--rule); border-radius: 12px; padding: 20px 26px 16px; margin-bottom: 18px;
+  box-shadow: 0 1px 0 rgba(31,35,40,.04), 0 10px 26px -14px rgba(31,35,40,.25); opacity: 0; position: relative; }
+.card .tag { display: inline-block; font-size: 17px; font-weight: 700; padding: 4px 10px 1px; border-radius: 5px; letter-spacing: .01em; }
+.card .id { float: right; font-family: var(--mono); font-size: 17px; color: var(--muted); }
+.card .ti { font-family: var(--mono); font-size: 22px; margin-top: 12px; line-height: 1.4; color: var(--ink); }
+.t-rej { background: var(--risk-wash); color: var(--risk); }
+.t-fix { background: var(--code-wash); color: var(--code); }
+.t-ret { background: var(--agent-wash); color: var(--agent); }
+.t-cor { background: var(--spec-wash); color: var(--spec); }
+#search { position: absolute; left: 780px; top: 150px; width: 980px; background: #1F2328; color: #E8EAE3; border-radius: 12px; padding: 22px 26px;
+  font-family: var(--mono); font-size: 21px; line-height: 1.6; opacity: 0; box-shadow: 0 24px 60px -20px rgba(31,35,40,.5); }
+#search .q { color: #C9D63A; }
+#search .r { white-space: pre; }
+#search .hit { background: rgba(156,203,134,.18); color: #CFE8C2; border-radius: 4px; }
+#search .dim { color: #8E948B; }
+
+/* scene 6: close */
+#s6 .wrap { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+#s6 .word { font-size: 150px; font-weight: 800; letter-spacing: -.045em; line-height: 1; margin-top: 10px; }
+#s6 .tag { font-size: 34px; color: var(--ink-2); margin-top: 14px; }
+#s6 .lines { margin-top: 44px; text-align: center; }
+#s6 .lines div { font-size: 46px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; }
+#s6 .lines div + div { color: var(--memory); }
+#s6 .cmd { margin-top: 46px; background: #1F2328; color: #E8EAE3; font-family: var(--mono); font-size: 30px; padding: 22px 34px 18px; border-radius: 12px; line-height: 1.55; }
+#s6 .cmd .p { color: #C9D63A; }
+#s6 .foot { margin-top: 24px; font-family: var(--mono); font-size: 20px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg id="contours" width="2000" height="1160" viewBox="0 0 2000 1160"></svg>
+
+  <!-- 1. title -->
+  <section class="scene" id="s1"><div class="wrap">
+    <svg class="cairn-ico" width="150" height="150" viewBox="0 0 32 32">
+      <ellipse id="st1" cx="16" cy="26" rx="12" ry="4.5"/><ellipse id="st2" cx="16" cy="17.5" rx="8.5" ry="4" opacity=".78"/><ellipse id="st3" cx="16" cy="10" rx="5" ry="3" opacity=".56"/>
+    </svg>
+    <div class="kick" id="s1k">New in Cairn</div>
+    <h1 id="s1a">Your agent keeps its place</h1>
+    <h1 class="l2" id="s1b">and gets smarter every session.</h1>
+  </div></section>
+
+  <!-- 2. overview -->
+  <section class="scene" id="s2"><div class="cam" id="cam2">
+    <div class="win"><div class="bar"><b></b><b></b><b></b><span class="url">localhost · cairn ui · Overview</span></div>
+      <div class="view"><div class="content" id="c2">
+        <img src="assets/overview-tall.jpg" alt="">
+        <div class="ring" id="r2a" style="left:1262px;top:10px;width:100px;height:34px"></div>
+        <div class="ring" id="r2b" style="left:256px;top:546px;width:690px;height:68px"></div>
+        <div class="ring" id="r2c" style="left:254px;top:860px;width:600px;height:212px"></div>
+        <div class="note" id="n2a" style="left:1110px;top:58px">sample data</div>
+        <div class="note" id="n2b" style="left:380px;top:574px">what Cairn served</div>
+        <div class="note" id="n2c" style="left:540px;top:950px">new: what tools pulled raw</div>
+      </div></div>
+    </div>
+  </div></section>
+
+  <!-- 3. compaction -->
+  <section class="scene" id="s3">
+    <div class="term"><div class="bar"><b></b><b></b><b></b><span class="ttl">Claude Code · shop</span></div>
+      <div class="body" id="convo"></div>
+      <div id="compact"><div class="lbl">Context window full · compacting conversation…</div><div class="track"><div class="fill" id="cfill"></div></div></div>
+      <div id="hook">PreCompact → Cairn saved a resume snapshot</div>
+      <div id="snap">
+        <div class="div">Conversation compacted · <b>SessionStart (compact)</b> · Cairn hands back:</div>
+        <div class="box" id="snapbox"></div>
+      </div>
+      <div id="src3">snapshot built by resume.py from the test-suite session</div>
+      <div id="meter"><span>snapshot size</span><div class="track"><div class="fill" id="mfill"></div></div><span><b id="mbytes">0</b> bytes of 2,048 max</span></div>
+    </div>
+  </section>
+
+  <!-- 4. what not to repeat -->
+  <section class="scene" id="s4">
+    <div class="lede">
+      <h2 id="s4h">What not to repeat</h2>
+      <p id="s4p">Four kinds of event, recorded from the session itself.</p>
+      <div class="pill" id="s4pill">no model call · explicit signals only</div>
+    </div>
+    <div class="cards" id="cards">
+      <div class="card" id="k1"><span class="tag t-rej">rejected approach</span><span class="id">obs 2</span><div class="ti">Rejected by the user: Bash `git push --force`</div></div>
+      <div class="card" id="k2"><span class="tag t-fix">error then fix</span><span class="id">obs 3</span><div class="ti">Fixed after an error: Bash `pytest tests/test_gateway.py`</div></div>
+      <div class="card" id="k3"><span class="tag t-ret">retry loop</span><span class="id">obs 4</span><div class="ti">Retry loop: Bash `npm run build`</div></div>
+      <div class="card" id="k4"><span class="tag t-cor">user correction</span><span class="id">obs 5</span><div class="ti">User correction: No, don't change the old gateway client; wrap it in the retry helper instead</div></div>
+    </div>
+    <div id="search">
+      <div><span class="dim">next session › </span><span class="q" id="sq"></span></div>
+      <div id="sres" style="opacity:0;margin-top:14px">
+        <div class="r">Found 2 observation(s) matching "git push":</div>
+        <div class="r dim">| ID | T | Title</div>
+        <div class="r hit" id="shit">| #2 | ⚖ | Rejected by the user: Bash `git push --force`</div>
+        <div class="r">| #1 | ✓ | Add refund retries to the gateway</div>
+        <div class="r dim" style="margin-top:8px">Use cairn_session_observations(ids=[...]) for full details.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. memory -->
+  <section class="scene" id="s5"><div class="cam" id="cam5">
+    <div class="win"><div class="bar"><b></b><b></b><b></b><span class="url">localhost · cairn ui · Memory</span></div>
+      <div class="view"><div class="content" id="c5">
+        <img src="assets/memory-top.jpg" alt="">
+        <div class="ring" id="r5a" style="left:1262px;top:10px;width:100px;height:34px"></div>
+        <div class="ring amber" id="r5b" style="left:716px;top:496px;width:126px;height:40px"></div>
+        <div class="ring" id="r5c" style="left:264px;top:548px;width:668px;height:180px"></div>
+        <div class="note" id="n5a" style="left:1110px;top:58px">sample data</div>
+        <div class="note" id="n5b" style="left:858px;top:498px">unused 90 days, so it ranks lower</div>
+        <div class="note" id="n5c" style="left:640px;top:736px">conventions and decisions never age</div>
+      </div></div>
+    </div>
+  </div></section>
+
+  <!-- 6. close -->
+  <section class="scene" id="s6"><div class="wrap">
+    <svg class="cairn-ico" width="120" height="120" viewBox="0 0 32 32">
+      <ellipse cx="16" cy="26" rx="12" ry="4.5"/><ellipse cx="16" cy="17.5" rx="8.5" ry="4" opacity=".78"/><ellipse cx="16" cy="10" rx="5" ry="3" opacity=".56"/>
+    </svg>
+    <div class="word" id="s6w">cairn</div>
+    <div class="tag" id="s6t">Institutional memory for coding agents.</div>
+    <div class="lines" id="s6l"><div>Keeps its place.</div><div>Gets smarter every session.</div></div>
+    <div class="cmd" id="s6c"><div><span class="p">$</span> uv tool install --python 3.12 cairn-brain</div><div><span class="p">$</span> cd your-repo &amp;&amp; cairn</div></div>
+    <div class="foot" id="s6f">One command per repository. Runs locally.</div>
+  </div></section>
+
+  <div id="chapter"><span class="n" id="chn"></span><span class="t" id="cht"></span></div>
+  <div id="stones"><i></i><i></i><i></i><i></i></div>
+  <div id="cap"><span id="capt"></span></div>
+</div>
+
+<script>
+// ---------- data: every string below comes from the UI sample data, the docs or a real resume snapshot ----------
+const SCENES = { s1: [0, 5.5], s2: [5.5, 19], s3: [19, 36], s4: [36, 49], s5: [49, 61], s6: [61, 71] };
+const DURATION = 71;
+const CHAPTERS = [[5.5, 19, "1 of 4", "Context served"], [19, 36, "2 of 4", "Long-session survival"],
+                  [36, 49, "3 of 4", "What not to repeat"], [49, 61, "4 of 4", "Memory that ages"]];
+const CAPTIONS = [
+  [0.6, 5.0, "Your agent keeps its place, and gets smarter every session."],
+  [5.9, 9.3, "Cairn's Overview page, with sample data: context served."],
+  [9.5, 12.9, "Agents read 19× fewer tokens than opening the files behind the answers."],
+  [13.1, 16.6, "New beside it: bytes pulled raw by tools. 6.5 MB across 1,284 calls."],
+  [16.8, 18.9, "A measurement only. Nothing is trimmed or blocked."],
+  [19.4, 22.6, "Deep into a long session, Claude Code compacts the conversation."],
+  [22.8, 26.0, "Just before, Cairn's PreCompact hook saves a resume snapshot."],
+  [26.2, 29.9, "Last request, files changed, open tasks, decisions. Under 2 KB."],
+  [30.1, 33.4, "Pointers, not content: each line names the <code>cairn_session_*</code> tool to call."],
+  [33.6, 35.8, "No model call. The agent picks up where it was."],
+  [36.4, 39.7, "Cairn also records what not to repeat."],
+  [39.9, 43.4, "Rejected approaches, error-then-fix pairs, retry loops, user corrections."],
+  [43.6, 46.2, "Only explicit signals count, and no model is called."],
+  [46.4, 48.8, "Next session, one search finds them."],
+  [49.4, 52.6, "Memory ages. The Memory page, with sample data."],
+  [52.8, 56.0, "A memory no agent was told for 90 days is marked Stale and ranks lower."],
+  [56.2, 58.7, "Conventions and decisions never age."],
+  [58.9, 60.8, "Nothing is deleted. Being used again restarts the clock."],
+  [62.0, 70.4, "Cairn. Install it once, run it in your repository."],
+];
+const CONVO = [
+  ['<span class="p">&gt;</span> Add refund retries to the gateway'],
+  ['  <span class="tool">⏺ Edit</span>  shop/a.py'],
+  ['  <span class="tool">⏺ Edit</span>  shop/b.py'],
+  ['  <span class="tool">⏺ TodoWrite</span>  3 tasks'],
+  ['  <span class="tool">⏺ Bash</span>  git push --force                 <span class="bad">✕ rejected by you</span>'],
+  ['  <span class="tool">⏺ Bash</span>  pytest tests/test_gateway.py     <span class="bad">✕ exit 1</span>'],
+  ['  <span class="tool">⏺ Edit</span>  shop/b.py'],
+  ['  <span class="tool">⏺ Bash</span>  pytest tests/test_gateway.py     <span class="ok">✓ 1 passed</span>'],
+  ['  <span class="tool">⏺ Bash</span>  npm run build ×3                 <span class="bad">✕ ✕</span> <span class="ok">✓</span>'],
+  ['<span class="p">&gt;</span> No, don\'t change the old gateway client; wrap it in the retry helper instead'],
+];
+// Built by src/cairn/engines/recall/resume.py from the fixture session in tests/engines/test_recall_resume.py (722 bytes).
+const SNAPSHOT = [
+  ["hd", "Cairn resume snapshot (the conversation was just compacted; these are pointers, fetch details with the tools named)."],
+  ["", "Last request: No, don't change the old gateway client; wrap it in the retry helper instead"],
+  ["", "Files changed (2): shop/a.py, shop/b.py"],
+  ["ptr", "  -> cairn_session_search(query=\"a.py\") for what was done to them"],
+  ["", "Open tasks (2): Add the regression test; Update the docs"],
+  ["", "Decisions and rejected approaches:"],
+  ["", "  [obs 6] Retries use backoff"],
+  ["", "  [obs 5] User correction: No, don't change the old gateway client; wrap it in the retry helper instead"],
+  ["", "  [obs 2] Rejected by the user: Bash `git push --force`"],
+  ["ptr", "  -> cairn_session_observations(ids=[6, 5, 2]) for the detail; cairn_session_timeline(anchor=6) for what surrounded the latest"],
+];
+const SNAP_BYTES = 722;
+
+// ---------- helpers ----------
+const $ = id => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const easeOut = x => 1 - Math.pow(1 - x, 3);
+const easeInOut = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const ramp = (t, a, b, e = easeOut) => e(clamp((t - a) / (b - a)));
+const lerp = (a, b, x) => a + (b - a) * x;
+// in at a, out at b, with fade length f
+const inOut = (t, a, b, f = .4) => Math.min(ramp(t, a, a + f), 1 - ramp(t, b - f, b, x => x));
+// piecewise keyframes [[time, {k, x, y, s}], ...] with ease-in-out between neighbours
+function keys(t, ks) {
+  if (t <= ks[0][0]) return ks[0][1];
+  for (let i = 0; i < ks.length - 1; i++) {
+    const [t0, v0] = ks[i], [t1, v1] = ks[i + 1];
+    if (t <= t1) { const x = easeInOut(clamp((t - t0) / (t1 - t0))); const o = {}; for (const k in v0) o[k] = lerp(v0[k], v1[k], x); return o; }
+  }
+  return ks[ks.length - 1][1];
+}
+// camera: focus point (fx, fy) in stage pixels brought to (960, 510) at zoom k; (960,510,1) is identity
+function camera(el, c) { el.style.transform = `translate(${960 - c.fx * c.k}px, ${510 - c.fy * c.k}px) scale(${c.k})`; }
+const show = (el, o, y = 0, s = 1) => { el.style.opacity = o; el.style.transform = `translateY(${y}px) scale(${s})`; };
+
+// ---------- build static parts ----------
+(function contours() {
+  // seeded wobbly rings, two centres, like a survey map
+  let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const svg = $("contours"); let out = "";
+  for (const [cx, cy, n] of [[180, 980, 9], [1820, 120, 10]]) {
+    const ph = Array.from({ length: 5 }, () => rnd() * 6.28);
+    for (let r = 1; r <= n; r++) {
+      const R = r * 88; let d = "";
+      for (let i = 0; i <= 96; i++) {
+        const a = i / 96 * Math.PI * 2;
+        const w = 1 + .10 * Math.sin(a * 2 + ph[0] + r * .21) + .06 * Math.sin(a * 3 + ph[1]) + .04 * Math.sin(a * 5 + ph[2] + r * .3);
+        d += (i ? "L" : "M") + (cx + Math.cos(a) * R * w * 1.25).toFixed(1) + " " + (cy + Math.sin(a) * R * w).toFixed(1);
+      }
+      out += `<path d="${d}Z" fill="none" stroke="${r % 5 === 0 ? "#CFD2C5" : "#E1E3D9"}" stroke-width="${r % 5 === 0 ? 2 : 1.4}"/>`;
+    }
+  }
+  svg.innerHTML = out;
+})();
+$("convo").innerHTML = CONVO.map(l => `<div class="tl">${l[0]}</div>`).join("");
+$("snapbox").innerHTML = SNAPSHOT.map(([c]) => `<div class="sl ${c}"></div>`).join("");
+const SNAP_EL = [...$("snapbox").children];
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const TOTAL_CHARS = SNAPSHOT.reduce((n, l) => n + l[1].length, 0);
+
+// ---------- per-scene renderers (lt = local time) ----------
+function r1(lt) {
+  ["st1", "st2", "st3"].forEach((id, i) => { const p = ramp(lt, .2 + i * .35, .75 + i * .35);
+    $(id).setAttribute("transform", `translate(0 ${(-8 * (1 - p)).toFixed(2)})`); $(id).style.opacity = p; });
+  show($("s1k"), ramp(lt, 1.0, 1.5), 12 * (1 - ramp(lt, 1.0, 1.5)));
+  show($("s1a"), ramp(lt, 1.3, 2.0), 30 * (1 - ramp(lt, 1.3, 2.0)));
+  show($("s1b"), ramp(lt, 2.2, 2.9), 30 * (1 - ramp(lt, 2.2, 2.9)));
+}
+function r2(lt) {
+  // window entrance + camera; focus in stage px = (240 + x, 136 + y - scroll)
+  const enter = ramp(lt, 0, .7);
+  const c = keys(lt, [[0, { fx: 960, fy: 510, k: 1, s: 0 }], [3.6, { fx: 960, fy: 510, k: 1, s: 0 }],
+    [4.8, { fx: 840, fy: 690, k: 1.75, s: 0 }], [7.4, { fx: 840, fy: 690, k: 1.75, s: 0 }],
+    [8.9, { fx: 800, fy: 585, k: 1.6, s: 470 }], [11.6, { fx: 800, fy: 585, k: 1.6, s: 470 }], [13.0, { fx: 960, fy: 510, k: 1, s: 470 }]]);
+  camera($("cam2"), c);
+  $("c2").style.transform = `translateY(${-c.s}px)`;
+  $("s2").querySelector(".win").style.opacity = enter;
+  $("s2").querySelector(".win").style.marginTop = `${40 * (1 - enter)}px`;
+  const ring = (id, a, b) => { const p = inOut(lt, a, b, .35); $(id).style.opacity = p; $(id).style.transform = `scale(${1.08 - .08 * p})`; };
+  ring("r2a", .8, 3.6); ring("r2b", 4.9, 7.6); ring("r2c", 9.0, 12.4);
+  const note = (id, a, b) => show($(id), inOut(lt, a, b, .35), 8 * (1 - ramp(lt, a, a + .35)));
+  note("n2a", 1.0, 3.6); note("n2b", 5.1, 7.6); note("n2c", 9.2, 12.4);
+}
+function r3(lt) {
+  const term = $("s3").querySelector(".term");
+  const enter = ramp(lt, 0, .6); term.style.opacity = enter; term.style.marginTop = `${40 * (1 - enter)}px`;
+  $("src3").style.opacity = ramp(lt, 7, 7.6) * (1 - ramp(lt, 16.4, 17));
+  // conversation lines, then collapse when compaction finishes
+  const collapse = ramp(lt, 6.0, 6.7, easeInOut);
+  [...$("convo").children].forEach((el, i) => { const p = ramp(lt, .4 + i * .3, .7 + i * .3);
+    el.style.opacity = p * (1 - collapse); el.style.transform = `translateY(${(8 * (1 - p) - 60 * collapse).toFixed(1)}px)`; });
+  show($("compact"), ramp(lt, 3.6, 3.9) * (1 - collapse), 0);
+  $("cfill").style.width = `${100 * ramp(lt, 3.8, 5.9, x => x)}%`;
+  show($("hook"), inOut(lt, 4.3, 6.6, .3), 10 * (1 - ramp(lt, 4.3, 4.6)));
+  // snapshot types in, line by line
+  const snapIn = ramp(lt, 6.6, 7.0); $("snap").style.opacity = snapIn;
+  const typed = Math.floor(TOTAL_CHARS * clamp((lt - 7.0) / 4.0));
+  let left = typed;
+  SNAPSHOT.forEach(([cls, text], i) => { const n = clamp(left, 0, text.length); left -= text.length;
+    SNAP_EL[i].innerHTML = esc(text.slice(0, n)).replace(/(cairn_session_\w+)/g, '<span class="k">$1</span>'); });
+  const ptr = inOut(lt, 11.4, 16.6, .4);
+  SNAP_EL.forEach((el, i) => { el.style.background = SNAPSHOT[i][0] === "ptr" ? `rgba(156,203,134,${.22 * ptr})` : "transparent";
+    el.style.opacity = SNAPSHOT[i][0] === "ptr" || ptr === 0 ? 1 : 1 - .45 * ptr; });
+  $("meter").style.opacity = ramp(lt, 7.0, 7.4);
+  const bytes = Math.round(SNAP_BYTES * clamp((lt - 7.0) / 4.0));
+  $("mbytes").textContent = bytes.toLocaleString("en-US");
+  $("mfill").style.width = `${100 * bytes / 2048}%`;
+}
+function r4(lt) {
+  show($("s4h"), ramp(lt, .2, .8), 24 * (1 - ramp(lt, .2, .8)));
+  show($("s4p"), ramp(lt, .6, 1.2), 16 * (1 - ramp(lt, .6, 1.2)));
+  show($("s4pill"), ramp(lt, 7.4, 7.9), 10 * (1 - ramp(lt, 7.4, 7.9)));
+  const toSearch = ramp(lt, 9.6, 10.2, easeInOut);
+  ["k1", "k2", "k3", "k4"].forEach((id, i) => { const p = ramp(lt, 1.4 + i * .55, 2.0 + i * .55);
+    $(id).style.opacity = p * (1 - toSearch); $(id).style.transform = `translateY(${(26 * (1 - p) + 60 * toSearch).toFixed(1)}px)`; });
+  $("search").style.opacity = toSearch;
+  $("search").style.transform = `translateY(${-20 * (1 - toSearch)}px)`;
+  const q = 'cairn_session_search(query="git push")';
+  $("sq").textContent = q.slice(0, Math.floor(q.length * clamp((lt - 10.2) / 1.0)));
+  $("sres").style.opacity = ramp(lt, 11.3, 11.6);
+}
+function r5(lt) {
+  const enter = ramp(lt, 0, .7);
+  const c = keys(lt, [[0, { fx: 960, fy: 510, k: 1, s: 0 }], [3.4, { fx: 960, fy: 510, k: 1, s: 0 }],
+    [4.6, { fx: 1090, fy: 655, k: 1.85, s: 0 }], [6.9, { fx: 1090, fy: 655, k: 1.85, s: 0 }],
+    [8.1, { fx: 900, fy: 760, k: 1.55, s: 0 }], [9.9, { fx: 900, fy: 760, k: 1.55, s: 0 }], [11.2, { fx: 960, fy: 510, k: 1, s: 0 }]]);
+  camera($("cam5"), c);
+  $("s5").querySelector(".win").style.opacity = enter;
+  $("s5").querySelector(".win").style.marginTop = `${40 * (1 - enter)}px`;
+  const ring = (id, a, b) => { const p = inOut(lt, a, b, .35); $(id).style.opacity = p; $(id).style.transform = `scale(${1.08 - .08 * p})`; };
+  ring("r5a", .8, 3.4); ring("r5b", 4.7, 7.1); ring("r5c", 8.2, 10.2);
+  const note = (id, a, b) => show($(id), inOut(lt, a, b, .35), 8 * (1 - ramp(lt, a, a + .35)));
+  note("n5a", 1.0, 3.4); note("n5b", 4.9, 7.1); note("n5c", 8.4, 10.2);
+}
+function r6(lt) {
+  const ico = $("s6").querySelector(".cairn-ico"); ico.style.opacity = ramp(lt, .1, .7);
+  show($("s6w"), ramp(lt, .3, 1.0), 24 * (1 - ramp(lt, .3, 1.0)));
+  show($("s6t"), ramp(lt, .8, 1.4), 14 * (1 - ramp(lt, .8, 1.4)));
+  show($("s6l"), ramp(lt, 1.6, 2.3), 18 * (1 - ramp(lt, 1.6, 2.3)));
+  show($("s6c"), ramp(lt, 2.8, 3.5), 18 * (1 - ramp(lt, 2.8, 3.5)));
+  show($("s6f"), ramp(lt, 3.6, 4.2), 0);
+}
+const R = { s1: r1, s2: r2, s3: r3, s4: r4, s5: r5, s6: r6 };
+
+// ---------- frame ----------
+window.render = function (t) {
+  for (const id in SCENES) {
+    const [a, b] = SCENES[id], el = $(id);
+    const last = id === "s6";
+    const o = Math.min(ramp(t, a - (id === "s1" ? 0 : .25), a + .3, x => x), last ? 1 - ramp(t, DURATION - 1.2, DURATION - .2, x => x) : 1 - ramp(t, b - .3, b + .25, x => x));
+    el.style.opacity = o;
+    el.style.display = o > 0 ? "block" : "none";
+    if (o > 0) R[id](t - a);
+  }
+  const ch = CHAPTERS.find(c => t >= c[0] - .25 && t < c[1] + .25);
+  const co = ch ? Math.min(ramp(t, ch[0], ch[0] + .5), 1 - ramp(t, ch[1] - .3, ch[1] + .1, x => x)) : 0;
+  $("chapter").style.opacity = co; $("stones").style.opacity = co;
+  if (ch) { $("chn").textContent = ch[2]; $("cht").textContent = ch[3];
+    [...$("stones").children].forEach((s, i) => s.className = i <= CHAPTERS.indexOf(ch) ? "on" : ""); }
+  const cap = CAPTIONS.find(c => t >= c[0] && t < c[1]);
+  const showCap = cap && !(t < 5.5 || t >= 61);  // the title and close scenes carry their words on screen
+  $("capt").innerHTML = cap ? cap[2] : "";
+  $("capt").style.opacity = showCap ? Math.min(ramp(t, cap[0], cap[0] + .2, x => x), 1 - ramp(t, cap[1] - .2, cap[1], x => x)) : 0;
+  $("contours").style.transform = `translate(${(-20 * t / DURATION).toFixed(2)}px, ${(10 * Math.sin(t / 9)).toFixed(2)}px)`;
+};
+window.PROOF = { DURATION, CAPTIONS, SCENES };
+window.render(parseFloat((location.hash.match(/t=([\d.]+)/) || [0, 0])[1]));
+</script>
+</body>
+</html>
