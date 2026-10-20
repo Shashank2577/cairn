@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>How Cairn works</title>
+<!-- The explainer as one page. seek(t) draws the frame at t seconds from pure functions of t, so
+     render.mjs can capture any frame in any order. Open it in a browser and add #t=37 to look at
+     one moment, or #play to watch it run. -->
+<style>
+@font-face { font-family: "Overpass"; font-weight: 100 900; src: url("fonts/overpass-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Overpass Mono"; font-weight: 300 700; src: url("fonts/overpass-mono-latin-wght-normal.woff2") format("woff2"); }
+:root {
+  --paper: #F4F5F0; --sheet: #FBFBF8; --raised: #FFFFFF; --ink: #1F2328; --ink-2: #464B45; --muted: #6B7068;
+  --rule: #DADCD2; --rule-strong: #C6C9BD; --faint: #E9EAE3; --contour: #E1E3D9;
+  --code: #9A6434; --agent: #2F6FA3; --memory: #4F7F3F; --spec: #6E4A96; --risk: #B8433A; --time: #3C4148;
+  --code-wash: #F1E7DC; --agent-wash: #E3ECF4; --memory-wash: #E6EEDF; --spec-wash: #ECE5F3; --risk-wash: #F5E3E0; --time-wash: #E6E8E3;
+  --accent: #B4531C;
+  --ui: "Overpass", system-ui, sans-serif; --mono: "Overpass Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--paper); }
+body { font-family: var(--ui); color: var(--ink); -webkit-font-smoothing: antialiased; }
+#stage { position: absolute; inset: 0; overflow: hidden; background: var(--paper); }
+#contours { position: absolute; left: -100px; top: -100px; width: 2120px; height: 1280px; }
+.scene { position: absolute; inset: 0; visibility: hidden; }
+.abs { position: absolute; }
+.mono { font-family: var(--mono); }
+.card { background: var(--raised); border: 1.5px solid var(--rule-strong); border-radius: 14px;
+  box-shadow: 0 1px 0 rgba(31,35,40,.04), 0 18px 40px -22px rgba(31,35,40,.35); }
+.kicker { font-size: 22px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+
+/* chrome: logo and chapter rail */
+#brand { left: 64px; top: 44px; display: flex; align-items: center; gap: 14px; font-size: 30px; font-weight: 800; letter-spacing: -.01em; }
+#rail { right: 64px; top: 50px; display: flex; gap: 10px; }
+#rail span { font-size: 19px; font-weight: 700; padding: 7px 16px 5px; border-radius: 999px; color: var(--muted); border: 1.5px solid var(--rule); background: var(--sheet); }
+#rail span.on { color: var(--paper); background: var(--ink); border-color: var(--ink); }
+
+/* captions */
+#cap { left: 0; right: 0; top: 952px; display: flex; justify-content: center; }
+#capbox { max-width: 1560px; padding: 16px 34px 12px; border-radius: 14px; background: rgba(31,35,40,.92);
+  color: #F4F5F0; font-size: 40px; font-weight: 600; line-height: 1.22; text-align: center; letter-spacing: -.005em; }
+#capbox code { font-family: var(--mono); font-size: 36px; color: #E9C79E; }
+
+/* 1: the question */
+#term { left: 300px; top: 200px; width: 1320px; height: 340px; overflow: hidden; }
+.tbar { height: 54px; border-bottom: 1.5px solid var(--rule); display: flex; align-items: center; gap: 10px; padding: 0 22px; }
+.tbar i { width: 15px; height: 15px; border-radius: 50%; background: var(--rule-strong); display: block; }
+.tbar b { margin-left: 14px; font-weight: 600; font-size: 20px; color: var(--muted); }
+.tbody { padding: 34px 40px; font-family: var(--mono); font-size: 31px; line-height: 1.55; color: var(--ink); }
+.tbody .p { color: var(--agent); font-weight: 700; }
+.caret { display: inline-block; width: 15px; height: 32px; background: var(--ink); vertical-align: -5px; margin-left: 3px; }
+#think { color: var(--muted); }
+#q { left: 0; right: 0; top: 640px; text-align: center; font-size: 92px; font-weight: 800; letter-spacing: -.03em; }
+#q em { font-style: normal; color: var(--risk); }
+
+/* 2: the cost of reading */
+#cost { left: 110px; top: 230px; width: 700px; }
+#cost .big { font-size: 190px; font-weight: 800; letter-spacing: -.045em; line-height: .95; color: var(--code); }
+#cost .unit { font-size: 46px; font-weight: 700; margin-top: 10px; }
+#cost .sub { font-size: 26px; color: var(--ink-2); margin-top: 22px; line-height: 1.45; }
+#pages { left: 110px; top: 700px; width: 700px; height: 150px; }
+#pages div { position: absolute; bottom: 0; width: 26px; border-radius: 3px; background: var(--code-wash); border: 1.5px solid var(--code); }
+#call { left: 850px; top: 300px; width: 990px; padding: 36px 40px; }
+#call .h { font-size: 22px; font-weight: 700; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 18px; }
+#call pre { font-family: var(--mono); font-size: 22.5px; line-height: 1.6; color: var(--ink); white-space: pre-wrap; }
+#call .fn { color: var(--agent); font-weight: 700; }
+#call .s { color: var(--code); }
+
+/* 3: five layers */
+#s3 svg.wires { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+.node { display: flex; flex-direction: column; justify-content: center; padding: 0 26px; }
+.node .t { font-size: 29px; font-weight: 800; }
+.node .d { font-size: 19px; color: var(--muted); margin-top: 4px; font-family: var(--mono); }
+.layer { left: 800px; width: 450px; height: 116px; border-radius: 12px; background: var(--raised);
+  border: 1.5px solid var(--rule-strong); display: flex; align-items: center; overflow: hidden; }
+.layer .bar { width: 12px; align-self: stretch; }
+.layer .txt { padding: 0 22px; }
+.layer .n { font-size: 31px; font-weight: 800; letter-spacing: -.01em; }
+.layer .qq { font-size: 21px; color: var(--ink-2); margin-top: 2px; }
+.layer .from { font-size: 16.5px; color: var(--muted); font-family: var(--mono); margin-top: 5px; }
+#packmini { left: 1330px; top: 150px; width: 520px; height: 672px; padding: 26px 26px; }
+#packmini .h { font-family: var(--mono); font-size: 19px; color: var(--muted); margin-bottom: 14px; }
+.pl { margin-bottom: 16px; padding: 12px 14px 10px; border-radius: 10px; border-left: 6px solid; }
+.pl .a { font-family: var(--mono); font-size: 18.5px; line-height: 1.38; color: var(--ink); }
+.pl .c { font-family: var(--mono); font-size: 15.5px; color: var(--muted); margin-top: 5px; }
+#local { left: 740px; top: 842px; width: 570px; text-align: center; font-size: 20px; color: var(--muted); font-weight: 600; }
+#legend3 { left: 1330px; top: 842px; width: 520px; font-size: 16px; color: var(--muted); font-family: var(--mono); text-align: center; }
+.dot { position: absolute; width: 20px; height: 20px; border-radius: 50%; margin: -10px 0 0 -10px; box-shadow: 0 0 0 6px rgba(255,255,255,.7); }
+
+/* 4: the pack */
+#pack { left: 110px; top: 140px; width: 1140px; height: 740px; padding: 30px 38px; }
+#pack .ln { font-family: var(--mono); font-size: 21px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; }
+#pack .hd { font-weight: 700; }
+#pack .sec { color: var(--muted); font-weight: 700; margin-top: 10px; }
+#pack .cite { color: var(--muted); border-radius: 5px; padding: 0 3px; }
+#pack .tag { color: var(--muted); }
+#pack .risk { color: var(--risk); font-weight: 700; }
+#meter { left: 1320px; top: 150px; width: 500px; }
+#meter .k { font-size: 22px; font-weight: 700; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+#meter .v { font-size: 104px; font-weight: 800; letter-spacing: -.04em; color: var(--memory); line-height: 1; margin-top: 10px; }
+#meter .of { font-size: 27px; color: var(--ink-2); margin-top: 6px; }
+.track { height: 26px; border-radius: 6px; background: var(--faint); border: 1.5px solid var(--rule-strong); position: relative; overflow: hidden; margin-top: 12px; }
+.fill { position: absolute; left: 0; top: 0; bottom: 0; }
+#compare { left: 1320px; top: 480px; width: 500px; }
+#compare .row { margin-bottom: 30px; }
+#compare .lab { font-size: 22px; font-weight: 700; display: flex; justify-content: space-between; }
+#compare .lab span { color: var(--muted); font-weight: 600; font-family: var(--mono); font-size: 19px; }
+#compare .note { font-size: 18px; color: var(--muted); line-height: 1.4; }
+
+/* 5: the edit */
+#editor { left: 110px; top: 150px; width: 1060px; height: 620px; overflow: hidden; }
+#editor .tbar b { font-family: var(--mono); }
+.code { padding: 22px 0; font-family: var(--mono); font-size: 23px; line-height: 1.75; }
+.code div { padding: 0 30px; white-space: pre; }
+.code .del { background: var(--risk-wash); color: #7d2a24; }
+.code .add { background: var(--memory-wash); color: #2f5524; }
+.code .keep { background: var(--code-wash); }
+.code .cm { color: var(--muted); }
+#illus { left: 110px; top: 884px; width: 1060px; font-size: 18px; color: var(--muted); text-align: right; display: none; }
+#imp { left: 1240px; top: 150px; width: 580px; padding: 28px 30px; }
+#imp pre { font-family: var(--mono); font-size: 20px; line-height: 1.55; white-space: pre-wrap; }
+#imp .risk { color: var(--risk); font-weight: 700; }
+#deps { left: 1240px; top: 470px; width: 580px; padding: 24px 30px; }
+#deps .h { font-size: 20px; font-weight: 700; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 12px; }
+.dep { display: flex; align-items: center; gap: 14px; font-family: var(--mono); font-size: 20px; padding: 9px 0; border-bottom: 1px solid var(--faint); }
+.box { width: 28px; height: 28px; border-radius: 7px; border: 2px solid var(--rule-strong); flex: none; position: relative; }
+.box.ok { background: var(--memory); border-color: var(--memory); }
+.box.ok::after { content: ""; position: absolute; left: 8px; top: 3px; width: 7px; height: 14px; border: solid #fff; border-width: 0 3px 3px 0; transform: rotate(45deg); }
+
+/* 6: remember */
+#rem { left: 110px; top: 170px; width: 820px; padding: 30px 36px; }
+#rem pre { font-family: var(--mono); font-size: 25px; line-height: 1.6; white-space: pre-wrap; }
+#rem .fn { color: var(--memory); font-weight: 700; }
+#rem .s { color: var(--code); }
+#stack { left: 1000px; top: 130px; width: 200px; height: 420px; }
+#brief { left: 1260px; top: 170px; width: 560px; padding: 26px 30px; }
+#brief .h { font-size: 20px; font-weight: 700; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+#brief .t { font-size: 30px; font-weight: 800; margin: 6px 0 16px; }
+#brief .it { font-size: 21px; line-height: 1.45; padding: 12px 14px; border-radius: 9px; margin-bottom: 10px; }
+#search { left: 110px; top: 650px; width: 1710px; padding: 24px 32px; }
+#search .qline { font-family: var(--mono); font-size: 25px; }
+#search .qline .fn { color: var(--agent); font-weight: 700; }
+#search .res { display: flex; gap: 18px; margin-top: 16px; }
+#search .r { flex: 1; font-size: 21px; line-height: 1.4; padding: 12px 16px; border-radius: 10px; background: var(--agent-wash); }
+#search .r .c { font-family: var(--mono); font-size: 16.5px; color: var(--muted); margin-top: 4px; }
+#sesslabels { left: 980px; top: 562px; width: 240px; text-align: center; font-size: 19px; color: var(--muted); font-weight: 600; }
+
+/* 7: deterministic first */
+#det { left: 110px; top: 170px; width: 760px; }
+#det h2 { font-size: 64px; font-weight: 800; letter-spacing: -.03em; line-height: 1.05; }
+#det .chips { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
+#det .chip { font-size: 25px; font-weight: 700; padding: 12px 20px 9px; border-radius: 11px; border: 1.5px solid var(--rule-strong); background: var(--raised); }
+#det .zero { margin-top: 26px; font-size: 26px; color: var(--ink-2); }
+#tiers { left: 110px; top: 640px; width: 760px; }
+#tiers .k { font-size: 21px; font-weight: 700; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 14px; }
+#tiers .row { display: flex; gap: 14px; }
+#tiers .tier { flex: 1; padding: 16px 18px 12px; border-radius: 12px; border: 1.5px dashed var(--rule-strong); background: var(--sheet); }
+#tiers .tier b { display: block; font-size: 27px; }
+#tiers .tier span { font-size: 18px; color: var(--muted); font-family: var(--mono); }
+#tiers .never { margin-top: 18px; font-size: 24px; font-weight: 700; color: var(--memory); }
+#browser { left: 960px; top: 150px; width: 870px; height: 640px; overflow: hidden; }
+#browser .tbar b { font-family: var(--mono); font-size: 18px; }
+#browser .shot { position: absolute; left: 0; top: 54px; width: 870px; }
+#browser .shot img { width: 870px; display: block; }
+#shotlab { left: 960px; top: 806px; width: 870px; display: flex; justify-content: space-between; font-size: 20px; color: var(--muted); font-weight: 600; }
+
+/* 8: end */
+#end { left: 0; right: 0; top: 150px; display: flex; flex-direction: column; align-items: center; }
+#end .word { font-size: 170px; font-weight: 800; letter-spacing: -.05em; line-height: 1; margin-top: 18px; }
+#end .tag { font-size: 44px; color: var(--ink-2); margin-top: 8px; font-weight: 600; }
+#install { margin-top: 44px; padding: 26px 40px; border-radius: 14px; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 33px; line-height: 1.65; }
+#install .d { color: #8EC078; }
+#end .url { margin-top: 26px; font-size: 28px; font-family: var(--mono); color: var(--ink-2); }
+</style>
+<script src="captions.js"></script>
+</head>
+<body>
+<div id="stage">
+  <svg id="contours" viewBox="0 0 2120 1280"></svg>
+
+  <!-- 1 -->
+  <section class="scene" id="s1">
+    <div class="card abs" id="term">
+      <div class="tbar"><i></i><i></i><i></i><b>agent session&ensp;·&ensp;cairn repository</b></div>
+      <div class="tbody">
+        <div><span class="p">›</span> <span id="typed"></span><span class="caret" id="caret1"></span></div>
+        <div id="think" style="margin-top:18px">● planning the edit…</div>
+      </div>
+    </div>
+    <div class="abs" id="q">What breaks if I <em>change this?</em></div>
+  </section>
+
+  <!-- 2 -->
+  <section class="scene" id="s2">
+    <div class="abs" id="cost">
+      <div class="kicker">src/cairn/engines/graph/extract.py</div>
+      <div class="big" id="lines">0</div>
+      <div class="unit">lines in one file</div>
+      <div class="sub">406,492 bytes, about 101,600 tokens at 4 characters per token. Reading it, its callers and its history is the slow way to learn what a change touches.</div>
+    </div>
+    <div class="abs" id="pages"></div>
+    <div class="card abs" id="call">
+      <div class="h">One call over MCP</div>
+      <pre id="callpre"></pre>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="scene" id="s3">
+    <svg class="wires" id="wires"></svg>
+    <div class="card abs node" id="nAgent" style="left:70px;top:322px;width:300px;height:116px">
+      <div class="t">Coding agent</div><div class="d">any MCP client</div>
+    </div>
+    <div class="card abs node" id="nMcp" style="left:70px;top:546px;width:300px;height:116px;border-color:var(--ink)">
+      <div class="t">cairn mcp</div><div class="d">one MCP server</div>
+    </div>
+    <div class="abs" id="layers"></div>
+    <div class="abs" id="local">built on this machine&ensp;·&ensp;no API key&ensp;·&ensp;no server to run</div>
+    <div class="card abs" id="packmini">
+      <div class="h">## Context: change how graph/extract.py records source locations</div>
+      <div id="plines"></div>
+    </div>
+    <div class="abs" id="legend3">EXTRACTED: read from a source&ensp;[kind:key]: citation</div>
+    <div id="dots"></div>
+  </section>
+
+  <!-- 4 -->
+  <section class="scene" id="s4">
+    <div class="card abs" id="pack"></div>
+    <div class="abs" id="meter">
+      <div class="k">Budget used</div>
+      <div class="v" id="used">0</div>
+      <div class="of">of a 1,200-token budget</div>
+      <div class="track"><div class="fill" id="usedfill" style="background:var(--memory)"></div></div>
+    </div>
+    <div class="abs" id="compare">
+      <div class="row"><div class="lab">The pack <span id="cmpA">1,192 tokens</span></div>
+        <div class="track"><div class="fill" id="barA" style="background:var(--memory)"></div></div></div>
+      <div class="row"><div class="lab">extract.py alone <span>≈ 101,600 tokens</span></div>
+        <div class="track"><div class="fill" id="barB" style="background:repeating-linear-gradient(135deg,var(--code) 0 6px,var(--code-wash) 6px 12px)"></div></div></div>
+      <div class="note">Same scale. The pack cites the file instead of copying it, and every pack's size is logged next to the size of the files behind it.</div>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="scene" id="s5">
+    <div class="card abs" id="editor">
+      <div class="tbar"><i></i><i></i><i></i><b>src/cairn/engines/graph/extract.py · sketch of the edit</b></div>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card abs" id="imp"><pre id="imppre"></pre></div>
+    <div class="card abs" id="deps">
+      <div class="h">Dependents to check</div>
+      <div id="deplist"></div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="scene" id="s6">
+    <div class="card abs" id="rem"><pre id="rempre"></pre></div>
+    <svg class="abs" id="stack" viewBox="0 0 200 420"></svg>
+    <div class="abs" id="sesslabels">Memory layer</div>
+    <div class="card abs" id="brief">
+      <div class="h">Next session&ensp;·&ensp;start</div>
+      <div class="t">Session brief</div>
+      <div class="it" id="b1" style="background:var(--memory-wash)"><b>[convention]</b> Source locations from graph/extract.py are line ranges, never a single line.</div>
+      <div class="it" id="b2" style="background:var(--faint)"><b>Active work</b> src/cairn/engines/graph/extract.py: risk MEDIUM, 3 dependents</div>
+    </div>
+    <div class="card abs" id="search">
+      <div class="qline"><span class="fn">cairn_session_search</span>(query=<span style="color:var(--code)">"source location end line"</span>)</div>
+      <div class="res">
+        <div class="r" id="r1">Source location stores a single line only, no end-line field<div class="c">[obs:1188] · an earlier session</div></div>
+        <div class="r" id="r2">Next: cairn_session_timeline for what happened around it, then cairn_session_observations for full details<div class="c">search → timeline → details</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="scene" id="s7">
+    <div class="abs" id="det">
+      <div class="kicker">Deterministic first</div>
+      <h2 style="margin-top:14px">Every answer above is computed, not generated.</h2>
+      <div class="chips" id="chips">
+        <div class="chip" style="color:var(--code)">tree-sitter ASTs</div>
+        <div class="chip" style="color:var(--time)">git history</div>
+        <div class="chip" style="color:var(--spec)">spec files</div>
+        <div class="chip" style="color:var(--agent)">session logs</div>
+      </div>
+      <div class="zero">One SQLite read model in <span class="mono">.cairn/</span>. Works offline, with no API key.</div>
+    </div>
+    <div class="abs" id="tiers">
+      <div class="k">Optional: a model enriches</div>
+      <div class="row">
+        <div class="tier"><b>fast</b><span>Haiku · summaries</span></div>
+        <div class="tier"><b>balanced</b><span>Sonnet · extract</span></div>
+        <div class="tier"><b>deep</b><span>Opus · judgement</span></div>
+      </div>
+      <div class="never">It never gates an answer.</div>
+    </div>
+    <div class="card abs" id="browser">
+      <div class="tbar"><i></i><i></i><i></i><b>cairn ui</b></div>
+      <div class="shot" id="sh1"><img src="ui/impact.png"></div>
+      <div class="shot" id="sh2"><img src="ui/map.png"></div>
+      <div class="shot" id="sh3"><img src="ui/memory.png"></div>
+    </div>
+    <div class="abs" id="shotlab"><span id="shotname">Impact</span><span>the same answers on one page&ensp;·&ensp;sample data</span></div>
+  </section>
+
+  <!-- 8 -->
+  <section class="scene" id="s8">
+    <div class="abs" id="end">
+      <svg id="logo" width="220" height="190" viewBox="0 0 32 28"></svg>
+      <div class="word">cairn</div>
+      <div class="tag">Institutional memory for coding agents.</div>
+      <div id="install"><div><span class="d">$</span> uv tool install --python 3.12 cairn-brain</div><div><span class="d">$</span> cd your-repo &amp;&amp; cairn</div></div>
+      <div class="url">github.com/Shashank2577/cairn</div>
+    </div>
+  </section>
+
+  <div class="abs" id="brand"><svg width="40" height="40" viewBox="0 0 32 32"><ellipse cx="16" cy="26" rx="12" ry="4.5" fill="#9A6434"/><ellipse cx="16" cy="17.5" rx="8.5" ry="4" fill="#9A6434" opacity=".78"/><ellipse cx="16" cy="10" rx="5" ry="3" fill="#9A6434" opacity=".56"/></svg>cairn<span style="font-weight:500;color:var(--muted);margin-left:6px">&ensp;·&ensp;how it works</span></div>
+  <div class="abs" id="rail"><span>Ask</span><span>Layers</span><span>Pack</span><span>Edit</span><span>Remember</span><span>Local</span></div>
+  <div class="abs" id="cap"><div id="capbox"></div></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const eo = x => 1 - Math.pow(1 - x, 3);
+const eio = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const fmt = n => Math.round(n).toLocaleString("en-US");
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// in at a (rising over dur), out at b (falling over out); returns the visibility 0..1
+function show(el, t, a, b, o = {}) {
+  const dur = o.dur ?? .55, out = o.out ?? .45, dy = o.dy ?? 26, dx = o.dx ?? 0, sc = o.sc ?? 0;
+  const i = eo(prog(t, a, a + dur)), f = b == null ? 0 : prog(t, b - out, b);
+  const v = i * (1 - f);
+  el.style.opacity = v;
+  el.style.visibility = v > .001 ? "visible" : "hidden";
+  el.style.transform = `translate(${(1 - i) * dx}px, ${(1 - i) * dy}px) scale(${1 - (1 - i) * sc})`;
+  return v;
+}
+function typeText(t, a, cps, text) { const n = Math.floor(clamp((t - a) * cps, 0, text.length)); return text.slice(0, n); }
+
+// ---- background contours (seeded, static shapes; slow drift) ----
+(function contours() {
+  let s = 11; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const svg = $("contours"); let html = "";
+  const centres = [[420, 300], [1700, 900], [1500, 180], [300, 1080]];
+  for (const [cx, cy] of centres) {
+    const ph = [rnd() * 6, rnd() * 6, rnd() * 6];
+    for (let r = 60; r < 760; r += 46) {
+      let d = "";
+      for (let k = 0; k <= 96; k++) {
+        const a = k / 96 * Math.PI * 2;
+        const rr = r * (1 + .10 * Math.sin(3 * a + ph[0]) + .06 * Math.sin(5 * a + ph[1] + r / 200) + .04 * Math.sin(2 * a + ph[2]));
+        d += (k ? "L" : "M") + (cx + rr * Math.cos(a)).toFixed(1) + " " + (cy + rr * .72 * Math.sin(a)).toFixed(1);
+      }
+      html += `<path d="${d}Z" fill="none" stroke="#E1E3D9" stroke-width="${r % 230 < 46 ? 2.2 : 1.3}"/>`;
+    }
+  }
+  svg.innerHTML = html;
+})();
+
+// ---- logo ----
+$("logo").innerHTML = `<ellipse id="st1" cx="16" cy="24" rx="12" ry="3.6" fill="#9A6434"/><ellipse id="st2" cx="16" cy="16.5" rx="8.5" ry="3.2" fill="#B07A47"/><ellipse id="st3" cx="16" cy="10" rx="5.2" ry="2.6" fill="#C8925C"/>`;
+
+// ---- scene 2: pages and call ----
+for (let i = 0; i < 24; i++) { const d = document.createElement("div"); d.style.left = (i * 31) + "px"; d.style.height = (40 + ((i * 37) % 90)) + "px"; $("pages").appendChild(d); }
+const CALL = `cairn_context(
+  task="change how graph/extract.py records source locations",
+  targets=["src/cairn/engines/graph/extract.py"],
+  budget=1200
+)`;
+function hiCall(s) { return esc(s).replace(/("[^"]*"?)/g, '<span class="s">$1</span>').replace(/^cairn_context/, '<span class="fn">cairn_context</span>'); }
+
+// ---- scene 3: layers ----
+const LAYERS = [
+  { n: "Map", q: "What is the code?", from: "tree-sitter ASTs, docs", c: "var(--code)", w: "var(--code-wash)", at: 24.1,
+    a: "_resolve_swift_member_calls() calls _park_unresolved_member_call()", cite: "extract.py:3809 · depth 1 · EXTRACTED" },
+  { n: "Specs", q: "What did we intend?", from: "spec, plan, tasks → files", c: "var(--spec)", w: "var(--spec-wash)", at: 29.6,
+    a: "FR-003 build the map with tree-sitter, no model calls · T008 done", cite: "[req:001-cairn-core/FR-003]" },
+  { n: "Timeline", q: "What happened?", from: "git: fixes, reverts, co-change", c: "var(--time)", w: "var(--time-wash)", at: 35.1,
+    a: "f3ea2a9 fix: read and write text as UTF-8 explicitly (cp1252 on Windows)", cite: "[commit:f3ea2a9ec1]" },
+  { n: "Memory", q: "What did we learn?", from: "conventions, decisions, gotchas", c: "var(--memory)", w: "var(--memory-wash)", at: 40.6,
+    a: "[decision] Route extraction stays in the system layer, not the graph engine", cite: "[memory:f60e552d13]" },
+  { n: "Sessions", q: "What did agents do?", from: "captured agent sessions", c: "var(--agent)", w: "var(--agent-wash)", at: 46.1,
+    a: "source_location is \"L{line}\": one line, never a range", cite: "[obs:1188] · 4 days ago" },
+];
+const LY = i => 150 + i * 139;     // top of layer row i
+LAYERS.forEach((L, i) => {
+  const d = document.createElement("div");
+  d.className = "layer abs"; d.id = "ly" + i; d.style.top = LY(i) + "px"; d.style.left = "0px";
+  d.innerHTML = `<div class="bar" style="background:${L.c}"></div><div class="txt"><div class="n" style="color:${L.c}">${L.n}</div><div class="qq">${L.q}</div><div class="from">${L.from}</div></div>`;
+  $("layers").appendChild(d);
+  const p = document.createElement("div");
+  p.className = "pl"; p.id = "pl" + i; p.style.borderColor = L.c; p.style.background = L.w;
+  p.innerHTML = `<div class="a">${esc(L.a)}</div><div class="c">${esc(L.cite)}</div>`;
+  $("plines").appendChild(p);
+  const dot = document.createElement("div"); dot.className = "dot"; dot.id = "dot" + i; dot.style.background = L.c; $("dots").appendChild(dot);
+});
+$("layers").style.left = "800px"; $("layers").style.top = "0px";
+(function wires() {
+  let h = `<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto"><path d="M0 0L10 5L0 10z" fill="#464B45"/></marker></defs>`;
+  h += `<path id="wA" d="M220 438 L220 542" stroke="#464B45" stroke-width="2.5" fill="none" marker-end="url(#ah)"/>`;
+  h += `<text x="236" y="496" font-family="Overpass Mono" font-size="18" fill="#6B7068">task + target</text>`;
+  LAYERS.forEach((L, i) => {
+    const y = LY(i) + 58;
+    h += `<path id="wL${i}" d="M370 604 C 590 604, 580 ${y}, 796 ${y}" stroke="#C6C9BD" stroke-width="2.5" fill="none"/>`;
+    h += `<path id="wP${i}" d="M1250 ${y} L1326 ${y}" stroke="#C6C9BD" stroke-width="2.5" fill="none" marker-end="url(#ah)"/>`;
+  });
+  h += `<text x="80" y="700" font-family="Overpass Mono" font-size="18" fill="#6B7068">one query → every layer</text>`;
+  h += `<text x="1252" y="132" font-family="Overpass Mono" font-size="18" fill="#6B7068">cited lines →</text>`;
+  $("wires").innerHTML = h;
+})();
+
+// ---- scene 4: the full pack (real cairn_context output, shortened) ----
+const PACK = [
+  ["hd", "## Context: change how graph/extract.py records source locations"],
+  ["risk", "Risk: MEDIUM — 3 dependents; 2 past fix/reverts"],
+  ["sec", "### Dependents"],
+  ["it", "- _resolve_swift_member_calls() extract.py:3809 — calls _park_unresolved_member_call() (depth 1, EXTRACTED) ", "[symbol:…swift_member_calls]"],
+  ["sec", "### Historical warnings"],
+  ["it", "- f3ea2a9ec1 fix: read and write text as UTF-8 explicitly (cp1252 locale on Windows) — fix, 2026-10-05 ", "[commit:f3ea2a9ec1…]"],
+  ["sec", "### Intent"],
+  ["it", "- FR-003 The system MUST build and incrementally update a code and document map with tree-sitter, with no model calls… ", "[req:001-cairn-core/FR-003]"],
+  ["sec", "### Memory (+1 more)"],
+  ["it", "- [decision] Route extraction stays in the system layer, not the graph engine. ", "[memory:f60e552d13]"],
+  ["sec", "### Agent sessions"],
+  ["it", "- Source Location Stores Single Line Only, No End Line Infrastructure (4d ago) ", "[obs:1188]"],
+  ["ft", "(budget used: 1192/1200 tokens)"],
+];
+$("pack").innerHTML = PACK.map((r, i) => {
+  if (r[0] === "it") return `<div class="ln" id="pk${i}">${esc(r[1])}<span class="cite" id="ck${i}">${esc(r[2])}</span></div>`;
+  return `<div class="ln ${r[0] === "hd" ? "hd" : r[0] === "sec" ? "sec" : r[0] === "risk" ? "risk" : "tag"}" id="pk${i}">${esc(r[1])}</div>`;
+}).join("");
+
+// ---- scene 5 ----
+const CODE = [
+  ["cm", "# illustrative sketch, not the file's actual lines"],
+  ["", "def add_node(nodes, nid, label, path, line, end_line=None):"],
+  ["del", "-    source_location = f\"L{line}\""],
+  ["add", "+    source_location = (f\"L{line}-L{end_line}\""],
+  ["add", "+                       if end_line else f\"L{line}\")"],
+  ["", "     ..."],
+  ["", ""],
+  ["cm", "# keep: text I/O stays UTF-8 explicit (fix f3ea2a9)"],
+  ["keep", "     text = path.read_text(encoding=\"utf-8\")"],
+];
+$("code").innerHTML = CODE.map((r, i) => `<div class="${r[0]}" id="cd${i}">${esc(r[1]) || "&nbsp;"}</div>`).join("");
+const IMP = `cairn_impact(
+  "src/cairn/engines/graph/extract.py")
+
+## Impact: src/cairn/engines/graph/extract.py
+Risk: MEDIUM — 3 dependents; 2 past fix/reverts`;
+const DEPS = ["_resolve_swift_member_calls()  :3809", "_park_if_absent()  :4445", "_resolve_java_member_calls()  :4619"];
+$("deplist").innerHTML = DEPS.map((d, i) => `<div class="dep" id="dp${i}"><div class="box" id="bx${i}"></div>${esc(d)}</div>`).join("");
+
+// ---- scene 6 ----
+const REM = `cairn_remember(
+  text = "Source locations from graph/extract.py are line ranges, L{start}-L{end}, never a single line.",
+  kind = "convention"
+)`;
+function hiRem(s) { return esc(s).replace(/("[^"]*"?)/g, '<span class="s">$1</span>').replace(/^cairn_remember/, '<span class="fn">cairn_remember</span>'); }
+$("stack").innerHTML = [0, 1, 2, 3].map(i => {
+  const rx = [86, 70, 54, 40][i], ry = [24, 21, 18, 15][i], cy = [372, 318, 268, 224][i];
+  const fill = ["#4F7F3F", "#5F8F4D", "#73A05E", "#8EC078"][i];
+  return `<ellipse id="stn${i}" cx="100" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fill}" stroke="#2f5524" stroke-width="2"/>`;
+}).join("");
+
+// ---- captions ----
+function caption(t) {
+  const c = CAPTIONS.find(c => t >= c[0] - .15 && t < c[1] + .15);
+  const box = $("capbox");
+  if (!c) { box.parentNode.style.opacity = 0; return; }
+  const a = prog(t, c[0] - .15, c[0] + .1), b = 1 - prog(t, c[1] - .05, c[1] + .15);
+  box.parentNode.style.opacity = Math.min(a, b);
+  const html = esc(c[2]).replace(/\b(cairn_[a-z_]+|graph\/extract\.py|extract\.py)\b/g, "<code>$1</code>");
+  if (box.innerHTML !== html) box.innerHTML = html;
+}
+
+const RAIL = [[0, 20], [20, 52], [52, 66], [66, 80], [80, 94], [94, 104]];
+
+function seek(t) {
+  // background drift
+  $("contours").style.transform = `translate(${-30 * Math.sin(t / 19)}px, ${-24 * Math.cos(t / 23)}px)`;
+  // chrome
+  const rail = [...$("rail").children];
+  rail.forEach((r, i) => r.classList.toggle("on", t >= RAIL[i][0] && t < RAIL[i][1]));
+  $("rail").style.opacity = t < 104 ? eo(prog(t, .3, 1)) : 1 - prog(t, 104, 104.6);
+  $("brand").style.opacity = t < 104 ? eo(prog(t, .3, 1)) : 1 - prog(t, 104, 104.6);
+
+  // 1 — the question (0–10)
+  show($("s1"), t, 0, 10, { dy: 0, dur: .4, out: .6 });
+  show($("term"), t, .2, null, { dy: 30 });
+  const task = "Record end lines for source locations in src/cairn/engines/graph/extract.py";
+  $("typed").textContent = typeText(t, .8, 30, task);
+  $("caret1").style.opacity = (t > 3.6 && Math.floor(t * 2) % 2) ? 0 : 1;
+  show($("think"), t, 3.8, null, { dy: 10 });
+  show($("q"), t, 4.7, null, { dy: 40, dur: .7 });
+  $("term").style.borderColor = t > 4.7 ? "#C6C9BD" : "#C6C9BD";
+
+  // 2 — the cost of reading (10–20)
+  show($("s2"), t, 10, 20, { dy: 0, dur: .5, out: .6 });
+  show($("cost"), t, 10.2, null, { dx: -40, dy: 0 });
+  $("lines").textContent = fmt(8739 * eio(prog(t, 10.5, 13.2)));
+  [...$("pages").children].forEach((d, i) => { d.style.opacity = eo(prog(t, 10.6 + i * .1, 11.0 + i * .1)); });
+  show($("call"), t, 14.9, null, { dx: 60, dy: 0 });
+  $("callpre").innerHTML = hiCall(typeText(t, 15.2, 60, CALL));
+
+  // 3 — five layers (20–52)
+  show($("s3"), t, 20, 52.2, { dy: 0, dur: .5, out: .6 });
+  show($("nAgent"), t, 20.2, null, { dy: 20 });
+  show($("nMcp"), t, 20.5, null, { dy: 20 });
+  show($("wA"), t, 20.7, null, { dy: 0 });
+  show($("packmini"), t, 21.5, null, { dx: 40, dy: 0 });
+  show($("local"), t, 21.8, null, { dy: 10 });
+  show($("legend3"), t, 22.4, null, { dy: 10 });
+  LAYERS.forEach((L, i) => {
+    const el = $("ly" + i);
+    show(el, t, 20.6 + i * .25, null, { dx: 40, dy: 0 });
+    const on = prog(t, L.at - .6, L.at), nextAt = LAYERS[i + 1] ? LAYERS[i + 1].at - .6 : 51.5;
+    const active = t >= L.at - .6 && t < nextAt;
+    el.style.background = active ? L.w : "#FFFFFF";
+    el.style.borderColor = active ? L.c : (t >= L.at ? L.c : "#C6C9BD");
+    el.style.boxShadow = active ? "0 18px 40px -20px rgba(31,35,40,.45)" : "none";
+    el.style.transform += active ? ` scale(${1 + .03 * eo(on)})` : "";
+    const wl = $("wL" + i), wp = $("wP" + i);
+    const lit = t >= L.at - .6;
+    wl.setAttribute("stroke", lit ? getComputedStyle(document.documentElement).getPropertyValue(L.c.slice(4, -1)).trim() : "#C6C9BD");
+    wl.setAttribute("stroke-width", active ? 4 : 2.5);
+    wl.style.opacity = t > 21 ? (lit ? (active ? 1 : .45) : .9) : 0;
+    wp.style.opacity = t >= L.at ? 1 : 0;
+    // the travelling dot: MCP → layer, then layer → pack
+    const dot = $("dot" + i), y = LY(i) + 58;
+    const k1 = prog(t, L.at - .6, L.at), k2 = prog(t, L.at + .15, L.at + .65);
+    if (t >= L.at - .6 && t < L.at + .7) {
+      let x, yy;
+      if (k1 < 1) { const u = eio(k1), m = 1 - u; // cubic bezier along the wire
+        const P = [[370, 604], [590, 604], [580, y], [796, y]];
+        x = m*m*m*P[0][0] + 3*m*m*u*P[1][0] + 3*m*u*u*P[2][0] + u*u*u*P[3][0];
+        yy = m*m*m*P[0][1] + 3*m*m*u*P[1][1] + 3*m*u*u*P[2][1] + u*u*u*P[3][1];
+      } else { x = 1250 + 76 * eio(k2); yy = y; }
+      dot.style.left = x + "px"; dot.style.top = yy + "px"; dot.style.opacity = (k1 < 1 || t < L.at + .15) || k2 < 1 ? 1 : 0;
+      if (k1 >= 1 && t < L.at + .15) dot.style.opacity = 0;
+    } else dot.style.opacity = 0;
+    show($("pl" + i), t, L.at + .5, null, { dx: -50, dy: 0, dur: .5 });
+  });
+
+  // 4 — the pack (52–66)
+  show($("s4"), t, 52, 66.2, { dy: 0, dur: .5, out: .6 });
+  show($("pack"), t, 52.3, null, { dy: 30, sc: .03 });
+  PACK.forEach((r, i) => show($("pk" + i), t, 52.6 + i * .2, null, { dy: 8, dur: .35 }));
+  show($("meter"), t, 57.6, null, { dx: 40, dy: 0 });
+  $("used").textContent = fmt(1192 * eio(prog(t, 57.8, 59.4)));
+  $("usedfill").style.width = (100 * 1192 / 1200 * eio(prog(t, 57.8, 59.4))) + "%";
+  show($("compare"), t, 59.4, null, { dy: 20 });
+  $("barA").style.width = Math.max(.9, 100 * 1192 / 101600) * eio(prog(t, 59.8, 60.6)) + "%";
+  $("barB").style.width = 100 * eio(prog(t, 60.2, 61.8)) + "%";
+  const ch = prog(t, 62.5, 63.0);
+  PACK.forEach((r, i) => { if (r[0] === "it") { const c = $("ck" + i);
+    c.style.background = `rgba(180,83,28,${.16 * ch})`; c.style.color = ch > .5 ? "#B4531C" : "#6B7068";
+    c.style.outline = ch > .5 ? "2px solid rgba(180,83,28,.55)" : "none"; } });
+
+  // 5 — the edit (66–80)
+  show($("s5"), t, 66, 80.2, { dy: 0, dur: .5, out: .6 });
+  show($("editor"), t, 66.3, null, { dy: 30 });
+  CODE.forEach((r, i) => {
+    const at = r[0] === "del" ? 67.3 : r[0] === "add" ? 68.2 + (i - 3) * .35 : r[0] === "keep" || i === 7 ? 76.0 : 66.6 + i * .08;
+    show($("cd" + i), t, at, null, { dx: r[0] === "add" ? -30 : 0, dy: 0, dur: .4 });
+  });
+  $("cd8").style.outline = t > 76.3 ? "3px solid rgba(154,100,52,.6)" : "none";
+  show($("imp"), t, 70.8, null, { dx: 40, dy: 0 });
+  $("imppre").innerHTML = esc(typeText(t, 71.0, 70, IMP)).replace(/^(cairn_impact)/, '<span style="color:var(--agent);font-weight:700">$1</span>').replace(/(Risk: MEDIUM[^\n]*)/, '<span class="risk">$1</span>');
+  show($("deps"), t, 73.4, null, { dy: 20 });
+  DEPS.forEach((d, i) => $("bx" + i).classList.toggle("ok", t >= 76.6 + i * .7));
+
+  // 6 — remember (80–94)
+  show($("s6"), t, 80, 94.2, { dy: 0, dur: .5, out: .6 });
+  show($("rem"), t, 80.3, null, { dy: 30 });
+  $("rempre").innerHTML = hiRem(typeText(t, 80.6, 55, REM));
+  for (let i = 0; i < 4; i++) {
+    const at = i < 3 ? 80.4 + i * .15 : 83.6;
+    const e = $("stn" + i), k = eo(prog(t, at, at + .5));
+    e.style.opacity = k; e.style.transform = `translateY(${(1 - k) * (i === 3 ? -120 : 20)}px)`;
+  }
+  $("stn3").style.filter = t > 84 && t < 85.5 ? "drop-shadow(0 0 10px rgba(79,127,63,.9))" : "none";
+  show($("sesslabels"), t, 80.6, null, { dy: 10 });
+  $("sesslabels").textContent = t < 83.6 ? "Memory layer" : "Memory layer  +1";
+  show($("brief"), t, 85.1, null, { dx: 50, dy: 0 });
+  show($("b1"), t, 85.7, null, { dy: 12 });
+  show($("b2"), t, 86.2, null, { dy: 12 });
+  show($("search"), t, 89.6, null, { dy: 30 });
+  show($("r1"), t, 90.4, null, { dy: 12 });
+  show($("r2"), t, 91.2, null, { dy: 12 });
+
+  // 7 — deterministic first (94–104)
+  show($("s7"), t, 94, 104.2, { dy: 0, dur: .5, out: .6 });
+  show($("det"), t, 94.3, null, { dy: 26 });
+  [...$("chips").children].forEach((c, i) => show(c, t, 95.0 + i * .3, null, { dy: 14 }));
+  show($("tiers"), t, 99.1, null, { dy: 26 });
+  show($("browser"), t, 94.6, null, { dx: 60, dy: 0 });
+  show($("shotlab"), t, 95.0, null, { dy: 10 });
+  const shots = [["sh1", 94.6, 97.8, "Impact"], ["sh2", 97.8, 101.0, "Map"], ["sh3", 101.0, 104.2, "Memory"]];
+  shots.forEach(([id, a, b, name], i) => {
+    const el = $(id); const v = i === 0 ? (1 - prog(t, b - .4, b)) : prog(t, a - .4, a) * (i === 2 ? 1 : 1 - prog(t, b - .4, b));
+    el.style.opacity = v; el.style.transform = `translateY(${-30 * prog(t, a - .4, b)}px)`;
+    if (t >= a - .2 && t < b - .2) $("shotname").textContent = name;
+  });
+
+  // 8 — end (104–112)
+  show($("s8"), t, 104, null, { dy: 0, dur: .5 });
+  show($("logo"), t, 104.3, null, { dy: 0 });
+  ["st1", "st2", "st3"].forEach((id, i) => { const k = eo(prog(t, 104.3 + i * .25, 104.8 + i * .25));
+    const e = document.getElementById(id); e.style.opacity = k; e.style.transform = `translateY(${(1 - k) * -6}px)`; });
+  show(document.querySelector("#end .word"), t, 104.9, null, { dy: 20 });
+  show(document.querySelector("#end .tag"), t, 105.3, null, { dy: 16 });
+  show($("install"), t, 108.7, null, { dy: 20 });
+  show(document.querySelector("#end .url"), t, 109.3, null, { dy: 12 });
+
+  caption(t);
+}
+window.seek = seek;
+window.__ready = Promise.all([document.fonts.ready, ...[...document.images].map(i => i.decode().catch(() => {}))]);
+
+// manual viewing: #t=37 shows one moment, #play runs it in real time
+(function () {
+  const h = location.hash;
+  if (h.startsWith("#play")) { const t0 = performance.now(); const f = () => { seek((performance.now() - t0) / 1000 % DURATION); requestAnimationFrame(f); }; window.__ready.then(f); }
+  else window.__ready.then(() => seek(parseFloat((h.match(/t=([\d.]+)/) || [])[1] || 0)));
+})();
+</script>
+</body>
+</html>
