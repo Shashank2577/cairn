@@ -4,11 +4,24 @@ Two halves that follow the picture: 0-15 s is the problem (A minor pad, a low pu
 a noise riser lands on the cut to paper at 15.3 s, then C-G-Am-F with an arpeggio, soft kick and
 shaker until the end card, which holds a C major chord and fades out. Deterministic (seeded noise).
 """
+import json
 import wave
+from pathlib import Path
+
 import numpy as np
 
 SR = 44100
 DUR = 57.0
+# When narration.py has retimed the film, every event below (written in original film time) is
+# moved to the new time through the same warp knots the picture uses.
+_timing = Path(__file__).with_name("timing.json")
+if _timing.exists():
+    _t = json.loads(_timing.read_text())
+    _new, _old = zip(*_t["knots"])
+    DUR = _t["duration"]
+    W = lambda t: float(np.interp(t, _old, _new))
+else:
+    W = lambda t: t
 BPM = 96.0
 BEAT = 60.0 / BPM
 N = int(SR * DUR)
@@ -23,7 +36,7 @@ def hz(note):
 
 
 def add(sig, t0, gain=1.0, pan=0.0, delay_r=0.0):
-    i = int(t0 * SR)
+    i = int(W(t0) * SR)
     if i >= N:
         return
     sig = sig[: N - i] * gain

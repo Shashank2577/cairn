@@ -72,6 +72,9 @@ async function main() {
     await evaluate(c, "document.fonts.ready.then(() => Promise.all([...document.images].map(i => i.decode()))).then(() => true)");
     const fontsOk = await evaluate(c, "document.fonts.check('700 40px Overpass') && document.fonts.check('400 30px \"Overpass Mono\"')");
     if (!fontsOk) throw new Error("brand fonts did not load");
+    // with a voiceover, narration.py has retimed the film; the page warps its scenes to match
+    const timing = await readFile(path.join(HERE, "timing.json"), "utf8").catch(() => null);
+    if (timing) await evaluate(c, `setTiming(${timing}); true`);
     const duration = await evaluate(c, "window.DURATION");
     const captions = await evaluate(c, "window.CAPTIONS");
     const frame = async (t, format) => {
@@ -95,8 +98,9 @@ async function main() {
     await writeFile(path.join(OUT, "cairn-gtm.vtt"), vtt);
 
     const n = Math.round(duration * FPS);
+    const audio = timing ? "mix.wav" : "music.wav";
     const ff = spawn("ffmpeg", ["-y", "-v", "error", "-f", "image2pipe", "-c:v", "mjpeg", "-framerate", String(FPS), "-i", "-",
-      "-i", path.join(HERE, "music.wav"), "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "slow", "-crf", "21", "-vf", "scale=in_range=pc:out_range=tv,format=yuv420p", "-color_range", "tv",
+      "-i", path.join(HERE, audio), "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "slow", "-crf", "21", "-vf", "scale=in_range=pc:out_range=tv,format=yuv420p", "-color_range", "tv",
       "-tune", "animation", "-c:a", "aac", "-b:a", "160k", "-t", String(duration), "-movflags", "+faststart", path.join(OUT, "cairn-gtm.mp4")], { stdio: ["pipe", "inherit", "inherit"] });
     const done = new Promise((r, j) => ff.on("close", (code) => (code === 0 ? r() : j(new Error("ffmpeg exited " + code)))));
     for (let i = 0; i < n; i++) {

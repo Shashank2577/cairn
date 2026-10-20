@@ -3,61 +3,61 @@
 Your coding agents are capable.
 
 2
-00:00:02,700 --> 00:00:05,100
+00:00:02,900 --> 00:00:05,300
 But every session starts from zero.
 
 3
-00:00:05,300 --> 00:00:07,500
+00:00:05,600 --> 00:00:07,800
 They re-read the same files.
 
 4
-00:00:07,700 --> 00:00:10,000
+00:00:08,100 --> 00:00:10,411
 They retry the fix your team reverted.
 
 5
-00:00:10,200 --> 00:00:12,400
+00:00:10,711 --> 00:00:13,438
 After compaction, they lose their place.
 
 6
-00:00:12,600 --> 00:00:14,900
+00:00:13,738 --> 00:00:16,452
 And you pay for every re-read in tokens.
 
 7
-00:00:15,400 --> 00:00:18,300
+00:00:16,952 --> 00:00:20,121
 Cairn is institutional memory for coding agents.
 
 8
-00:00:18,600 --> 00:00:23,000
+00:00:20,421 --> 00:00:25,707
 Five layers: map, specs, timeline, memory and sessions.
 
 9
-00:00:23,300 --> 00:00:26,600
+00:00:26,007 --> 00:00:31,121
 Before an edit, an agent asks Cairn: impact, why, context.
 
 10
-00:00:26,800 --> 00:00:29,800
+00:00:31,421 --> 00:00:34,717
 It gets a cited answer, inside a token budget.
 
 11
-00:00:30,200 --> 00:00:33,800
+00:00:35,117 --> 00:00:39,688
 On Cairn's own repo, one answer took 391 tokens,
 
 12
-00:00:33,900 --> 00:00:37,600
+00:00:39,988 --> 00:00:46,221
 instead of 144,228 tokens across 33 files.
 
 13
-00:00:38,000 --> 00:00:42,600
+00:00:46,621 --> 00:00:51,221
 After compaction, the next session picks up where it left off.
 
 14
-00:00:43,000 --> 00:00:46,800
+00:00:51,621 --> 00:00:56,060
 One command in any git repo. Local. No API key.
 
 15
-00:00:47,000 --> 00:00:51,200
+00:00:56,360 --> 00:01:02,412
 Works with Claude Code, Codex, Cursor, Gemini, Copilot and OpenCode.
 
 16
-00:00:51,800 --> 00:00:56,000
+00:01:03,012 --> 00:01:07,212
 Cairn. Memory your agents can cite.

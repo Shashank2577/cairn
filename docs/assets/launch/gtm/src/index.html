@@ -404,8 +404,24 @@ function stone(el, cx, cy, w, h, color) {
 stone("st1", 960, 400, 250, 92, "var(--ink)"); stone("st2", 960, 318, 190, 78, "var(--ink-2)"); stone("st3", 960, 250, 120, 60, "var(--memory)");
 stone("es1", 960, 270, 210, 78, "var(--ink)"); stone("es2", 960, 200, 160, 66, "var(--ink-2)"); stone("es3", 960, 143, 100, 50, "var(--memory)");
 
+/* ---------- voiceover retiming: narration.py writes timing.json, render.mjs passes it here ----------
+   knots map film time (with voice) to the original timeline every scene below is written in. */
+let KNOTS = null;
+window.setTiming = function (timing) {
+  KNOTS = timing.knots; window.CAPTIONS = timing.captions; window.DURATION = timing.duration;
+};
+function warp(T) {
+  if (!KNOTS) return T;
+  for (let i = 1; i < KNOTS.length; i++) {
+    const [n0, o0] = KNOTS[i - 1], [n1, o1] = KNOTS[i];
+    if (T <= n1) return n1 === n0 ? o1 : o0 + ((T - n0) / (n1 - n0)) * (o1 - o0);
+  }
+  return KNOTS[KNOTS.length - 1][1];
+}
+
 /* ---------- the frame function ---------- */
-window.renderAt = function (t) {
+window.renderAt = function (T) {
+  const t = warp(T);
   /* night layer */
   const dayR = eio(prog(t, 14.9, 15.9)) * 2300;
   $("day").style.clipPath = `circle(${dayR.toFixed(1)}px at 960px 540px)`;
@@ -507,11 +523,11 @@ window.renderAt = function (t) {
 
   /* captions */
   let cap = null;
-  for (const c of window.CAPTIONS) if (t >= c[0] && t < c[1]) cap = c;
+  for (const c of window.CAPTIONS) if (T >= c[0] && T < c[1]) cap = c;
   const ct = $("captxt");
-  if (cap) { ct.textContent = cap[2]; ct.style.opacity = Math.min(prog(t, cap[0], cap[0] + 0.15), 1 - prog(t, cap[1] - 0.12, cap[1])).toFixed(3); }
+  if (cap) { ct.textContent = cap[2]; ct.style.opacity = Math.min(prog(T, cap[0], cap[0] + 0.15), 1 - prog(T, cap[1] - 0.12, cap[1])).toFixed(3); }
   else ct.style.opacity = 0;
-  $("progress").style.width = ((t / window.DURATION) * 1920).toFixed(1) + "px";
+  $("progress").style.width = ((T / window.DURATION) * 1920).toFixed(1) + "px";
   $("progress").style.background = t < 15.4 ? "var(--d-risk)" : "var(--memory)";
 };
 window.renderAt(0);
