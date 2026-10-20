@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import os
 import subprocess
 import zipfile
 
@@ -104,6 +105,12 @@ def test_flow_picker_lists_distinct_flows_with_a_scope_the_view_accepts(client):
 
 
 # --------------------------------------------------------------------------- generating with the documentation skill
+# The stand-in for the Claude Code CLI is a `#!/bin/sh` script run through `$@`, which Windows cannot execute (WinError 193).
+# What these tests prove is the endpoint's job handling (one run at a time, cost, cancel), the same on every platform;
+# launching the real `claude.cmd` shim on Windows is covered in tests/test_windows.py.
+posix_shell_stub = pytest.mark.skipif(os.name == "nt", reason="the fake CLI is a POSIX shell script")
+
+
 def _fake_claude(tmp_path, body: str):
     script = tmp_path / "claude"
     script.write_text("#!/bin/sh\n" + body + "\n")
@@ -121,6 +128,7 @@ def _wait_for(client, state, seconds=10):
     raise AssertionError(f"never reached {state}: {got}")
 
 
+@posix_shell_stub
 def test_generate_runs_the_cli_once_and_reports_its_cost(client, tmp_path, monkeypatch):
     from cairn import docgen
     docgen._jobs.clear()
@@ -146,6 +154,7 @@ def test_generate_says_why_it_cannot_start(client, monkeypatch):
     assert client.post(f"/api/p/{client.pid}/docs/generate", json={"model": "gpt"}).status_code == 409
 
 
+@posix_shell_stub
 def test_generate_can_be_cancelled(client, tmp_path, monkeypatch):
     from cairn import docgen
     docgen._jobs.clear()
