@@ -92,9 +92,9 @@ def test_nothing_is_deleted_by_aging(mem):
 
 
 def test_clearing_usage_history_restarts_the_clock_and_changes_nothing_else(mem):
-    mid = add(mem, "Gateway timeouts are 30 seconds", "gotcha", age_days=200)
+    mid = add(mem, "Quokka gateway timeouts are 30 seconds", "gotcha", age_days=200)
     age_started_long_ago(mem)
-    mem.recall("gateway timeouts", limit=2)
+    mem.brain.touch_memories([mid])
     before = mem.brain.memory(mid)
     assert mem.brain.clear_memory_use() == 1
     assert mem.brain.memory_use() == {} and mem.brain.memory(mid) == before
