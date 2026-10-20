@@ -1,0 +1,27 @@
+// The spoken narration: one line per caption in captions.js, in the same order and with the same
+// facts, written the way it should sound (tool names without underscores, file names spelled out).
+window.NARRATION = [
+  "An agent gets a task: record end lines in graph slash extract dot P Y.",
+  "Before it edits, it asks one question. What breaks if I change this?",
+  "Reading its way to an answer is costly. Extract dot P Y alone is 8,739 lines.",
+  "So it makes one call to Cairn's M C P server: cairn context.",
+  "Cairn has already built five layers from this repo, on this machine.",
+  "Map: a tree-sitter code graph. It finds who calls the code being changed.",
+  "Specs: the requirement and the task that own this file.",
+  "Timeline: git history. Two past fixes here, one for U T F 8 on Windows.",
+  "Memory: the decisions and conventions the team recorded.",
+  "Sessions: an earlier agent found that locations store one line, never a range.",
+  "It all comes back as one pack: ranked, cited, and cut to a token budget.",
+  "1,192 tokens, inside a 1,200 token budget. No files copied in.",
+  "Every line names its source, so the agent knows what to verify.",
+  "Now it edits, with the blast radius in view.",
+  "Cairn impact confirms it: medium risk, three dependents, two past fixes.",
+  "It writes the range, keeps text I O in U T F 8, and checks the dependents.",
+  "What it learned goes back with cairn remember, as one sentence.",
+  "The next session starts with it in the brief. Nothing is learned twice.",
+  "And cairn session search finds what any earlier session did.",
+  "None of this needs a model: A S Ts, git, spec files, and session logs.",
+  "A model only enriches, on Haiku, Sonnet, or Opus tiers. It never gates an answer.",
+  "Cairn. Institutional memory for coding agents.",
+  "One command, in any git repository.",
+];

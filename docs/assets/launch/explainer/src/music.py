@@ -1,15 +1,30 @@
 """Synthesise the explainer's music bed: soft pads, a plucked arpeggio, a light pulse and one bell per
 layer reveal, all from code. Deterministic (seeded noise). Needs only numpy.
 
-    python music.py out.wav
+    python music.py out.wav [timing.json]
+
+With timing.json (written by narrate.py), the accents follow the narrated timing: every event time
+below is written on the original 112 s timeline and mapped through the same warp the picture uses.
 """
+import json
 import sys
 import wave
 
 import numpy as np
 
 SR = 44100
-DUR = 112.0
+TIMING = json.load(open(sys.argv[2])) if len(sys.argv) > 2 else None
+DUR = TIMING["duration"] if TIMING else 112.0
+_ANCH = TIMING["warp"] if TIMING else [[0, 0], [112, 112]]
+
+
+def W(old):
+    """Map a time on the original 112 s timeline to the narrated timeline."""
+    for (a0, b0), (a1, b1) in zip(_ANCH, _ANCH[1:]):
+        if old <= a1:
+            return b0 + (old - a0) * (b1 - b0) / (a1 - a0) if a1 > a0 else b0
+    return _ANCH[-1][1] + old - _ANCH[-1][0]
+
 BPM = 96
 BEAT = 60 / BPM
 BAR = 4 * BEAT
@@ -103,7 +118,7 @@ ARP = [
 nbars = int(DUR / BAR) + 1
 for b in range(0, nbars, 2):
     start = b * BAR
-    if start > 109:
+    if start > DUR - 3:
         break
     ci = (b // 2) % 4
     for m in CHORDS[ci]:
@@ -111,28 +126,28 @@ for b in range(0, nbars, 2):
     for half in range(2):
         for k, m in enumerate(ARP[ci]):
             tt = start + half * BAR + k * (BEAT / 2)
-            if tt < 9.6 or tt > 103.5:
+            if tt < W(9.6) or tt > W(103.5):
                 continue                     # arpeggio runs from the problem beat to the close
-            g = 0.11 if 20 <= tt < 94 else 0.07
+            g = 0.11 if W(20) <= tt < W(94) else 0.07
             add(pluck(hz(m)), tt, g, pan=0.35 if k % 2 else -0.35)
 
 # light pulse while the question travels and the agent works
-beat_t = 20.0
-while beat_t < 93.8:
+beat_t = W(20.0)
+while beat_t < W(93.8):
     add(kick(), beat_t, 0.32)
     add(tick(), beat_t + BEAT / 2, 0.05, pan=0.2)
     beat_t += BEAT
 
 # a bell for each layer the question reaches, and soft accents on the big moments
 for tt, m in ((24.1, 74), (29.6, 76), (35.1, 78), (40.6, 81), (46.1, 83)):
-    add(bell(hz(m)), tt, 0.16)
+    add(bell(hz(m)), W(tt), 0.16)
 for tt, m in ((52.3, 86), (80.3, 81), (104.3, 74)):
-    add(bell(hz(m), 4.0), tt, 0.14)
-    add(bell(hz(m - 12), 4.0), tt, 0.10)
+    add(bell(hz(m), 4.0), W(tt), 0.14)
+    add(bell(hz(m - 12), 4.0), W(tt), 0.10)
 
 # final chord swell
 for m in CHORDS[0] + [74]:
-    add(pad_note(hz(m), 8.5), 103.8, 0.22)
+    add(pad_note(hz(m), DUR - W(103.8) + 0.5), W(103.8), 0.22)
 
 
 def reverb(x, seed, seconds=2.6):

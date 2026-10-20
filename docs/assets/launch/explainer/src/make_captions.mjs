@@ -1,5 +1,5 @@
-// Write the captions in captions.js as SRT and VTT.   node make_captions.mjs ..
-import { readFileSync, writeFileSync } from "node:fs";
+// Write the captions as SRT and VTT, on the narrated timing from timing.js when it exists.   node make_captions.mjs ..
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
@@ -8,7 +8,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const out = process.argv[2] || join(here, "..");
 const ctx = { window: {} };
 vm.runInNewContext(readFileSync(join(here, "captions.js"), "utf8"), ctx);
-const caps = ctx.window.CAPTIONS;
+if (existsSync(join(here, "timing.js"))) vm.runInNewContext(readFileSync(join(here, "timing.js"), "utf8"), ctx);
+const caps = ctx.window.VO || ctx.window.CAPTIONS;
 
 const stamp = (s, sep) => {
   const ms = Math.round(s * 1000), h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, sec = Math.floor(ms / 1000) % 60;

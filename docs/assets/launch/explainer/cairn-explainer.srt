@@ -1,91 +1,91 @@
 1
-00:00:00,600 --> 00:00:04,400
+00:00:00,600 --> 00:00:05,584
 An agent gets a task: record end lines in graph/extract.py.
 
 2
-00:00:04,700 --> 00:00:08,900
+00:00:05,884 --> 00:00:10,399
 Before it edits, it asks one question. What breaks if I change this?
 
 3
-00:00:10,300 --> 00:00:14,600
+00:00:11,799 --> 00:00:18,569
 Reading its way to an answer is costly. extract.py alone is 8,739 lines.
 
 4
-00:00:14,900 --> 00:00:19,400
+00:00:18,869 --> 00:00:23,394
 So it makes one call to Cairn's MCP server: cairn_context.
 
 5
-00:00:20,200 --> 00:00:23,800
+00:00:24,194 --> 00:00:28,390
 Cairn has already built five layers from this repo, on this machine.
 
 6
-00:00:24,100 --> 00:00:29,200
+00:00:28,690 --> 00:00:33,790
 Map: a tree-sitter code graph. It finds who calls the code being changed.
 
 7
-00:00:29,600 --> 00:00:34,700
+00:00:34,190 --> 00:00:39,290
 Specs: the requirement and the task that own this file.
 
 8
-00:00:35,100 --> 00:00:40,200
+00:00:39,690 --> 00:00:45,303
 Timeline: git history. Two past fixes here, one for UTF-8 on Windows.
 
 9
-00:00:40,600 --> 00:00:45,700
+00:00:45,703 --> 00:00:50,803
 Memory: the decisions and conventions the team recorded.
 
 10
-00:00:46,100 --> 00:00:51,600
+00:00:51,203 --> 00:00:56,703
 Sessions: an earlier agent found that locations store one line, never a range.
 
 11
-00:00:52,300 --> 00:00:57,400
+00:00:57,403 --> 00:01:02,503
 It all comes back as one pack: ranked, cited and cut to a token budget.
 
 12
-00:00:57,800 --> 00:01:02,200
+00:01:02,903 --> 00:01:09,866
 1,192 tokens, inside a 1,200-token budget. No files copied in.
 
 13
-00:01:02,500 --> 00:01:05,800
+00:01:10,166 --> 00:01:14,256
 Every line names its source, so the agent knows what to verify.
 
 14
-00:01:06,300 --> 00:01:10,400
+00:01:14,756 --> 00:01:18,856
 Now it edits with the blast radius in view.
 
 15
-00:01:10,800 --> 00:01:15,200
+00:01:19,256 --> 00:01:24,554
 cairn_impact confirms it: medium risk, three dependents, two past fixes.
 
 16
-00:01:15,600 --> 00:01:19,700
+00:01:24,954 --> 00:01:30,031
 It writes the range, keeps text I/O in UTF-8, and checks the dependents.
 
 17
-00:01:20,300 --> 00:01:24,800
+00:01:30,631 --> 00:01:35,131
 What it learned goes back with cairn_remember, as one sentence.
 
 18
-00:01:25,100 --> 00:01:29,300
+00:01:35,431 --> 00:01:39,631
 The next session starts with it in the brief. Nothing is learned twice.
 
 19
-00:01:29,600 --> 00:01:33,700
+00:01:39,931 --> 00:01:44,031
 And cairn_session_search finds what any earlier session did.
 
 20
-00:01:34,300 --> 00:01:38,800
+00:01:44,631 --> 00:01:50,272
 None of this needs a model: ASTs, git, spec files and session logs.
 
 21
-00:01:39,100 --> 00:01:43,700
+00:01:50,572 --> 00:01:56,728
 A model only enriches, on Haiku, Sonnet or Opus tiers. It never gates an answer.
 
 22
-00:01:44,300 --> 00:01:48,400
+00:01:57,328 --> 00:02:01,428
 Cairn. Institutional memory for coding agents.
 
 23
-00:01:48,700 --> 00:01:51,600
+00:02:01,728 --> 00:02:04,628
 One command, in any git repository.

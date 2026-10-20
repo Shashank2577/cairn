@@ -3,11 +3,14 @@
 Plain code, no video framework: `index.html` draws every frame from `seek(t)`, `render.mjs` drives
 the headless Chrome on the machine over the DevTools protocol and pipes the screenshots to ffmpeg,
 `music.py` synthesises the music bed with numpy, and `make_captions.mjs` writes the SRT and VTT
-from `captions.js` (the same lines the page burns in).
+from `captions.js` (the same lines the page burns in). `narrate.py` voices `narration.js` with
+`say`, retimes the captions around the measured clips into `timing.js` (the page stretches each
+scene to its line through a time warp), synthesises the music on that timing with `music.py`,
+ducks it under the voice and normalises the mix to -16 LUFS.
 
 ```sh
-python music.py music.wav                      # needs numpy
-node render.mjs --out ../cairn-explainer.mp4 --audio music.wav
+python narrate.py work/                        # voice (macOS say), retiming, music, ducked mix; needs numpy
+node render.mjs --crf 23 --out ../cairn-explainer.mp4 --audio work/mix.wav
 node render.mjs --stills 7,44,64 --dir stills  # check single frames
 node make_captions.mjs ..
 ```
