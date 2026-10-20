@@ -22,14 +22,12 @@ def test_cost_adds_cache_rates_separately():
 
 def test_models_endpoint_prices_known_models_and_flags_the_rest(cairn, tmp_path):
     c, p = _client(cairn, tmp_path)
-    cairn.brain.log_call("ask", "deep", "claude-opus-5-5", {"input": 1000, "output": 100}, True)
+    cairn.brain.log_call("ask", "deep", "acme-model-9", {"input": 1000, "output": 100}, True)
     cairn.brain.log_call("classify", "fast", "claude-haiku-4-5-20251001", {"input": 1_000_000}, True)
     m = c.get(f"{p}/models").json()
-    by = {t["model"]: t for t in m["totals"]}
-    assert by["claude-opus-5-5"]["cost_usd"] is None
-    assert abs(by["claude-haiku-4-5-20251001"]["cost_usd"] - 1.0) < 1e-9
-    assert m["cost_usd"] == by["claude-haiku-4-5-20251001"]["cost_usd"]  # the total leaves out the unpriced model
-    assert m["unpriced_models"] == ["claude-opus-5-5"] and m["priced_as_of"]
+    by = {r["model"]: r for r in m["ledger"]}  # the per-call dollars the Settings table shows
+    assert by["acme-model-9"]["usd"] is None  # no confirmed price: tokens only, never a guess
+    assert abs(by["claude-haiku-4-5-20251001"]["usd"] - 1.0) < 1e-9
 
 
 def test_savings_totals_carry_what_the_overview_bars_read(cairn, tmp_path):

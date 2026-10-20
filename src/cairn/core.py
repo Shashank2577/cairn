@@ -887,6 +887,31 @@ class Cairn:
                             key=lambda f: -(f["modifies"] * 2 + f["reads"]))[:40],
         }
 
+    def model_report(self, since: float = 0) -> dict:
+        """Everything the Settings and Overview pages show about models: the tier table with each tier's default and price,
+        pins left over from an older default, the per-call ledger, and the cost summary (tokens measured, dollars estimated)."""
+        from . import modelcost
+        from .modelpins import stale_pins
+        from .project import DEFAULTS
+        router = self.router
+        table = []
+        for row in router.table():
+            p = modelcost.price(row["model"], self.project)
+            table.append({**row, "default": DEFAULTS["models"][row["tier"]], "price": list(p) if p else None})
+        calls = [dict(r) for r in self.brain.q(
+            "SELECT ts, task, tier, model, input_tokens, output_tokens, cache_read, cache_write, cache_write_1h, thinking_tokens, "
+            "input_tokens + cache_read + cache_write AS input_total, ok FROM ledger WHERE ts>=? "
+            "ORDER BY ts DESC LIMIT 300", (since,))]
+        unknown = "5m" if router.provider in ("anthropic", "openai") else "1h"
+        for call in calls:
+            p = modelcost.price(call["model"], self.project)
+            call["usd"] = None if p is None else modelcost.dollars(
+                {"input": call["input_tokens"], "output": call["output_tokens"], "cache_read": call["cache_read"],
+                 "cache_write": call["cache_write"], "cache_write_1h": call["cache_write_1h"]}, p, unknown)
+        return {"available": router.available, "provider": router.provider, "table": table, "pins": stale_pins(self.project),
+                "totals": self.brain.ledger(since), "ledger": calls,
+                "cost": modelcost.summary(self.brain, self.project, since, router.provider)}
+
     def savings(self, limit: int = 60) -> dict:
         """Every pack handed out, with the size of the source files it summarised."""
         return {"totals": self.brain.query_totals(), "recent": self.brain.queries(limit), "pricing": self.router.reference_price()}

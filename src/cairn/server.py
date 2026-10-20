@@ -41,8 +41,8 @@ from .platform.web import (
     optional_principal,
     require,
 )
-from .project import DEFAULTS as CONFIG_DEFAULTS, Project
-from .router import PRICES_AS_OF, cost_usd
+from .project import DEFAULTS as CONFIG_DEFAULTS
+from .project import Project
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
 log = logging.getLogger("cairn.server")
@@ -503,20 +503,7 @@ def project_router(hub: Hub) -> APIRouter:
 
     @r.get("/models", dependencies=read)
     def models(pid: str, since: float = 0):
-        router = c(pid).router
-        calls = [dict(r) for r in c(pid).brain.q(
-            "SELECT ts, task, tier, model, input_tokens, output_tokens, cache_read, cache_write, "
-            "input_tokens + cache_read + cache_write AS input_total, ok FROM ledger WHERE ts>=? "
-            "ORDER BY ts DESC LIMIT 300", (since,))]
-        totals = c(pid).brain.ledger(since)
-        for t in totals:
-            t["cost_usd"] = cost_usd(t["model"], t["input"] or 0, t["output"] or 0, t["cache_read"] or 0, t["cache_write"] or 0)
-        for r in calls:
-            r["cost_usd"] = cost_usd(r["model"], r["input_tokens"] or 0, r["output_tokens"] or 0, r["cache_read"] or 0, r["cache_write"] or 0)
-        priced = [t["cost_usd"] for t in totals if t["cost_usd"] is not None]
-        return {"available": router.available, "provider": router.provider, "table": router.table(),
-                "totals": totals, "ledger": calls, "priced_as_of": PRICES_AS_OF,
-                "cost_usd": sum(priced) if priced else None, "unpriced_models": sorted({t["model"] for t in totals if t["cost_usd"] is None})}
+        return c(pid).model_report(since)
 
     def nested_settings(proj: Project) -> dict:
         from .project import OPERATOR_KEYS
@@ -844,6 +831,7 @@ def project_router(hub: Hub) -> APIRouter:
         import io
         import tempfile
         import zipfile
+
         from .system.export import export
         narrate = bool(payload.get("narrate"))
         if narrate:   # narrating spends model tokens: the same permission as writing

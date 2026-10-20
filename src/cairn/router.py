@@ -114,7 +114,7 @@ def cost_usd(model: str, input: int = 0, output: int = 0, cache_read: int = 0, c
 
 
 PROVIDERS = ("anthropic", "openai", "claude-code")
-NO_USAGE = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+NO_USAGE = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "thinking": 0, "cache_write_1h": 0}
 
 
 # Where the Claude Code CLI is usually installed. A server started by a hook, an IDE or a service manager often has a
@@ -327,7 +327,8 @@ class Router:
     def _anthropic_usage(u: Any) -> dict:
         return {"input": u.input_tokens or 0, "output": u.output_tokens or 0,
                 "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0,
-                "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0}
+                "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0,
+                "cache_write_1h": getattr(getattr(u, "cache_creation", None), "ephemeral_1h_input_tokens", 0) or 0}
 
     def _anthropic(self, model: str, system: str, cached: str, prompt: str, max_tokens: int):
         import anthropic
@@ -382,7 +383,9 @@ class Router:
             raise RuntimeError(f"model call failed: {str(data.get('result'))[:200]}")
         u = data.get("usage") or {}
         return {"input": u.get("input_tokens", 0), "output": u.get("output_tokens", 0),
-                "cache_read": u.get("cache_read_input_tokens", 0), "cache_write": u.get("cache_creation_input_tokens", 0)}
+                "cache_read": u.get("cache_read_input_tokens", 0), "cache_write": u.get("cache_creation_input_tokens", 0),
+                "thinking": (u.get("output_tokens_details") or {}).get("thinking_tokens", 0),
+                "cache_write_1h": (u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens", 0)}
 
     def _claude_code(self, model: str, system: str, cached: str, prompt: str, max_tokens: int, task: str | None = None):
         del max_tokens

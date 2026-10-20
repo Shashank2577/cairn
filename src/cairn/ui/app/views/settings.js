@@ -2,11 +2,11 @@
 // team and repository. Every control names its config key and its default, so a person can tell what to change and why.
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { html, Icon, Load, Tag, Skeleton, Empty, Tabs } from "../components/ui.js";
+import { ModelCost, usd } from "../components/modelcost.js";
 import { useApp, useFetch } from "../state.js";
 import { api } from "../api.js";
 import { link } from "../router.js";
 import { ago, fmt, plural, stamp } from "../lib/format.js";
-import { usd, rateLabel } from "../lib/cost.js";
 
 const PROVIDERS = [["auto", "Automatic", "An API key if one is set, otherwise your signed-in Claude Code"], ["anthropic", "Anthropic API", "Uses ANTHROPIC_API_KEY"],
   ["openai", "OpenAI-compatible endpoint", "Any endpoint that speaks the OpenAI API, including local models"], ["claude-code", "Claude Code sign-in", "Your subscription, no key needed"]];
@@ -80,20 +80,25 @@ export function ProjectSettings() {
             <input class="input mono" placeholder="https://api.example.com/v1" value=${val("models.base_url", "") || ""} disabled=${off("models.base_url")} aria-invalid=${bad("models.base_url")} onInput=${e => set("models.base_url", e.target.value || null)}/>
             ${hint("models.base_url", "Any OpenAI-compatible base URL; the key comes from OPENAI_API_KEY.")}${keyline("models.base_url")}</label>` : null}
           <p class="modelstate">${models.data ? models.data.available ? html`<${Tag} tone="memory">available</${Tag}> Models are reachable through ${models.data.provider}.` : html`<${Tag} tone="risk">not available</${Tag}> No model can be reached. Cairn stays deterministic until one is configured.` : null}</p>
-          ${models.data ? html`<div class="table-wrap"><table class="table stack"><thead><tr><th>Tier</th><th>Model and config key</th><th>List price</th><th>Used for</th></tr></thead><tbody>
+          ${models.data?.pins?.length ? html`<p class="cm-pin"><${Tag} tone="risk">older default</${Tag}> ${models.data.pins.map(p => `${TIER[p.tier]} is pinned to ${p.pinned}, but the default is now ${p.default} (cheaper, and it passed the quality check).`).join(" ")}
+            ${ro ? "" : html`<button class="btn sm" style="margin-left:8px" onClick=${() => models.data.pins.forEach(p => set("models." + p.tier, p.default))}>Use the new default</button>`}
+            <span class="sub"> Or run <code>cairn models --upgrade</code>. Only a pin that matches an old default is offered; a model you chose yourself is never changed.</span></p>` : null}
+          ${models.data ? html`<div class="table-wrap"><table class="table stack"><thead><tr><th>Tier</th><th>Model and config key</th><th title="Estimated: list price per million input / output tokens">List price in / out per M <span class="cm-tag e">estimated</span></th><th>Used for</th></tr></thead><tbody>
             ${models.data.table.map(r => html`<tr><td class="lead" data-label="Tier"><b>${TIER[r.tier] || r.tier}</b></td>
               <td data-label="Model">${ro ? html`<code>${r.model}</code>` : html`<input class="input mono" style="height:30px;font-size:13px;min-width:230px" value=${val("models." + r.tier, r.model)} disabled=${off("models." + r.tier)} aria-invalid=${bad("models." + r.tier)}
                 title=${locked.has("models." + r.tier) ? "Set by the server's operator" : rules["models." + r.tier] ? `Must be ${rules["models." + r.tier]}` : null} onInput=${e => set("models." + r.tier, e.target.value.trim())} aria-label=${`${TIER[r.tier]} model`}/>`}${html`<br/>${keyline("models." + r.tier)}`}</td>
-              <td data-label="List price" class="small nowrap" title="USD per million tokens (list price)">${r.price ? rateLabel(r.price, true) : html`<span class="sub" title="Cairn only shows prices it has confirmed">no confirmed price</span>`}</td>
+              <td data-label="List price" class="small num">${r.price ? `$${r.price[0]} / $${r.price[1]}` : "no price known"}${r.model === r.default ? html` <${Tag} tone="memory">default</${Tag}>` : r.default ? html` <span class="sub">default: ${r.default}</span>` : null}</td>
               <td data-label="Used for" class="small">${[...new Set(r.tasks.map(t => TASK[t] || t))].join(", ")}</td></tr>`)}</tbody></table></div>` : html`<${Skeleton} rows="4"/>`}
         </div>
       </section>
       <section class="setsec">
-        <div class="seth"><h2>Model spend</h2><p class="sub">Recent model calls made for this project, with an estimate of what they cost at list prices (${models.data?.priced_as_of ? `as of ${models.data.priced_as_of}` : "price table"}). Subscriptions such as Claude Code bill by plan usage, not per call, so treat dollars as a size comparison, not an invoice. Cache reads and writes are priced at their own rates.</p></div>
-        <div class="setbody">${models.data?.ledger?.length ? html`<p class="spendtotal"><b class="num">${usd(models.data.cost_usd) ?? "No priced calls"}</b> across ${plural(models.data.totals.reduce((a, t) => a + t.calls, 0), "call")} since the ledger began${models.data.unpriced_models?.length ? html`; no confirmed price for ${models.data.unpriced_models.map(m => html`<code>${m}</code>`).reduce((a, x) => a ? [a, ", ", x] : x, null)}, so those calls are in tokens only` : ""}.</p><div class="table-wrap"><table class="table stack"><thead><tr><th>When</th><th>Task</th><th>Model</th><th class="n" title="Input tokens, including those read from or written to the prompt cache">In</th><th class="n">Out</th><th class="n" title="List-price estimate; blank when the model has no confirmed price">Cost</th></tr></thead><tbody>
-          ${[...models.data.ledger].sort((a, b) => b.ts - a.ts).slice(0, 12).map(r => html`<tr><td data-label="When" class="nowrap">${ago(r.ts)}</td><td data-label="Task">${TASK[r.task] || r.task}${r.ok === false ? html` <${Tag} tone="risk">failed</${Tag}>` : null}</td>
-            <td data-label="Model"><code>${r.model}</code></td><td data-label="In" class="n" title=${r.input_total != null ? `${fmt(r.input_tokens)} new, ${fmt((r.cache_read || 0) + (r.cache_write || 0))} from the prompt cache` : null}>${fmt(r.input_total ?? r.input_tokens)}</td><td data-label="Out" class="n">${fmt(r.output_tokens)}</td><td data-label="Cost" class="n">${usd(r.cost_usd) ?? "–"}</td></tr>`)}</tbody></table></div>`
-          : html`<p class="sub">No model calls yet.</p>`}</div>
+        <div class="seth"><h2>Model spend</h2><p class="sub">Tokens are measured from each provider's usage report; dollars are estimated from list prices.</p></div>
+        <div class="setbody">${models.data ? html`<${ModelCost} r=${models.data} full/>` : html`<${Skeleton} rows="3"/>`}
+          ${models.data?.ledger?.length ? html`<h3 style="margin:18px 0 6px">Recent calls</h3><div class="table-wrap"><table class="table stack"><thead><tr><th>When</th><th>Task</th><th>Model</th><th class="n" title="Input tokens, including those read from or written to the prompt cache">In</th><th class="n">Out</th><th class="n" title="Inside Out">Thinking</th><th class="n" title="Cache read / cache write">Cache r / w</th><th class="n">Est. $</th></tr></thead><tbody>
+          ${[...models.data.ledger].sort((a, b) => b.ts - a.ts).slice(0, 12).map(r => { return html`<tr><td data-label="When" class="nowrap">${ago(r.ts)}</td><td data-label="Task">${TASK[r.task] || r.task}${r.ok === false ? html` <${Tag} tone="risk">failed</${Tag}>` : null}</td>
+            <td data-label="Model"><code>${r.model}</code></td><td data-label="In" class="n" title=${r.input_total != null ? `${fmt(r.input_tokens)} new, ${fmt((r.cache_read || 0) + (r.cache_write || 0))} from the prompt cache` : null}>${fmt(r.input_total ?? r.input_tokens)}</td><td data-label="Out" class="n">${fmt(r.output_tokens)}</td>
+            <td data-label="Thinking" class="n">${fmt(r.thinking_tokens)}</td><td data-label="Cache" class="n">${fmt(r.cache_read)} / ${fmt(r.cache_write)}</td>
+            <td data-label="Est. $" class="n">${usd(r.usd)}</td></tr>`; })}</tbody></table></div>` : null}</div>
       </section>
 ` : null}
       ${tab === "recall" ? html`
