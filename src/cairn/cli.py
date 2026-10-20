@@ -400,6 +400,10 @@ def doctor():
         row(False, "Session capture", "off (config)", "set [sessions] capture = true in .cairn/config.toml")
     row(c.router.available, "Model", c.router.provider if c.router.available else "none (model features off)",
         "sign in to Claude Code (claude), or set ANTHROPIC_API_KEY / an OpenAI-compatible endpoint")
+    from .modelpins import stale_pins
+    pins = stale_pins(c.project)
+    row(not pins, "Model pins", "current" if not pins else "; ".join(
+        f"{p['tier']} is pinned to {p['pinned']} (the default is now {p['default']})" for p in pins), "cairn models --upgrade")
     deep = c.router.deep_state()  # the same answer the API and the UI show
     row(deep["enabled"], "Deep", ("on · " if deep["enabled"] else "off · ") + deep["reason"], deep["fix"])
     from .engines import vectors
@@ -1192,9 +1196,18 @@ def agents_list():
 
 
 @app.command()
-def models(ledger: bool = typer.Option(False, "--ledger", help="Show calls and tokens per tier.")):
+def models(ledger: bool = typer.Option(False, "--ledger", help="Show calls, tokens and estimated dollars per tier."),
+           upgrade: bool = typer.Option(False, "--upgrade", help="Replace a model pin left over from an older default.")):
     """Which model does which job, and what it cost."""
     c = _cairn()
+    if upgrade:
+        from .modelpins import upgrade_pins
+        done = upgrade_pins(c.project)
+        for d in done:
+            console.print(f"[{MOSS}]✓[/] {d['tier']}: {escape(d['pinned'])} → {escape(d['default'])}")
+        if not done:
+            console.print(Text("No model pin from an older default; nothing to change.", style=SLATE))
+        c = _cairn()
     t = Table(box=None, padding=(0, 2), header_style=f"bold {SLATE}")
     t.add_column("Tier", style=f"bold {AMBER}")
     t.add_column("Model", style=INK)
@@ -1204,14 +1217,27 @@ def models(ledger: bool = typer.Option(False, "--ledger", help="Show calls and t
     console.print(brand("models" + ("" if c.router.available else "  (no key: deterministic tier only)")))
     console.print(t)
     if ledger:
-        rows = c.brain.ledger()
+        from . import modelcost
+        cost = modelcost.summary(c.brain, c.project, provider=c.router.provider)
         lt = Table(box=None, padding=(0, 2), header_style=f"bold {SLATE}")
-        for col in ("tier", "model", "calls", "input", "output", "cache_read"):
-            lt.add_column(col)
-        for r in rows:
-            lt.add_row(*(f"{r[k]:,}" if isinstance(r[k], int) else str(r[k] or 0) for k in
-                         ("tier", "model", "calls", "input", "output", "cache_read")))
-        console.print(lt if rows else Text("No model calls yet.", style=SLATE))
+        for col, right in (("tier", False), ("model", False), ("calls", True), ("input", True), ("output", True),
+                           ("thinking", True), ("cache read", True), ("cache write 1h", True), ("cache write", True),
+                           ("est. $", True)):
+            lt.add_column(col, justify="right" if right else "left")
+        for t in cost["tiers"]:
+            lt.add_row(t["tier"], t["model"], *(f"{t[k]:,}" for k in ("calls", "input", "output", "thinking", "cache_read",
+                       "cache_write_1h", "cache_write")), "n/a" if t["usd"] is None else f"${t['usd']:.4f}")
+        console.print(lt if cost["tiers"] else Text("No model calls yet.", style=SLATE))
+        if cost["tiers"]:
+            console.print(Text("tokens: measured (provider usage reports) · dollars: estimated from list price "
+                               "(override in [models.prices]); thinking is included in output", style=SLATE))
+        obs = cost["observer"]
+        for name, key in (("before (cache writes on)", "before"), ("after (cache writes off)", "after")):
+            o = obs[key]
+            if o:
+                per = f"{o['tokens_per_event']:,.0f} tokens/event" if o["tokens_per_event"] else f"{o['tokens_per_call']:,} tokens/call"
+                usd = f", ~${o['usd_per_event']:.5f}/event" if o["usd_per_event"] else ""
+                console.print(f"observer {name}: {o['calls']:,} calls, {per}{usd}")
 
 
 # ---- hook entry points -------------------------------------------------------------------------------

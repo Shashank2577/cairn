@@ -432,13 +432,7 @@ def project_router(hub: Hub) -> APIRouter:
 
     @r.get("/models", dependencies=read)
     def models(pid: str, since: float = 0):
-        router = c(pid).router
-        calls = [dict(r) for r in c(pid).brain.q(
-            "SELECT ts, task, tier, model, input_tokens, output_tokens, cache_read, cache_write, "
-            "input_tokens + cache_read + cache_write AS input_total, ok FROM ledger WHERE ts>=? "
-            "ORDER BY ts DESC LIMIT 300", (since,))]
-        return {"available": router.available, "provider": router.provider, "table": router.table(),
-                "totals": c(pid).brain.ledger(since), "ledger": calls}
+        return c(pid).model_report(since)
 
     def nested_settings(proj: Project) -> dict:
         from .project import OPERATOR_KEYS
