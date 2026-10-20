@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cairn GTM film</title>
+<!--
+  Cairn go-to-market film, 1920x1080. Every frame is drawn by window.renderAt(t), a pure function of
+  time in seconds: no CSS animations, no clocks, no randomness. render.mjs seeks it frame by frame.
+  Facts come from README.md, CHANGELOG.md, docs/models-and-cost.md, docs/agents.md and
+  docs/onboarding.md (the 391 / 144,228 / 33 files / 369x numbers).
+-->
+<style>
+@font-face { font-family: "Overpass"; font-weight: 100 900; src: url("../../../../../src/cairn/ui/fonts/overpass-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Overpass Mono"; font-weight: 300 700; src: url("../../../../../src/cairn/ui/fonts/overpass-mono-latin-wght-normal.woff2") format("woff2"); }
+:root {
+  --paper: #F4F5F0; --sheet: #FBFBF8; --raised: #FFFFFF; --ink: #1F2328; --ink-2: #464B45; --muted: #6B7068;
+  --rule: #DADCD2; --rule-strong: #C6C9BD; --faint: #E9EAE3; --contour: #E1E3D9;
+  --code: #9A6434; --agent: #2F6FA3; --memory: #4F7F3F; --spec: #6E4A96; --risk: #B8433A;
+  --code-wash: #F1E7DC; --agent-wash: #E3ECF4; --memory-wash: #E6EEDF; --spec-wash: #ECE5F3; --risk-wash: #F5E3E0;
+  --night: #161A17; --night-2: #1F2522; --night-line: #2C332E; --night-ink: #E8EAE3; --night-muted: #939888;
+  --d-code: #D69E68; --d-agent: #72AADA; --d-memory: #8EC078; --d-risk: #E5806F;
+  --ui: "Overpass", system-ui, sans-serif; --mono: "Overpass Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--night); }
+body { font-family: var(--ui); color: var(--ink); -webkit-font-smoothing: antialiased; }
+#stage { position: absolute; inset: 0; overflow: hidden; }
+.layer { position: absolute; inset: 0; }
+.abs { position: absolute; }
+svg.contours { position: absolute; inset: -60px; width: 2040px; height: 1200px; }
+.scene { position: absolute; inset: 0; opacity: 0; }
+
+/* ---------- night (problem) ---------- */
+#night { background: var(--night); }
+.term { position: absolute; left: 150px; top: 150px; width: 1010px; height: 660px; border-radius: 16px;
+  background: var(--night-2); border: 1px solid var(--night-line); box-shadow: 0 40px 90px -30px rgba(0,0,0,.7); overflow: hidden; }
+.term .bar { height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 26px; border-bottom: 1px solid var(--night-line);
+  font: 500 24px var(--mono); color: var(--night-muted); }
+.term .bar i { width: 14px; height: 14px; border-radius: 50%; background: #3A423C; display: block; }
+.term .bar b { margin-left: 14px; font-weight: 600; color: var(--night-ink); }
+.term .body { position: absolute; left: 0; right: 0; top: 64px; bottom: 0; padding: 26px 34px; }
+.tl { position: absolute; left: 34px; right: 34px; height: 50px; font: 400 29px/50px var(--mono); color: var(--night-ink);
+  white-space: nowrap; opacity: 0; }
+.tl .pr { color: var(--d-memory); }
+.tl .dim { color: var(--night-muted); }
+.tag { display: inline-block; margin-left: 16px; padding: 0 12px; height: 36px; line-height: 38px; border-radius: 6px;
+  font: 600 21px var(--ui); vertical-align: 4px; }
+.tag.again { background: #3B2E22; color: var(--d-code); }
+.tag.bad { background: #43231F; color: var(--d-risk); }
+.tl.bad { color: var(--d-risk); }
+.compact { position: absolute; left: 34px; right: 34px; height: 54px; border-radius: 8px; background: #26302A;
+  border: 1px dashed #4A564D; font: 600 25px/54px var(--ui); color: var(--night-ink); padding-left: 22px; opacity: 0; overflow: hidden; }
+.compact .sweep { position: absolute; top: 0; bottom: 0; width: 240px; background: linear-gradient(90deg, transparent, rgba(142,192,120,.25), transparent); }
+#blank { position: absolute; left: 0; right: 0; top: 230px; text-align: center; font: 500 34px var(--mono); color: var(--night-muted); opacity: 0; }
+#blank b { display: block; font: 700 28px var(--ui); color: #5E665F; margin-top: 18px; letter-spacing: .08em; text-transform: uppercase; }
+.side { position: absolute; left: 1250px; width: 540px; opacity: 0; }
+.kicker { font: 700 22px var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--night-muted); }
+.sess { font: 700 76px var(--ui); color: var(--night-ink); letter-spacing: -.02em; }
+.sess small { display: block; font: 500 28px var(--ui); color: var(--night-muted); letter-spacing: 0; margin-top: 6px; }
+.gitcard { border-radius: 14px; background: var(--night-2); border: 1px solid var(--night-line); padding: 22px 26px; }
+.gitcard .row { font: 400 25px/44px var(--mono); color: var(--night-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gitcard .row.r { color: var(--d-risk); }
+.meter { position: relative; width: 540px; height: 46px; border-radius: 23px; background: #232A25; border: 1px solid var(--night-line); overflow: hidden; margin-top: 18px; }
+.meter i { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #8A4A3E, var(--d-risk)); display: block; }
+.coins { position: relative; height: 300px; margin-top: 26px; }
+.coin { position: absolute; width: 150px; height: 46px; border-radius: 8px; background: #2A221D; border: 1px solid #4A3A2E;
+  font: 500 19px/46px var(--mono); color: var(--d-code); text-align: center; }
+
+/* ---------- day (answer) ---------- */
+#day { background: var(--paper); clip-path: circle(0px at 960px 540px); }
+.word { font: 800 150px var(--ui); letter-spacing: -.04em; color: var(--ink); }
+.sub { font: 500 46px var(--ui); color: var(--ink-2); }
+.stone { position: absolute; border-radius: 50%; }
+.h2 { font: 800 76px/1.05 var(--ui); letter-spacing: -.025em; color: var(--ink); }
+.lede { font: 500 32px/1.35 var(--ui); color: var(--ink-2); }
+.layer-stone { position: absolute; left: 150px; width: 560px; height: 104px; border-radius: 52px; color: #fff; display: flex; align-items: center;
+  padding: 0 40px; gap: 22px; box-shadow: 0 14px 28px -16px rgba(31,35,40,.5); opacity: 0; }
+.layer-stone b { font: 800 40px var(--ui); letter-spacing: -.01em; }
+.layer-stone span { font: 500 26px var(--ui); opacity: .88; }
+.shot { position: absolute; left: 820px; top: 150px; width: 960px; height: 600px; border-radius: 14px; overflow: hidden; background: var(--sheet);
+  box-shadow: 0 30px 70px -26px rgba(31,35,40,.45), 0 0 0 1px var(--rule-strong); }
+.shot img { position: absolute; left: 0; top: 0; width: 960px; height: 600px; opacity: 0; }
+.shotcap { position: absolute; left: 820px; top: 770px; width: 960px; font: 500 24px var(--ui); color: var(--muted); }
+.call { position: absolute; left: 150px; top: 130px; height: 84px; border-radius: 14px; background: var(--ink); color: var(--paper);
+  font: 500 34px/84px var(--mono); padding: 0 34px; white-space: nowrap; overflow: hidden; }
+.call .pr { color: var(--d-memory); }
+.qchips { position: absolute; left: 150px; top: 250px; display: flex; gap: 16px; }
+.qchip { height: 62px; padding: 0 28px; border-radius: 31px; border: 2px solid var(--rule-strong); font: 700 30px/58px var(--ui); color: var(--muted); background: var(--sheet); }
+.qchip.on { border-color: var(--ink); color: var(--paper); background: var(--ink); }
+.pack { position: absolute; left: 150px; top: 350px; width: 1620px; height: 500px; border-radius: 16px; background: var(--raised);
+  box-shadow: 0 30px 70px -30px rgba(31,35,40,.4), 0 0 0 1px var(--rule); padding: 26px 40px; opacity: 0; }
+.pack h3 { margin: 0 0 8px; font: 800 32px var(--ui); }
+.pack h3 span { font: 500 26px var(--mono); color: var(--muted); margin-left: 12px; }
+.prow { position: absolute; left: 40px; width: 760px; height: 52px; display: flex; align-items: center; gap: 16px; font: 600 27px var(--ui); color: var(--ink); opacity: 0; }
+.prow i { width: 18px; height: 18px; border-radius: 50%; display: block; flex: none; }
+.prow em { font-style: normal; font: 600 20px var(--mono); padding: 2px 10px; border-radius: 5px; margin-left: auto; }
+.budget { position: absolute; left: 880px; top: 120px; width: 700px; opacity: 0; }
+.budget .lab { font: 700 24px var(--ui); color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+.budget .track { margin-top: 18px; height: 54px; border-radius: 10px; background: var(--faint); position: relative; overflow: hidden; border: 1px solid var(--rule); }
+.budget .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--memory); }
+.budget .nums { margin-top: 14px; display: flex; justify-content: space-between; font: 600 26px var(--mono); color: var(--ink-2); }
+.budget p { font: 500 27px/1.4 var(--ui); color: var(--ink-2); margin: 34px 0 0; }
+.files { position: absolute; left: 150px; top: 200px; width: 780px; display: grid; grid-template-columns: repeat(7, 96px); gap: 16px; }
+.files i { display: block; width: 96px; height: 116px; border-radius: 6px; background: var(--code-wash); border: 2px solid #D9C3AC; opacity: 0; position: relative; }
+.files i::after { content: ""; position: absolute; left: 14px; right: 22px; top: 22px; height: 54px;
+  background: repeating-linear-gradient(180deg, #CBB094 0 4px, transparent 4px 14px); }
+.flab { position: absolute; left: 150px; top: 860px; font: 600 30px var(--ui); color: var(--ink-2); opacity: 0; }
+.flab b, .alab b { color: var(--ink); font-weight: 800; }
+.dot { position: absolute; background: var(--memory); border-radius: 3px; opacity: 0; }
+.alab { position: absolute; left: 1040px; top: 630px; font: 600 30px var(--ui); color: var(--ink-2); opacity: 0; width: 780px; }
+.big { position: absolute; left: 1040px; top: 190px; font: 800 250px/1 var(--ui); letter-spacing: -.05em; color: var(--memory); opacity: 0; }
+.big small { font-size: 140px; margin-left: 6px; }
+.bigsub { position: absolute; left: 1050px; top: 450px; font: 700 40px var(--ui); color: var(--ink); opacity: 0; }
+.foot { position: absolute; left: 150px; top: 935px; font: 500 22px var(--ui); color: var(--muted); opacity: 0; display: none; }
+.panel { position: absolute; left: 150px; top: 130px; width: 1010px; height: 740px; border-radius: 16px; background: var(--raised);
+  box-shadow: 0 30px 70px -30px rgba(31,35,40,.4), 0 0 0 1px var(--rule); padding: 30px 40px; }
+.panel .ph { display: flex; align-items: center; gap: 14px; font: 800 32px var(--ui); }
+.panel .ph span { margin-left: auto; font: 600 22px var(--mono); color: var(--agent); background: var(--agent-wash); padding: 4px 14px; border-radius: 6px; }
+.psec { position: absolute; left: 40px; right: 40px; height: 110px; opacity: 0; }
+.psec h4 { margin: 0; font: 700 27px var(--ui); color: var(--ink); }
+.psec h4 span { font-weight: 500; color: var(--muted); margin-left: 10px; font-size: 24px; }
+.psec .sk { height: 16px; border-radius: 8px; background: var(--faint); margin-top: 14px; }
+.psec .sk.s2 { width: 72%; }
+.psec .bar { position: absolute; left: -40px; top: 2px; width: 8px; height: 82px; border-radius: 0 4px 4px 0; }
+.pnote { position: absolute; left: 1250px; width: 540px; opacity: 0; }
+.pnote h5 { margin: 0; font: 800 54px/1.08 var(--ui); letter-spacing: -.02em; }
+.pnote p { margin: 22px 0 0; font: 500 30px/1.4 var(--ui); color: var(--ink-2); }
+.pnote code { font: 500 26px var(--mono); background: var(--faint); padding: 2px 10px; border-radius: 5px; }
+.iterm { position: absolute; left: 150px; top: 140px; width: 1100px; height: 520px; border-radius: 16px; background: var(--ink); padding: 34px 44px; }
+.il { position: absolute; left: 44px; right: 44px; font: 400 34px/56px var(--mono); color: var(--paper); white-space: nowrap; overflow: hidden; opacity: 0; }
+.il .pr { color: var(--d-memory); }
+.il.ok { color: #BFC4B8; font-size: 29px; }
+.il.ok b { color: var(--d-memory); font-weight: 600; }
+.facts { position: absolute; left: 1330px; top: 160px; width: 460px; }
+.fact { height: 98px; border-bottom: 1px solid var(--rule-strong); opacity: 0; }
+.fact b { display: block; font: 800 40px var(--ui); color: var(--ink); padding-top: 14px; }
+.fact span { font: 500 24px var(--ui); color: var(--muted); }
+.agents { position: absolute; left: 150px; top: 720px; width: 1640px; }
+.agents .k { font: 700 22px var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); opacity: 0; }
+.apills { display: flex; gap: 18px; margin-top: 18px; }
+.apill { height: 78px; padding: 0 30px; border-radius: 14px; background: var(--raised); box-shadow: 0 0 0 1px var(--rule-strong);
+  font: 700 32px/78px var(--ui); color: var(--ink); opacity: 0; white-space: nowrap; }
+.end .install { position: absolute; left: 0; right: 0; top: 655px; text-align: center; }
+.end .install span { display: inline-block; background: var(--ink); color: var(--paper); font: 500 34px/80px var(--mono); padding: 0 36px; border-radius: 12px; }
+.end .install .pr { color: var(--d-memory); }
+.end .url { position: absolute; left: 0; right: 0; top: 770px; text-align: center; font: 700 40px var(--ui); color: var(--ink); }
+.end .lic { position: absolute; left: 0; right: 0; top: 828px; text-align: center; font: 500 26px var(--ui); color: var(--muted); }
+
+/* ---------- captions ---------- */
+#cap { position: absolute; left: 0; right: 0; bottom: 70px; height: 92px; display: flex; justify-content: center; pointer-events: none; }
+#cap span { display: inline-block; max-width: 1640px; padding: 0 34px; height: 92px; line-height: 94px; border-radius: 14px; white-space: nowrap;
+  background: rgba(22,26,23,.9); color: #F4F5F0; font: 600 46px/94px var(--ui); letter-spacing: -.005em; opacity: 0; }
+#progress { position: absolute; left: 0; bottom: 0; height: 6px; background: var(--memory); }
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- ================= NIGHT: the problem ================= -->
+  <div id="night" class="layer">
+    <svg class="contours" id="cn"></svg>
+    <div class="term" id="term">
+      <div class="bar"><i></i><i></i><i></i><b id="sessname">agent session 14</b></div>
+      <div class="body" id="tbody">
+        <div id="blank">context window: empty<b>nothing carried over</b></div>
+      </div>
+    </div>
+    <div class="side" id="s-sess" style="top:250px">
+      <div class="kicker">yesterday's work</div>
+      <div class="sess">Gone<small>new session, no memory of the last</small></div>
+    </div>
+    <div class="side" id="s-git" style="top:170px">
+      <div class="kicker">git log</div>
+      <div class="gitcard" style="margin-top:16px">
+        <div class="row r">Revert "retry with fixed backoff"</div>
+        <div class="row">Merge: retry with jitter</div>
+        <div class="row">Fix: flaky sync on large repos</div>
+      </div>
+    </div>
+    <div class="side" id="s-meter" style="top:500px">
+      <div class="kicker">tokens spent re-reading</div>
+      <div class="meter"><i id="meterfill"></i></div>
+      <div class="coins" id="coins"></div>
+    </div>
+  </div>
+
+  <!-- ================= DAY: Cairn ================= -->
+  <div id="day" class="layer">
+    <svg class="contours" id="cd"></svg>
+
+    <section class="scene" id="sc-brand">
+      <div class="stone" id="st1"></div><div class="stone" id="st2"></div><div class="stone" id="st3"></div>
+      <div class="abs word" id="bword" style="left:0;right:0;top:470px;text-align:center">cairn</div>
+      <div class="abs sub" id="bsub" style="left:0;right:0;top:665px;text-align:center">Institutional memory for coding agents</div>
+    </section>
+
+    <section class="scene" id="sc-layers">
+      <div class="abs kicker" id="lk" style="left:150px;top:150px;color:var(--muted)">Five layers, one store</div>
+      <div class="layer-stone" id="ls4" style="top:205px;background:var(--agent)"><b>Sessions</b><span>What did agents do?</span></div>
+      <div class="layer-stone" id="ls3" style="top:325px;background:var(--memory)"><b>Memory</b><span>What did we learn?</span></div>
+      <div class="layer-stone" id="ls2" style="top:445px;background:var(--ink-2)"><b>Timeline</b><span>What happened?</span></div>
+      <div class="layer-stone" id="ls1" style="top:565px;background:var(--spec)"><b>Specs</b><span>What did we intend?</span></div>
+      <div class="layer-stone" id="ls0" style="top:685px;background:var(--code)"><b>Map</b><span>What is the code?</span></div>
+      <div class="shot" id="shot">
+        <img id="im0" src="../../../../images/onboarding/map.png">
+        <img id="im1" src="../../../../images/onboarding/specs.png">
+        <img id="im2" src="../../../../images/onboarding/timeline.png">
+        <img id="im3" src="../../../../images/onboarding/memory.png">
+        <img id="im4" src="../../../../images/onboarding/sessions.png">
+      </div>
+      <div class="shotcap" id="shotcap">The Cairn page, running on Cairn's own repository</div>
+    </section>
+
+    <section class="scene" id="sc-ask">
+      <div class="call" id="call"><span class="pr">agent ›</span> <span id="calltxt"></span></div>
+      <div class="qchips"><div class="qchip" id="q0">impact</div><div class="qchip" id="q1">why</div><div class="qchip" id="q2">context</div></div>
+      <div class="pack" id="pack">
+        <h3>Impact answer <span>src/cairn/router.py</span></h3>
+        <div class="prow" id="pr0" style="top:90px"><i style="background:var(--code)"></i>Dependents, one and two steps away<em style="background:var(--code-wash);color:var(--code)">map</em></div>
+        <div class="prow" id="pr1" style="top:145px"><i style="background:var(--code)"></i>Tests likely affected<em style="background:var(--code-wash);color:var(--code)">map</em></div>
+        <div class="prow" id="pr2" style="top:200px"><i style="background:var(--ink-2)"></i>Files that usually change with it<em style="background:var(--faint);color:var(--ink-2)">git history</em></div>
+        <div class="prow" id="pr3" style="top:255px"><i style="background:var(--risk)"></i>Past fixes and reverts<em style="background:var(--risk-wash);color:var(--risk)">git history</em></div>
+        <div class="prow" id="pr4" style="top:310px"><i style="background:var(--spec)"></i>The spec task that owns the code<em style="background:var(--spec-wash);color:var(--spec)">specs</em></div>
+        <div class="prow" id="pr5" style="top:365px"><i style="background:var(--memory)"></i>Team conventions<em style="background:var(--memory-wash);color:var(--memory)">memory</em></div>
+        <div class="prow" id="pr6" style="top:420px"><i style="background:var(--agent)"></i>Recent agent work<em style="background:var(--agent-wash);color:var(--agent)">sessions</em></div>
+        <div class="budget" id="budget">
+          <div class="lab">Context pack budget</div>
+          <div class="track"><div class="fill" id="bfill"></div></div>
+          <div class="nums"><span id="bnum">0 tokens sent</span><span>1,800 limit</span></div>
+          <p>Every line cites where it came from. Packs have hard token budgets, and the tests check that they hold.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene" id="sc-proof">
+      <div class="abs kicker" id="pk" style="left:150px;top:140px;color:var(--muted)">Measured on Cairn's own repository</div>
+      <div class="files" id="files"></div>
+      <div class="flab" id="flab"><b>33 files</b> an agent would open: <b>144,228</b> tokens</div>
+      <div class="dot" id="dot"></div>
+      <div class="alab" id="alab"><b>Cairn's answer: 391 tokens</b><br></div>
+      <div class="big" id="big">369<small>×</small></div>
+      <div class="bigsub" id="bigsub">fewer tokens for one impact answer</div>
+    </section>
+
+    <section class="scene" id="sc-resume">
+      <div class="panel">
+        <div class="ph">Session start <span>startup · resume · compact</span></div>
+        <div class="psec" id="ps0" style="top:110px"><div class="bar" style="background:var(--agent)"></div><h4>Where the last session left off<span>asked, done, next</span></h4><div class="sk"></div><div class="sk s2"></div></div>
+        <div class="psec" id="ps1" style="top:235px"><div class="bar" style="background:var(--ink-2)"></div><h4>What is new since then</h4><div class="sk"></div><div class="sk s2"></div></div>
+        <div class="psec" id="ps2" style="top:360px"><div class="bar" style="background:var(--memory)"></div><h4>What the team knows<span>each memory with its source and age</span></h4><div class="sk"></div><div class="sk s2"></div></div>
+        <div class="psec" id="ps3" style="top:485px"><div class="bar" style="background:var(--risk)"></div><h4>Files to handle with care<span>fix and revert history</span></h4><div class="sk"></div><div class="sk s2"></div></div>
+        <div class="psec" id="ps4" style="top:610px"><div class="bar" style="background:var(--spec)"></div><h4>Open work</h4><div class="sk"></div></div>
+      </div>
+      <div class="pnote" id="pn" style="top:230px">
+        <h5>Back where it left off</h5>
+        <p>Built from the local store, with no model calls. It runs again after every <code>compact</code></p>
+      </div>
+    </section>
+
+    <section class="scene" id="sc-install">
+      <div class="iterm">
+        <div class="il" id="il0" style="top:34px"><span class="pr">$</span> <span id="it0"></span></div>
+        <div class="il" id="il1" style="top:90px"><span class="pr">$</span> <span id="it1"></span></div>
+        <div class="il" id="il2" style="top:146px"><span class="pr">$</span> <span id="it2"></span></div>
+        <div class="il ok" id="il3" style="top:222px"><b>✓</b> agents wired to the cairn MCP server</div>
+        <div class="il ok" id="il4" style="top:274px"><b>✓</b> git hooks re-sync in the background</div>
+        <div class="il ok" id="il5" style="top:326px"><b>✓</b> first sync: map, specs, timeline, memory</div>
+        <div class="il ok" id="il6" style="top:378px"><b>✓</b> local server started, page address printed</div>
+      </div>
+      <div class="facts">
+        <div class="fact" id="f0"><b>Local</b><span>runs on your machine</span></div>
+        <div class="fact" id="f1"><b>No API key</b><span>the core never calls a model</span></div>
+        <div class="fact" id="f2"><b>No Docker</b><span>and no database server</span></div>
+        <div class="fact" id="f3"><b>Apache-2.0</b><span>open source</span></div>
+      </div>
+      <div class="agents">
+        <div class="k" id="ak">Works with the agents you already use</div>
+        <div class="apills">
+          <div class="apill" id="a0">Claude Code</div><div class="apill" id="a1">Codex</div><div class="apill" id="a2">Cursor</div>
+          <div class="apill" id="a3">Gemini CLI</div><div class="apill" id="a4">Copilot CLI</div><div class="apill" id="a5">OpenCode</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene end" id="sc-end">
+      <div class="stone" id="es1"></div><div class="stone" id="es2"></div><div class="stone" id="es3"></div>
+      <div class="abs word" id="eword" style="left:0;right:0;top:330px;text-align:center">cairn</div>
+      <div class="abs sub" id="esub" style="left:0;right:0;top:515px;text-align:center;color:var(--ink)">Memory your agents can cite.</div>
+      <div class="install" id="einst"><span><span class="pr">$</span> uv tool install --python 3.12 cairn-brain &amp;&amp; cairn</span></div>
+      <div class="url" id="eurl">github.com/Shashank2577/cairn</div>
+      <div class="lic" id="elic">Open source, Apache-2.0</div>
+    </section>
+  </div>
+
+  <div id="cap"><span id="captxt"></span></div>
+  <div id="progress"></div>
+</div>
+
+<script>
+/* ---------- captions: the single source of truth, also written to SRT/VTT by render.mjs ---------- */
+window.CAPTIONS = [
+  [0.4, 2.6, "Your coding agents are capable."],
+  [2.7, 5.1, "But every session starts from zero."],
+  [5.3, 7.5, "They re-read the same files."],
+  [7.7, 10.0, "They retry the fix your team reverted."],
+  [10.2, 12.4, "After compaction, they lose their place."],
+  [12.6, 14.9, "And you pay for every re-read in tokens."],
+  [15.4, 18.3, "Cairn is institutional memory for coding agents."],
+  [18.6, 23.0, "Five layers: map, specs, timeline, memory and sessions."],
+  [23.3, 26.6, "Before an edit, an agent asks Cairn: impact, why, context."],
+  [26.8, 29.8, "It gets a cited answer, inside a token budget."],
+  [30.2, 33.8, "On Cairn's own repo, one answer took 391 tokens,"],
+  [33.9, 37.6, "instead of 144,228 tokens across 33 files."],
+  [38.0, 42.6, "After compaction, the next session picks up where it left off."],
+  [43.0, 46.8, "One command in any git repo. Local. No API key."],
+  [47.0, 51.2, "Works with Claude Code, Codex, Cursor, Gemini, Copilot and OpenCode."],
+  [51.8, 56.0, "Cairn. Memory your agents can cite."],
+];
+window.DURATION = 57.0;
+
+/* ---------- helpers ---------- */
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const eo = (x) => 1 - Math.pow(1 - x, 3);
+const eio = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const back = (x) => { const c = 1.5; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+/* in/out envelope: rises over fi after a, falls over fo before b */
+const env = (t, a, b, fi = 0.4, fo = 0.4) => Math.min(eo(prog(t, a, a + fi)), 1 - prog(t, b - fo, b));
+function put(el, o, x = 0, y = 0, s = 1) {
+  if (typeof el === "string") el = $(el);
+  el.style.opacity = o.toFixed(3);
+  el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) scale(${s.toFixed(4)})`;
+}
+/* rise-in: fades in and lifts 24px */
+function rise(el, t, a, d = 0.5, dy = 24) { const k = eo(prog(t, a, a + d)); put(el, k, 0, (1 - k) * dy); return k; }
+function typed(el, text, t, a, cps = 28) { const n = Math.floor(clamp((t - a) * cps, 0, text.length)); $(el).textContent = text.slice(0, n); }
+
+/* ---------- deterministic contour lines ---------- */
+function contours(svg, color, seed) {
+  let s = seed; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  const centres = [[420, 300], [1560, 820], [1350, 200], [300, 960]];
+  let out = "";
+  centres.forEach(([cx, cy], ci) => {
+    const ph = [rnd() * 6.28, rnd() * 6.28, rnd() * 6.28];
+    for (let k = 1; k <= 13; k++) {
+      const r0 = k * 48 + ci * 10; let d = "";
+      for (let i = 0; i <= 96; i++) {
+        const a = (i / 96) * Math.PI * 2;
+        const r = r0 * (1 + 0.16 * Math.sin(3 * a + ph[0]) + 0.09 * Math.sin(5 * a + ph[1] + k * 0.15) + 0.05 * Math.sin(2 * a + ph[2]));
+        d += (i ? "L" : "M") + (cx + 60 + r * Math.cos(a)).toFixed(1) + " " + (cy + 60 + r * 0.82 * Math.sin(a)).toFixed(1);
+      }
+      out += `<path d="${d}Z" fill="none" stroke="${color}" stroke-width="${k % 4 === 0 ? 2.2 : 1.2}"/>`;
+    }
+  });
+  svg.innerHTML = out;
+}
+contours($("cn"), "rgba(232,234,227,.07)", 7);
+contours($("cd"), "#E1E3D9", 11);
+
+/* ---------- night terminal lines ---------- */
+const tbody = $("tbody");
+function tline(html, top, cls = "") { const d = document.createElement("div"); d.className = "tl " + cls; d.style.top = top + "px"; d.innerHTML = html; tbody.appendChild(d); return d; }
+const A = [
+  tline('<span class="pr">›</span> fix the flaky retry in sync', 26),
+  tline('<span class="dim">Read</span> src/cairn/store.py', 80),
+  tline('<span class="dim">Read</span> src/cairn/router.py', 134),
+  tline('<span class="dim">Planning a change…</span>', 188),
+];
+const B = [
+  tline('<span class="pr">›</span> fix the flaky retry in sync', 26),
+  tline('<span class="dim">Read</span> src/cairn/store.py<span class="tag again">again</span>', 80),
+  tline('<span class="dim">Read</span> src/cairn/router.py<span class="tag again">again</span>', 134),
+  tline('Edit: retry with fixed backoff<span class="tag bad">reverted before</span>', 188, "bad"),
+];
+const comp = document.createElement("div"); comp.className = "compact"; comp.style.top = "262px";
+comp.innerHTML = 'Context compacted<div class="sweep" id="sweep"></div>'; tbody.appendChild(comp);
+const C = [
+  tline('<span class="pr">›</span> <span class="dim">…where was I?</span>', 340),
+  tline('<span class="dim">Read</span> src/cairn/store.py<span class="tag again">again</span>', 394),
+  tline('<span class="dim">Read</span> src/cairn/router.py<span class="tag again">again</span>', 448),
+];
+const coins = [];
+for (let i = 0; i < 9; i++) {
+  const c = document.createElement("div"); c.className = "coin";
+  c.textContent = i % 2 ? "router.py" : "store.py";
+  c.style.left = (i % 3) * 180 + "px"; c.style.top = Math.floor(i / 3) * 70 + "px";
+  $("coins").appendChild(c); coins.push(c);
+}
+
+/* ---------- proof file blocks ---------- */
+const files = [];
+for (let i = 0; i < 33; i++) { const b = document.createElement("i"); $("files").appendChild(b); files.push(b); }
+/* the answer square is drawn to the same scale: total file area / 369 */
+const fileArea = 33 * 96 * 116;
+const dotSide = Math.sqrt(fileArea / 369);
+Object.assign($("dot").style, { width: dotSide + "px", height: dotSide + "px", left: "1040px", top: (610 - dotSide) + "px" });
+
+/* ---------- stones ---------- */
+function stone(el, cx, cy, w, h, color) {
+  Object.assign($(el).style, { left: cx - w / 2 + "px", top: cy - h / 2 + "px", width: w + "px", height: h + "px", background: color,
+    boxShadow: "inset 0 -10px 0 rgba(0,0,0,.14)" });
+}
+stone("st1", 960, 400, 250, 92, "var(--ink)"); stone("st2", 960, 318, 190, 78, "var(--ink-2)"); stone("st3", 960, 250, 120, 60, "var(--memory)");
+stone("es1", 960, 270, 210, 78, "var(--ink)"); stone("es2", 960, 200, 160, 66, "var(--ink-2)"); stone("es3", 960, 143, 100, 50, "var(--memory)");
+
+/* ---------- the frame function ---------- */
+window.renderAt = function (t) {
+  /* night layer */
+  const dayR = eio(prog(t, 14.9, 15.9)) * 2300;
+  $("day").style.clipPath = `circle(${dayR.toFixed(1)}px at 960px 540px)`;
+  $("night").style.opacity = t < 16 ? 1 : 0;
+  $("cn").style.transform = `translate(${(-t * 3).toFixed(1)}px, ${(t * 1.5).toFixed(1)}px)`;
+  $("cd").style.transform = `translate(${(t * 2).toFixed(1)}px, ${(-t * 1).toFixed(1)}px)`;
+  put("term", eo(prog(t, 0, 0.5)), 0, (1 - eo(prog(t, 0, 0.5))) * 30);
+  $("sessname").textContent = t < 3.0 ? "agent session 14" : "agent session 15";
+  A.forEach((el, i) => { const a = 0.35 + i * 0.5; put(el, Math.min(eo(prog(t, a, a + 0.25)), 1 - prog(t, 2.7, 3.0)), (1 - eo(prog(t, a, a + 0.25))) * -14); });
+  put("blank", env(t, 3.1, 5.25, 0.4, 0.25));
+  B.forEach((el, i) => {
+    const a = i < 3 ? 5.35 + i * 0.6 : 7.8;
+    let o = eo(prog(t, a, a + 0.25));
+    const blur = eo(prog(t, 10.3, 11.0));
+    el.style.filter = `blur(${(blur * 5).toFixed(2)}px)`;
+    o *= 1 - 0.65 * blur;
+    put(el, o, (1 - eo(prog(t, a, a + 0.25))) * -14);
+  });
+  /* the reverted edit shakes once */
+  if (t > 7.8 && t < 8.5) B[3].style.transform = `translate(${(Math.sin((t - 7.8) * 60) * 8 * (1 - prog(t, 7.8, 8.5))).toFixed(1)}px,0)`;
+  put(comp, eo(prog(t, 10.25, 10.6)), 0, 0, 1);
+  $("sweep").style.left = (-260 + prog(t, 10.3, 11.6) * 1220).toFixed(0) + "px";
+  C.forEach((el, i) => { const a = [11.2, 12.8, 13.4][i]; put(el, eo(prog(t, a, a + 0.25)), (1 - eo(prog(t, a, a + 0.25))) * -14); });
+  /* side props */
+  put("s-sess", env(t, 3.1, 5.2, 0.45, 0.3), (1 - eo(prog(t, 3.1, 3.6))) * 30);
+  put("s-git", Math.min(eo(prog(t, 7.75, 8.2)), 1 - 0.6 * prog(t, 12.4, 12.8)), (1 - eo(prog(t, 7.75, 8.2))) * 30);
+  put("s-meter", eo(prog(t, 12.55, 12.95)), (1 - eo(prog(t, 12.55, 12.95))) * 30);
+  $("meterfill").style.width = (eio(prog(t, 12.7, 14.8)) * 100).toFixed(1) + "%";
+  coins.forEach((c, i) => { const a = 12.9 + i * 0.2; const k = prog(t, a, a + 0.35); put(c, eo(k), 0, (1 - back(k)) * -60); });
+
+  /* day scenes */
+  const vis = {
+    "sc-brand": env(t, 15.2, 18.45, 0.3, 0.35), "sc-layers": env(t, 18.4, 23.15, 0.35, 0.35),
+    "sc-ask": env(t, 23.1, 30.05, 0.35, 0.35), "sc-proof": env(t, 30.0, 37.9, 0.35, 0.35),
+    "sc-resume": env(t, 37.8, 42.85, 0.35, 0.35), "sc-install": env(t, 42.8, 51.5, 0.35, 0.4), "sc-end": env(t, 51.4, 60, 0.45, 0.1),
+  };
+  for (const k in vis) $(k).style.opacity = vis[k].toFixed(3);
+
+  /* brand */
+  [["st1", 15.5], ["st2", 15.8], ["st3", 16.1]].forEach(([id, a]) => { const k = prog(t, a, a + 0.45); put(id, eo(k), 0, (1 - back(k)) * -120); });
+  rise("bword", t, 16.4, 0.6, 40); rise("bsub", t, 16.9, 0.6, 30);
+
+  /* layers */
+  rise("lk", t, 18.5, 0.4);
+  const la = [18.7, 19.5, 20.3, 21.1, 21.9];
+  la.forEach((a, i) => { const k = prog(t, a, a + 0.45); put("ls" + i, eo(k), 0, (1 - back(k)) * -70); });
+  put("shot", eo(prog(t, 18.6, 19.1)), (1 - eo(prog(t, 18.6, 19.1))) * 60, 0);
+  la.forEach((a, i) => {
+    const on = eo(prog(t, a, a + 0.35)); const off = i < 4 ? eo(prog(t, la[i + 1], la[i + 1] + 0.35)) : 0;
+    const im = $("im" + i); im.style.opacity = (on * (1 - off)).toFixed(3);
+    im.style.transform = `scale(${(1.04 - 0.04 * on).toFixed(4)})`;
+  });
+  rise("shotcap", t, 19.2, 0.4, 12);
+
+  /* ask */
+  rise("call", t, 23.2, 0.35, 20);
+  typed("calltxt", 'cairn_impact("src/cairn/router.py")', t, 23.5, 30);
+  ["q0", "q1", "q2"].forEach((id, i) => {
+    rise(id, t, 23.3 + i * 0.15, 0.35, 16);
+    const a = [24.0, 25.0, 25.8][i];
+    $(id).classList.toggle("on", t >= a && t < a + 0.9 || (i === 0 && t >= 26.6));
+  });
+  put("pack", eo(prog(t, 26.6, 27.0)), 0, (1 - eo(prog(t, 26.6, 27.0))) * 40);
+  for (let i = 0; i < 7; i++) { const a = 26.9 + i * 0.22; const k = eo(prog(t, a, a + 0.3)); put("pr" + i, k, (1 - k) * -24, 0); }
+  put("budget", eo(prog(t, 27.6, 28.0)));
+  const sent = Math.round(eio(prog(t, 27.9, 29.0)) * 391);
+  $("bfill").style.width = ((sent / 1800) * 100).toFixed(2) + "%";
+  $("bnum").textContent = sent.toLocaleString("en-US") + " tokens sent";
+
+  /* proof */
+  rise("pk", t, 30.1, 0.4);
+  files.forEach((b, i) => { const a = 30.3 + i * 0.04; const k = eo(prog(t, a, a + 0.3)); put(b, k, 0, (1 - k) * 18); });
+  rise("flab", t, 31.6, 0.4, 14);
+  const dk = prog(t, 31.6, 32.1); put("dot", eo(dk), 0, 0, 0.2 + 0.8 * back(dk));
+  rise("alab", t, 32.0, 0.4, 14);
+  $("alab").innerHTML = "<b>Cairn's answer: 391 tokens</b><br>drawn to the same scale";
+  const bk = prog(t, 34.0, 34.6); put("big", eo(bk), 0, 0, 0.85 + 0.15 * back(bk));
+  rise("bigsub", t, 34.4, 0.45, 16);
+  /* the blocks dim once the answer is on screen */
+  $("files").style.opacity = (1 - 0.45 * eo(prog(t, 34.0, 34.8))).toFixed(3);
+
+  /* resume */
+  for (let i = 0; i < 5; i++) { const a = 38.3 + i * 0.4; const k = eo(prog(t, a, a + 0.35)); put("ps" + i, k, (1 - k) * -30, 0); }
+  rise("pn", t, 39.2, 0.5, 24);
+
+  /* install */
+  const cmds = ["uv tool install --python 3.12 cairn-brain", "cd your-repo", "cairn"];
+  const ca = [42.95, 44.7, 45.4];
+  cmds.forEach((c, i) => { put("il" + i, t >= ca[i] ? 1 : 0); typed("it" + i, c, t, ca[i] + 0.05, 34); });
+  [46.0, 46.25, 46.5, 46.75].forEach((a, i) => rise("il" + (3 + i), t, a, 0.3, 10));
+  [43.4, 44.2, 45.0, 45.8].forEach((a, i) => rise("f" + i, t, a, 0.4, 18));
+  rise("ak", t, 47.0, 0.4, 12);
+  for (let i = 0; i < 6; i++) { const a = 47.3 + i * 0.32; const k = prog(t, a, a + 0.4); put("a" + i, eo(k), 0, (1 - back(k)) * 30); }
+
+  /* end */
+  [["es1", 51.7], ["es2", 51.95], ["es3", 52.2]].forEach(([id, a]) => { const k = prog(t, a, a + 0.45); put(id, eo(k), 0, (1 - back(k)) * -100); });
+  rise("eword", t, 52.3, 0.6, 36); rise("esub", t, 52.7, 0.6, 24);
+  rise("einst", t, 53.3, 0.5, 18); rise("eurl", t, 53.7, 0.5, 14); rise("elic", t, 54.0, 0.5, 10);
+
+  /* captions */
+  let cap = null;
+  for (const c of window.CAPTIONS) if (t >= c[0] && t < c[1]) cap = c;
+  const ct = $("captxt");
+  if (cap) { ct.textContent = cap[2]; ct.style.opacity = Math.min(prog(t, cap[0], cap[0] + 0.15), 1 - prog(t, cap[1] - 0.12, cap[1])).toFixed(3); }
+  else ct.style.opacity = 0;
+  $("progress").style.width = ((t / window.DURATION) * 1920).toFixed(1) + "px";
+  $("progress").style.background = t < 15.4 ? "var(--d-risk)" : "var(--memory)";
+};
+window.renderAt(0);
+</script>
+</body>
+</html>

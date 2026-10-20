@@ -1,0 +1,49 @@
+WEBVTT
+
+00:00:00.400 --> 00:00:02.600
+Your coding agents are capable.
+
+00:00:02.700 --> 00:00:05.100
+But every session starts from zero.
+
+00:00:05.300 --> 00:00:07.500
+They re-read the same files.
+
+00:00:07.700 --> 00:00:10.000
+They retry the fix your team reverted.
+
+00:00:10.200 --> 00:00:12.400
+After compaction, they lose their place.
+
+00:00:12.600 --> 00:00:14.900
+And you pay for every re-read in tokens.
+
+00:00:15.400 --> 00:00:18.300
+Cairn is institutional memory for coding agents.
+
+00:00:18.600 --> 00:00:23.000
+Five layers: map, specs, timeline, memory and sessions.
+
+00:00:23.300 --> 00:00:26.600
+Before an edit, an agent asks Cairn: impact, why, context.
+
+00:00:26.800 --> 00:00:29.800
+It gets a cited answer, inside a token budget.
+
+00:00:30.200 --> 00:00:33.800
+On Cairn's own repo, one answer took 391 tokens,
+
+00:00:33.900 --> 00:00:37.600
+instead of 144,228 tokens across 33 files.
+
+00:00:38.000 --> 00:00:42.600
+After compaction, the next session picks up where it left off.
+
+00:00:43.000 --> 00:00:46.800
+One command in any git repo. Local. No API key.
+
+00:00:47.000 --> 00:00:51.200
+Works with Claude Code, Codex, Cursor, Gemini, Copilot and OpenCode.
+
+00:00:51.800 --> 00:00:56.000
+Cairn. Memory your agents can cite.
