@@ -1,18 +1,22 @@
 """Synthesise the proof video's music bed (original, no samples): a warm pad, a soft plucked arpeggio and a
 light pulse at 96 BPM, with lifts on the scene cuts. Deterministic: run it again and the file is identical.
 
-    python3 tools/music.py assets/music.wav
+    python3 tools/music.py assets/music.wav     (after tools/voice.py, which writes the timing)
 """
 import sys
 import wave
+
+import json
+from pathlib import Path
 
 import numpy as np
 
 SR = 44100
 BPM = 96
 BEAT = 60 / BPM
-DUR = 71.0
-CUTS = [5.5, 19.0, 36.0, 49.0, 61.0]  # scene starts, matched to SCENES in proof.html
+_T = json.loads((Path(__file__).resolve().parent.parent / "assets" / "timing.json").read_text())
+DUR = round(_T["duration"] + 0.5, 2)
+CUTS = [v[0] for k, v in sorted(_T["scenes"].items()) if k != "s1"]  # scene starts, from tools/voice.py
 
 n = int(SR * DUR)
 t = np.arange(n) / SR

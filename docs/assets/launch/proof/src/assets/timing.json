@@ -1,0 +1,151 @@
+{
+ "duration": 89.078,
+ "scenes": {
+  "s1": [
+   0.0,
+   5.5,
+   5.5
+  ],
+  "s2": [
+   5.5,
+   26.548,
+   13.5
+  ],
+  "s3": [
+   26.548,
+   49.969,
+   17.0
+  ],
+  "s4": [
+   49.969,
+   65.069,
+   13.0
+  ],
+  "s5": [
+   65.069,
+   81.078,
+   12.0
+  ],
+  "s6": [
+   81.078,
+   89.078,
+   8.0
+  ]
+ },
+ "captions": [
+  [
+   0.6,
+   4.029,
+   "Your agent keeps its place, and gets smarter every session.",
+   "Your agent keeps its place, and gets smarter every session."
+  ],
+  [
+   6.0,
+   10.572,
+   "Cairn's Overview page, with sample data: context served.",
+   "Cairn's Overview page, with sample data. First, context served."
+  ],
+  [
+   10.872,
+   15.443,
+   "Agents read 19\u00d7 fewer tokens than opening the files behind the answers.",
+   "Agents read nineteen times fewer tokens than opening the files behind the answers."
+  ],
+  [
+   15.743,
+   22.749,
+   "New beside it: bytes pulled raw by tools. 6.5 MB across 1,284 calls.",
+   "New beside it: bytes pulled raw by tools. Six point five megabytes, across twelve hundred and eighty-four calls."
+  ],
+  [
+   23.049,
+   25.948,
+   "A measurement only. Nothing is trimmed or blocked.",
+   "It's a measurement only. Nothing is trimmed or blocked."
+  ],
+  [
+   27.048,
+   30.906,
+   "Deep into a long session, Claude Code compacts the conversation.",
+   "Deep into a long session, Claude Code compacts the conversation."
+  ],
+  [
+   31.206,
+   35.391,
+   "Just before, Cairn's PreCompact hook saves a resume snapshot.",
+   "Just before that, Cairn's pre-compact hook saves a resume snapshot."
+  ],
+  [
+   35.691,
+   41.438,
+   "Last request, files changed, open tasks, decisions. Under 2 KB.",
+   "The last request, files changed, open tasks and decisions, in under two kilobytes."
+  ],
+  [
+   41.738,
+   46.136,
+   "Pointers, not content: each line names the <code>cairn_session_*</code> tool to call.",
+   "Pointers, not content. Each line names the cairn session tool to call."
+  ],
+  [
+   46.436,
+   49.369,
+   "No model call. The agent picks up where it was.",
+   "No model call. The agent picks up where it was."
+  ],
+  [
+   50.469,
+   52.707,
+   "Cairn also records what not to repeat.",
+   "Cairn also records what not to repeat."
+  ],
+  [
+   53.007,
+   58.135,
+   "Rejected approaches, error-then-fix pairs, retry loops, user corrections.",
+   "Rejected approaches, errors and their fixes, retry loops, and user corrections."
+  ],
+  [
+   58.435,
+   61.702,
+   "Only explicit signals count, and no model is called.",
+   "Only explicit signals count, and no model is called."
+  ],
+  [
+   62.002,
+   64.469,
+   "Next session, one search finds them.",
+   "Next session, one search finds them."
+  ],
+  [
+   65.569,
+   69.939,
+   "Memory ages. The Memory page, with sample data.",
+   "Memory ages, too. Here is the Memory page, with sample data."
+  ],
+  [
+   70.239,
+   74.589,
+   "A memory no agent was told for 90 days is marked Stale and ranks lower.",
+   "A memory no agent was told for ninety days is marked stale, and ranks lower."
+  ],
+  [
+   74.889,
+   77.002,
+   "Conventions and decisions never age.",
+   "Conventions and decisions never age."
+  ],
+  [
+   77.302,
+   80.478,
+   "Nothing is deleted. Being used again restarts the clock.",
+   "Nothing is deleted. Being used again restarts the clock."
+  ],
+  [
+   81.578,
+   85.434,
+   "Cairn. Install it once, then run <code>cairn</code> in your repository.",
+   "Cairn. Install it once, then run cairn in your repository."
+  ]
+ ]
+}

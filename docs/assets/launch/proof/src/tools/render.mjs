@@ -1,6 +1,6 @@
 // Render proof.html frame by frame in headless Chrome and pipe the frames to ffmpeg.
 //   node tools/render.mjs stills <outdir> 3 12.5 30    -> PNGs at those times
-//   node tools/render.mjs video <out.mp4>              -> full MP4 with assets/music.m4a, plus captions .srt/.vtt beside it
+//   node tools/render.mjs video <out.mp4>              -> full MP4 with assets/mix.m4a, plus captions .srt/.vtt beside it
 // PUPPETEER_CORE points at a puppeteer-core install; CHROME at a Chrome binary.
 import { createRequire } from "module";
 import { spawn } from "child_process";
@@ -33,7 +33,7 @@ if (mode === "stills") {
 } else {
   const total = Math.round(meta.DURATION * FPS);
   const ff = spawn("ffmpeg", ["-y", "-v", "error", "-f", "image2pipe", "-framerate", String(FPS), "-i", "-",
-    "-i", path.join(here, "..", "assets", "music.m4a"),
+    "-i", path.join(here, "..", "assets", "mix.m4a"),
     "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-pix_fmt", "yuv420p", "-tune", "stillimage", "-movflags", "+faststart",
     "-c:a", "aac", "-b:a", "160k", "-shortest", out], { stdio: ["pipe", "inherit", "inherit"] });
   for (let i = 0; i < total; i++) {
