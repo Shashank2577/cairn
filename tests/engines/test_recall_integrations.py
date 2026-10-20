@@ -94,7 +94,8 @@ def test_hook_command_shapes():
 
 def test_claude_code_hooks_exact_entries():
     hooks = ig.claude_code_hooks(PY)
-    assert list(hooks) == ["SessionStart", "UserPromptSubmit", "PostToolUse", "PreToolUse", "Stop", "SessionEnd"]
+    assert list(hooks) == ["SessionStart", "UserPromptSubmit", "PostToolUse", "PreToolUse", "PostToolUseFailure",
+                           "PreCompact", "Stop", "SessionEnd"]
     ss = hooks["SessionStart"][0]
     assert ss["matcher"] == "startup|resume|clear|compact"
     assert ss["hooks"][0] == {"type": "command", "command": f'"{PY}" -m cairn.capture --platform claude-code context',
@@ -105,6 +106,12 @@ def test_claude_code_hooks_exact_entries():
     assert hooks["PostToolUse"][0]["hooks"][0]["timeout"] == 120 and hooks["PostToolUse"][0]["hooks"][0]["async"]
     assert hooks["PreToolUse"][0]["matcher"] == "Read"
     assert hooks["PreToolUse"][0]["hooks"][0]["command"].endswith("file-context")
+    failed = hooks["PostToolUseFailure"][0]
+    assert failed["matcher"] == "*" and failed["hooks"][0]["command"].endswith("observation")
+    assert failed["hooks"][0]["async"]
+    compact = hooks["PreCompact"][0]["hooks"][0]  # synchronous: the snapshot is saved before the host compacts
+    assert "matcher" not in hooks["PreCompact"][0] and compact["command"].endswith("pre-compact")
+    assert compact["timeout"] == 30 and "async" not in compact
     assert hooks["Stop"][0]["hooks"][0]["command"].endswith("summarize")
     assert hooks["Stop"][0]["hooks"][0]["timeout"] == 120
     end = hooks["SessionEnd"][0]["hooks"][0]
@@ -124,7 +131,7 @@ def test_merge_and_remove_hook_groups_preserve_user_entries():
     again = ig.merge_hook_groups(merged, ig.claude_code_hooks("/other/python"))
     assert sum("cairn.capture" in c for c in _commands(again["Stop"])) == 1
     cleaned, removed = ig.remove_hook_groups(merged)
-    assert removed == 6
+    assert removed == 8
     assert cleaned == existing
 
 

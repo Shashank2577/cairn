@@ -373,6 +373,7 @@ def project_router(hub: Hub) -> APIRouter:
         from .engines import journal
         o["capture"] = {"on": journal.installed(cairn.project),
                         "agents": [agents_mod.AGENTS[a] for a in agents_mod.installed(cairn.project)]}
+        o["tool_output"] = cairn.tool_output()
         return o
 
     @r.get("/search", dependencies=read)
@@ -773,8 +774,8 @@ def project_router(hub: Hub) -> APIRouter:
     @r.get("/memories", dependencies=read)
     def memories(pid: str, q: str | None = None, kind: str | None = None, all: bool = False):
         cairn = c(pid)
-        rows = cairn.memory.recall(q, 30) if q else cairn.brain.memories(include_inactive=all, limit=300)
-        return [m for m in rows if not kind or m.get("kind") == kind]
+        rows = cairn.memory.recall(q, 30, touch=False) if q else cairn.brain.memories(include_inactive=all, limit=300)
+        return [m for m in cairn.memory.annotate(rows) if not kind or m.get("kind") == kind]
 
     @r.post("/memories")
     def add_memory(pid: str, payload: dict = Body(...), principal=Depends(require("project.write"))):

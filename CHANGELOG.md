@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **Claude Code keeps its place through a compaction.** A `PreCompact` hook saves a resume snapshot of under 2 KB (last request, files
+  changed, open tasks, decisions and rejected approaches), and the compact session start hands it back as pointers to
+  `cairn_session_search`, `cairn_session_timeline` and `cairn_session_observations`. No model call. `cairn init` adds the hook for Claude Code only
+  and `cairn uninstall` removes it; running `init` again changes nothing.
+- **Richer session events without a model:** rejected approaches (a tool call you refused), error-then-fix pairs, retry loops (the same call
+  three or more times, at least two failing) and user corrections are stored as observations of their own and found by search. Only explicit
+  signals count (an error flag or field, a non-zero exit code, an explicit refusal), so ordinary output that mentions "error" is not an event.
+  Claude Code's `PostToolUseFailure` hook is added so failed and refused calls reach the store.
+- **Bytes pulled raw by tools.** Each tool result's size is recorded per tool, and the Overview page shows it beside what Cairn served
+  (`tool_output` in the overview API). A measurement only: nothing is trimmed, blocked or rerouted.
+- **Memory aging.** A memory no agent has been told for 90 days is marked *stale* in the Memory page and ranks lower in context, recall and the
+  session-start brief. Nothing is deleted; `convention` and `decision` memories never age; being returned to an agent restarts the clock;
+  `[memory] aging = false` turns it off. Existing `brain.db` files migrate in place.
+
 ### Changed
 
 - **Session observations cost far fewer model tokens.** Replayed on two real repositories (measured tokens, estimated dollars; see

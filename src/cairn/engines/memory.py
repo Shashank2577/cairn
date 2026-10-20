@@ -36,6 +36,11 @@ from . import vectors
 from .memstore.utils.text import _contained, _jaccard, _overlap, same_fact  # one definition, shared with the engine
 
 KINDS = ("convention", "decision", "gotcha", "preference", "fact")
+# Memory aging: a memory nobody has been shown for STALE_DAYS is "stale" and ranks lower. Nothing is deleted, the
+# kinds that state how the team works never age, and ``[memory] aging = false`` turns it all off.
+STALE_DAYS = 90.0
+PINNED_KINDS = ("convention", "decision")
+STALE_FACTOR = 0.6  # what a stale memory's relevance is multiplied by
 SCOPES = ("project", "team", "user", "session")
 log = logging.getLogger("cairn.memory")
 
@@ -407,9 +412,49 @@ class MemoryStore:
             db.execute("UPDATE memories SET created_at=? WHERE id=?", (float(ts), mid))
             db.execute("UPDATE events SET ts=? WHERE id=?", (float(ts), f"memory:{mid}"))
 
+    # ---- aging -------------------------------------------------------------------------------------
+    def aging(self) -> dict:
+        """The aging settings in force: ``{enabled, days, pinned}``."""
+        cfg = self.project.cfg
+        try:
+            days = float(cfg("memory.stale_days", STALE_DAYS))
+        except (TypeError, ValueError):
+            days = STALE_DAYS
+        pinned = cfg("memory.pinned_kinds", list(PINNED_KINDS))
+        return {"enabled": bool(cfg("memory.aging", True)) and days > 0, "days": days,
+                "pinned": tuple(pinned) if isinstance(pinned, (list, tuple)) else PINNED_KINDS}
+
+    def annotate(self, mems: list[dict], now: float | None = None) -> list[dict]:
+        """Copies of ``mems`` with ``stale`` and ``last_used`` (None: never returned to an agent) added. A memory is
+        stale when it was neither returned to an agent, created, nor present since aging began for
+        ``days`` days, and its kind is not pinned."""
+        cfg = self.aging()
+        now = time.time() if now is None else now
+        use = self.brain.memory_use()
+        since = float(self.brain.get_kv("memory.aging_since", "0") or 0)
+        out = []
+        for m in mems:
+            used = (use.get(m["id"]) or {}).get("last_used")
+            ref = max(used or 0.0, since, float(m.get("created_at") or 0))
+            stale = cfg["enabled"] and m.get("kind") not in cfg["pinned"] and now - ref > cfg["days"] * 86400
+            out.append({**m, "stale": bool(stale), "last_used": used, "uses": (use.get(m["id"]) or {}).get("uses", 0)})
+        return out
+
+    def fresh_first(self, mems: list[dict]) -> list[dict]:
+        """The same memories with stale ones after the rest (each group keeps its order)."""
+        marked = self.annotate(mems)
+        return [m for m in marked if not m["stale"]] + [m for m in marked if m["stale"]]
+
+    def touch(self, mems: list[dict]) -> None:
+        """Record that these memories were just returned to an agent (their staleness clock restarts)."""
+        if self.aging()["enabled"]:
+            self.brain.touch_memories(m["id"] for m in mems)
+
     # ---- reads -----------------------------------------------------------------------------------
-    def recall(self, query: str, limit: int = 8) -> list[dict]:
-        """Full-text and semantic hits, fused by rank (either list alone still works)."""
+    def recall(self, query: str, limit: int = 8, touch: bool = True) -> list[dict]:
+        """Full-text and semantic hits, fused by rank (either list alone still works). Stale memories rank lower
+        (never dropped); the ones returned count as used unless ``touch`` is false (a person browsing, not an
+        agent being told)."""
         scores: dict[str, float] = {}
         for rank, h in enumerate(self.brain.search(query, kinds=["memory"], limit=limit * 3)):
             mid = h["id"].split(":", 1)[1]
@@ -418,6 +463,10 @@ class MemoryStore:
             row = self._active_by_ref(r.get("id"))
             if row:
                 scores[row["id"]] = scores.get(row["id"], 0.0) + 1.0 / (60 + rank)
+        if scores:
+            rows = [row for row in (self.brain.memory(k) for k in scores) if row]
+            stale = {m["id"] for m in self.annotate(rows) if m["stale"]}
+            scores = {k: v * (STALE_FACTOR if k in stale else 1.0) for k, v in scores.items()}
         out = []
         for mid in sorted(scores, key=lambda k: -scores[k]):
             m = self.brain.memory(mid)
@@ -425,6 +474,8 @@ class MemoryStore:
                 out.append(m)
             if len(out) >= limit:
                 break
+        if touch:
+            self.touch(out)
         return out
 
     def about(self, labels: list[str], paths: list[str], limit: int = 6) -> list[dict]:
@@ -434,13 +485,16 @@ class MemoryStore:
             limit=200) if lk["src"].startswith("memory:")}
         words = [w for w in labels if len(w) >= 4][:6] + [Path(p).stem for p in paths[:4] if len(Path(p).stem) >= 4]
         for w in words:
-            for m in self.recall(w, limit=4):
+            for m in self.recall(w, limit=4, touch=False):
                 if re.search(rf"\b{re.escape(w)}\b", m["text"], re.I):
                     ids.add(m["id"])
         out = [m for i in ids if (m := self.brain.memory(i)) and not m["forgotten"] and not m["superseded_by"]]
         order = {k: i for i, k in enumerate(KINDS)}
-        out.sort(key=lambda m: (order.get(m["kind"], 9), -m["created_at"]))
-        return out[:limit]
+        out = self.annotate(out)
+        out.sort(key=lambda m: (m["stale"], order.get(m["kind"], 9), -m["created_at"]))
+        out = out[:limit]
+        self.touch(out)
+        return out
 
     def history(self, mid: str) -> dict:
         """How a memory came to be: its supersession chain in the read model and the engine's change log."""

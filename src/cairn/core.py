@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .engines import history, journal, mapper
 from .engines.chronicle import facts_matching
-from .engines.memory import MemoryStore
+from .engines.memory import STALE_FACTOR, MemoryStore
 from .linker import GENERIC, link_text
 from .project import Project
 from .router import Router, estimate_tokens
@@ -353,8 +353,9 @@ class Cairn:
 
     def _memories(self, labels: list[str], files: list[str]) -> list[Item]:
         weight = {"gotcha": 1.0, "decision": 0.95, "convention": 0.9, "preference": 0.7, "fact": 0.6}
-        return [Item("Memory", f"[{m['kind']}] {m['text']} ({day(m['created_at'])})", weight.get(m["kind"], 0.6),
-                     f"memory:{m['id']}") for m in self.memory.about(labels, files)]
+        return [Item("Memory", f"[{m['kind']}] {m['text']} ({day(m['created_at'])})",
+                     weight.get(m["kind"], 0.6) * (STALE_FACTOR if m.get("stale") else 1.0), f"memory:{m['id']}")
+                for m in self.memory.about(labels, files)]
 
     def _facts(self, labels: list[str]) -> list[Item]:
         out = []
@@ -787,6 +788,23 @@ class Cairn:
             "hubs": idx.hubs(8),
         }
 
+    def tool_output(self) -> dict:
+        """What tool calls put into agents' context in this repository, in bytes (measured, never changed):
+        ``{calls, bytes, tools: [{tool, calls, bytes}]}``. Zeros until sessions are recorded."""
+        from .engines.recall import schema, store
+        empty = {"calls": 0, "bytes": 0, "tools": []}
+        path = schema.store_path(self.project.root)
+        if not path.exists():
+            return empty
+        try:
+            db = schema.connect(path, readonly=True)
+        except (OSError, sqlite3.Error):
+            return empty
+        try:
+            return store.tool_output_totals(db)
+        finally:
+            db.close()
+
     def brief(self, max_tokens: int = 550) -> str:
         """Compact, stable project briefing — used at agent session start and as a cached prefix."""
         o = self.overview()
@@ -807,7 +825,7 @@ class Cairn:
         place = self.system_line()
         if place:
             lines.append(place)
-        mems = self.brain.memories(limit=200)
+        mems = self.memory.fresh_first(self.brain.memories(limit=200))
         # rules first (how the team works), then the newest facts someone chose to remember
         key_mems = [m for m in mems if m["kind"] in ("convention", "decision", "gotcha")][:6]
         key_mems += [m for m in mems if m["kind"] == "fact"][:4]

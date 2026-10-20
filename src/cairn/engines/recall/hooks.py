@@ -1,7 +1,9 @@
 """Agent hook handlers (standard library only; run in the agent's hook process).
 
 Events (``cairn.capture <event>``):
-  context        SessionStart      inject the recent-work timeline (or a first-run hint)
+  context        SessionStart      inject the recent-work timeline (or a first-run hint); after a compaction,
+                                   the resume snapshot instead
+  pre-compact    PreCompact        save a resume snapshot of the session before the host compacts it
   session-init   UserPromptSubmit  store the numbered prompt; optionally inject related past work
   observation    PostToolUse       queue the tool event for the observer
   file-context   PreToolUse(Read)  inject this file's prior observations before it is read
@@ -29,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from ... import filelock
-from . import ingest, remote, schema
+from . import ingest, remote, resume, schema
 from .adapters import AdapterRejectedInput, format_output, normalize, parse_stdin
 from .context import inject_context, viewer_url
 from .fmt import (
@@ -51,7 +53,7 @@ log = logging.getLogger("cairn.recall")
 
 LEGACY_EVENTS = {"prompt": "session-init", "tool": "observation", "stop": "summarize"}
 EVENTS = ("context", "session-init", "observation", "summarize", "session-end", "user-message", "file-edit",
-          "file-context")
+          "file-context", "pre-compact")
 QUIET = {"continue": True, "suppressOutput": True}
 FILE_READ_GATE_MIN_BYTES = 1_500
 FETCH_LOOKAHEAD_LIMIT = 40
@@ -124,6 +126,10 @@ def handle_context(inp: dict) -> dict:
         return _empty_context()
     ctx = project_context(cwd)
     platform = inp.get("platform")
+    if inp.get("session_source") == "compact" and inp.get("session_id"):
+        snapshot = _resume_after_compaction(root, cwd, str(inp["session_id"]))
+        if snapshot:  # the brief comes from its own hook; this replaces the timeline, which it would repeat
+            return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": snapshot}}
     # every agent sees the work of every agent in this repository
     text = inject_context(root, ctx.all_projects, settings=settings, session_id=inp.get("session_id")).strip()
     if platform not in CLAUDE_PLATFORMS:
@@ -139,6 +145,33 @@ def handle_context(inp: dict) -> dict:
         if display:
             result["systemMessage"] = f"{display}\n\nView session memory live @ {viewer_url(root)}"
     return result
+
+
+def _resume_after_compaction(root: Path, cwd: str, session_id: str) -> str:
+    """The snapshot saved when the host compacted this session (built now when none was saved); '' on any problem."""
+    try:
+        with _open(root, cwd) as store:
+            return resume.take(store, session_id, str(root))
+    except Exception as exc:  # noqa: BLE001 - without it the session simply gets its usual timeline
+        log.warning("resume snapshot unavailable: %s", exc)
+        return ""
+
+
+def handle_pre_compact(inp: dict) -> dict:
+    """PreCompact: save the resume snapshot while the session is still whole. Nothing is returned to the host."""
+    sid = inp.get("session_id")
+    cwd = inp.get("cwd") or os.getcwd()
+    root = _root_for(inp)
+    if not sid or root is None:
+        return QUIET
+    if not should_track(cwd, load_settings(root)):
+        return QUIET
+    try:
+        with _open(root, cwd) as store:
+            resume.save(store, str(sid), resume.build_snapshot(store, str(sid), str(root)))
+    except Exception as exc:  # noqa: BLE001 - compaction must never be held up by this
+        log.warning("resume snapshot not saved: %s", exc)
+    return QUIET
 
 
 def handle_session_init(inp: dict) -> dict:
@@ -255,6 +288,7 @@ def handle_session_end(inp: dict) -> dict:
         return QUIET
     with _open(root, inp.get("cwd")) as store:
         res = ingest.session_end(store, content_session_id=str(sid), platform_source=inp.get("platform"))
+        store.del_kv(resume.kv_key(str(sid)))
     return {**QUIET, "_push": res.get("status") == "accepted", "_spawn": True}
 
 
@@ -397,7 +431,8 @@ def handle_file_context(inp: dict) -> dict:
 
 HANDLERS = {"context": handle_context, "session-init": handle_session_init, "observation": handle_observation,
             "summarize": handle_summarize, "session-end": handle_session_end, "user-message": handle_user_message,
-            "file-edit": handle_file_edit, "file-context": handle_file_context}
+            "file-edit": handle_file_edit, "file-context": handle_file_context,
+            "pre-compact": handle_pre_compact}
 
 
 def statusline_counts(cwd: str | None = None) -> dict:

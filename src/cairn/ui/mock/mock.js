@@ -58,6 +58,8 @@ export function ready() {
     // Every key the server reports, as it reports it. Through the Claude CLI most input arrives as cache tokens.
     for (const r of D.models.ledger) { r.cache_read ??= r.input_tokens * 5; r.cache_write ??= Math.round(r.input_tokens / 2); r.input_total ??= r.input_tokens + r.cache_read + r.cache_write; }
     D.settings.models.base_url ??= null; D.settings.deep.budget_tokens ??= 150000; D.settings.deep.enabled = D.settings.deep.enabled === true ? "auto" : D.settings.deep.enabled;
+    // Facts and preferences that no agent has been told for months, so the Memory page can show them as stale.
+    for (const m of D.memories) if (m.kind === "fact" || m.kind === "preference") m.created_at -= 130 * 86400;
     // &syncfail=1: the last sync could not rebuild the map, and the next one fails the same way
     if (url.searchParams.get("syncfail") === "1") D.overview.sync_failed = { map: MAP_FAIL };
     if (url.searchParams.get("reset") === "1") { PL.session.must_change_password = true; PL.session.user.must_change_password = true; }
@@ -312,7 +314,11 @@ const PG = (pattern, fn) => on("GET", "/api/p/([^/]+)" + pattern, P(pattern, fn)
 const PW = (method, pattern, fn, role = "member") => on(method, "/api/p/([^/]+)" + pattern, P(pattern, fn, role));
 
 /* overview, savings, models, settings */
-PG("/overview", d => ({ ...d.overview, syncing: !!SYNC[d.overview.project] }));
+const TOOL_OUTPUT_DEMO = { calls: 1284, bytes: 6815744, tools: [
+  { tool: "Bash", calls: 412, bytes: 2936012 }, { tool: "Read", calls: 508, bytes: 2412544 }, { tool: "Grep", calls: 187, bytes: 884736 },
+  { tool: "WebFetch", calls: 23, bytes: 412672 }, { tool: "Glob", calls: 154, bytes: 169780 }] };
+PG("/overview", d => ({ ...d.overview, syncing: !!SYNC[d.overview.project],
+  tool_output: d.overview.tool_output || (d === D ? TOOL_OUTPUT_DEMO : { calls: 0, bytes: 0, tools: [] }) }));
 PG("/savings", (d, { q }) => {
   const groups = new Map();
   for (const r of d.queries) {
@@ -745,7 +751,10 @@ const words = s => new Set(String(s).toLowerCase().replace(/[`.,;:()"“”]/g, 
 function similarity(a, b) { const A = words(a), B = words(b); let i = 0; for (const w of A) if (B.has(w)) i++; return i / Math.max(1, Math.min(A.size, B.size)); }
 const liveMem = m => !m.superseded_by && !m.forgotten;
 const countMem = d => { d.overview.layers.memory.memories = d.memories.filter(liveMem).length; };
-PG("/memories", (d, { q }) => d.memories.filter(m => (q.all === "1" || q.all === "true" || liveMem(m)) && (!q.kind || m.kind === q.kind) && (!q.q || m.text.toLowerCase().includes(String(q.q).toLowerCase())))
+// Memory aging as the server reports it: pinned kinds never age; others go stale 90 days after last use.
+const PINNED = ["convention", "decision"], STALE_AFTER = 90 * 86400;
+const aged = m => { const ref = m.last_used || m.created_at || 0; return { ...m, stale: !PINNED.includes(m.kind) && now() - ref > STALE_AFTER, last_used: m.last_used || null }; };
+PG("/memories", (d, { q }) => d.memories.map(aged).filter(m => (q.all === "1" || q.all === "true" || liveMem(m)) && (!q.kind || m.kind === q.kind) && (!q.q || m.text.toLowerCase().includes(String(q.q).toLowerCase())))
   .sort((a, b) => b.updated_at - a.updated_at));
 PG("/memories/sources", d => d.memory_sources);
 PG("/memories/([^/]+)/history", (d, { p }) => d.memory_history[p[0]] || []);

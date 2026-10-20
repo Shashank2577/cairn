@@ -407,7 +407,20 @@ class Store:
         """The observation derived without a model for one prompt of a session, if any."""
         return _row(self.db.execute(
             "SELECT * FROM observations WHERE memory_session_id=? AND prompt_number IS ? AND metadata LIKE"
-            " '%\"derived\": true%' ORDER BY id DESC LIMIT 1", (memory_session_id, prompt_number)))
+            " '%\"derived\": true%' AND metadata NOT LIKE '%\"event\": \"%' ORDER BY id DESC LIMIT 1",
+            (memory_session_id, prompt_number)))
+
+    def find_event_observation(self, memory_session_id: str, key: str) -> dict | None:
+        """The observation already stored for a detected event (its key is a hash of what happened)."""
+        return _row(self.db.execute(
+            "SELECT * FROM observations WHERE memory_session_id=? AND metadata LIKE ? LIMIT 1",
+            (memory_session_id, '%"key": "' + key.replace("%", "").replace("_", "") + '"%')))
+
+    def turn_tool_uses(self, content_session_id: str, prompt_number: int | None) -> list[dict]:
+        """Every tool call recorded for one prompt of a session, in the order they ran."""
+        return [dict(r) for r in self.db.execute(
+            "SELECT tool_use_id, tool_name, tool_input, tool_response, cwd FROM tool_uses"
+            " WHERE content_session_id=? AND prompt_number IS ? ORDER BY id", (content_session_id, prompt_number))]
 
     def update_observation(self, obs_id: int, fields: dict) -> None:
         cols = {k: (json.dumps(v) if k in ("facts", "concepts", "files_read", "files_modified") and isinstance(v, list)
@@ -720,6 +733,23 @@ class Store:
             self.db.execute("INSERT INTO observations_fts(observations_fts) VALUES('rebuild')")
             self.db.execute("INSERT INTO session_summaries_fts(session_summaries_fts) VALUES('rebuild')")
             self.db.execute("INSERT INTO user_prompts_fts(user_prompts_fts) VALUES('rebuild')")
+
+    # ---- tool output sizes (measurement only) -------------------------------------------------------
+    def record_tool_output(self, *, content_session_id: str, tool_name: str, size: int, tool_use_id: str | None = None,
+                           session_db_id: int | None = None, project: str = "") -> bool:
+        """Note how many bytes a tool call returned to the agent. A call seen twice (a retried hook) counts once."""
+        if not content_session_id or not tool_name or size < 0:
+            return False
+        cur = self.db.execute(
+            "INSERT OR IGNORE INTO tool_output_sizes(content_session_id, session_db_id, project, tool_use_id, tool_name,"
+            " bytes, created_at_epoch) VALUES(?,?,?,?,?,?,?)",
+            (content_session_id, session_db_id, project or "", tool_use_id or None, tool_name, int(size),
+             schema.now_ms()))
+        return cur.rowcount > 0
+
+    def tool_output_totals(self, limit: int = 8) -> dict:
+        """``{calls, bytes, tools: [{tool, calls, bytes}]}``: what tools put into agents' context, largest first."""
+        return tool_output_totals(self.db, limit)
 
     # ---- tool uses (raw tool I/O side index) -------------------------------------------------------
     def upsert_tool_use(self, *, tool_use_id: str, content_session_id: str, tool_name: str, project: str = "",
@@ -1041,3 +1071,14 @@ def is_recursive_memory_tool(tool_name: str) -> bool:
     if len(parts) < 3:
         return False
     return "cairn" in parts[1].lower() and "__".join(parts[2:]) in RECURSIVE_MEMORY_TOOLS
+
+
+def tool_output_totals(db: sqlite3.Connection, limit: int = 8) -> dict:
+    """Bytes tool calls returned to agents, in total and per tool (the ``limit`` largest tools)."""
+    try:
+        rows = db.execute("SELECT tool_name AS tool, COUNT(*) AS calls, SUM(bytes) AS bytes FROM tool_output_sizes"
+                          " GROUP BY tool_name ORDER BY bytes DESC, tool_name").fetchall()
+    except sqlite3.Error:  # a store from before this was measured
+        rows = []
+    tools = [{"tool": r[0], "calls": int(r[1]), "bytes": int(r[2] or 0)} for r in rows]
+    return {"calls": sum(t["calls"] for t in tools), "bytes": sum(t["bytes"] for t in tools), "tools": tools[:limit]}
