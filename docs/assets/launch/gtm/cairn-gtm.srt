@@ -4,60 +4,64 @@ Your coding agents are capable.
 
 2
 00:00:02,900 --> 00:00:05,300
-But every session starts from zero.
+But every session… starts from zero.
 
 3
-00:00:05,600 --> 00:00:07,800
+00:00:05,350 --> 00:00:07,550
 They re-read the same files.
 
 4
-00:00:08,100 --> 00:00:10,411
-They retry the fix your team reverted.
+00:00:07,600 --> 00:00:10,081
+They retry the fix your team already reverted.
 
 5
-00:00:10,711 --> 00:00:13,438
+00:00:10,131 --> 00:00:12,454
 After compaction, they lose their place.
 
 6
-00:00:13,738 --> 00:00:16,452
-And you pay for every re-read in tokens.
+00:00:12,554 --> 00:00:15,444
+And every re-read? You pay for it, in tokens.
 
 7
-00:00:16,952 --> 00:00:20,121
-Cairn is institutional memory for coding agents.
+00:00:15,844 --> 00:00:19,360
+This is Cairn: institutional memory for coding agents.
 
 8
-00:00:20,421 --> 00:00:25,707
+00:00:19,560 --> 00:00:23,960
 Five layers: map, specs, timeline, memory and sessions.
 
 9
-00:00:26,007 --> 00:00:31,121
-Before an edit, an agent asks Cairn: impact, why, context.
+00:00:24,160 --> 00:00:28,097
+Before an edit, your agent asks Cairn: impact, why, context.
 
 10
-00:00:31,421 --> 00:00:34,717
-It gets a cited answer, inside a token budget.
+00:00:28,247 --> 00:00:31,353
+And it gets a cited answer, inside a token budget.
 
 11
-00:00:35,117 --> 00:00:39,688
-On Cairn's own repo, one answer took 391 tokens,
+00:00:31,753 --> 00:00:36,628
+On Cairn's own repo, one answer took… 391 tokens.
 
 12
-00:00:39,988 --> 00:00:46,221
-instead of 144,228 tokens across 33 files.
+00:00:36,828 --> 00:00:42,705
+Not 144,228 tokens, across 33 files.
 
 13
-00:00:46,621 --> 00:00:51,221
-After compaction, the next session picks up where it left off.
+00:00:43,155 --> 00:00:46,755
+369 times fewer.
 
 14
-00:00:51,621 --> 00:00:56,060
-One command in any git repo. Local. No API key.
+00:00:47,055 --> 00:00:51,655
+And after compaction, the next session picks up where it left off.
 
 15
-00:00:56,360 --> 00:01:02,412
-Works with Claude Code, Codex, Cursor, Gemini, Copilot and OpenCode.
+00:00:51,905 --> 00:00:55,844
+One command, in any git repo. Local. No API key.
 
 16
-00:01:03,012 --> 00:01:07,212
+00:00:55,994 --> 00:01:00,515
+Works with Claude Code, Codex, Cursor, Gemini, Copilot and OpenCode.
+
+17
+00:01:00,965 --> 00:01:05,165
 Cairn. Memory your agents can cite.
