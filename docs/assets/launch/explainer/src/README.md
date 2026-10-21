@@ -4,12 +4,12 @@ Plain code, no video framework: `index.html` draws every frame from `seek(t)`, `
 the headless Chrome on the machine over the DevTools protocol and pipes the screenshots to ffmpeg,
 `music.py` synthesises the music bed with numpy, and `make_captions.mjs` writes the SRT and VTT
 from `captions.js` (the same lines the page burns in). `narrate.py` voices `narration.js` with
-`say`, retimes the captions around the measured clips into `timing.js` (the page stretches each
-scene to its line through a time warp), synthesises the music on that timing with `music.py`,
-ducks it under the voice and normalises the mix to -16 LUFS.
+Kokoro (af_heart), retimes the captions around the measured clips into `timing.js` (the page
+stretches each scene to its line through a time warp), and mixes the score (`music.py`), the
+effects (`sfx.py`, placed on on-screen events through the same warp) and the voice to -16 LUFS.
 
 ```sh
-python narrate.py work/                        # voice (macOS say), retiming, music, ducked mix; needs numpy
+python narrate.py work/                        # Kokoro voice, retiming, score, effects, mix; needs kokoro + numpy
 node render.mjs --crf 23 --out ../cairn-explainer.mp4 --audio work/mix.wav
 node render.mjs --stills 7,44,64 --dir stills  # check single frames
 node make_captions.mjs ..
