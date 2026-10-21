@@ -1,151 +1,306 @@
 {
- "duration": 89.078,
+ "duration": 88.594,
  "scenes": {
-  "s1": [
-   0.0,
-   5.5,
-   5.5
-  ],
-  "s2": [
-   5.5,
-   26.548,
-   13.5
-  ],
-  "s3": [
-   26.548,
-   49.969,
-   17.0
-  ],
-  "s4": [
-   49.969,
-   65.069,
-   13.0
-  ],
-  "s5": [
-   65.069,
-   81.078,
-   12.0
-  ],
-  "s6": [
-   81.078,
-   89.078,
-   8.0
-  ]
+  "s1": {
+   "start": 0.0,
+   "end": 5.5,
+   "designed": 5.5,
+   "warp": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     0.6,
+     0.6
+    ],
+    [
+     5.5,
+     5.5
+    ]
+   ]
+  },
+  "s2": {
+   "start": 5.5,
+   "end": 27.305,
+   "designed": 13.5,
+   "warp": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     0.5,
+     0.4
+    ],
+    [
+     5.51,
+     4.0
+    ],
+    [
+     10.59,
+     7.6
+    ],
+    [
+     18.232,
+     11.3
+    ],
+    [
+     21.805,
+     13.5
+    ]
+   ]
+  },
+  "s3": {
+   "start": 27.305,
+   "end": 49.922,
+   "designed": 17.0,
+   "warp": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     0.5,
+     0.4
+    ],
+    [
+     4.421,
+     3.8
+    ],
+    [
+     8.881,
+     7.2
+    ],
+    [
+     14.603,
+     11.1
+    ],
+    [
+     18.951,
+     14.6
+    ],
+    [
+     22.617,
+     17.0
+    ]
+   ]
+  },
+  "s4": {
+   "start": 49.922,
+   "end": 64.596,
+   "designed": 13.0,
+   "warp": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     0.5,
+     0.4
+    ],
+    [
+     3.258,
+     3.9
+    ],
+    [
+     8.59,
+     7.6
+    ],
+    [
+     11.991,
+     10.4
+    ],
+    [
+     14.674,
+     13.0
+    ]
+   ]
+  },
+  "s5": {
+   "start": 64.596,
+   "end": 80.594,
+   "designed": 12.0,
+   "warp": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     0.5,
+     0.4
+    ],
+    [
+     4.808,
+     3.8
+    ],
+    [
+     9.538,
+     7.2
+    ],
+    [
+     12.053,
+     9.9
+    ],
+    [
+     15.998,
+     12.0
+    ]
+   ]
+  },
+  "s6": {
+   "start": 80.594,
+   "end": 88.594,
+   "designed": 8.0,
+   "warp": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     0.8,
+     1.0
+    ],
+    [
+     8.0,
+     8.0
+    ]
+   ]
+  }
  },
  "captions": [
   [
    0.6,
-   4.029,
+   4.2,
    "Your agent keeps its place, and gets smarter every session.",
-   "Your agent keeps its place, and gets smarter every session."
+   "Your agent keeps its place... and gets smarter, every session.",
+   "s1"
   ],
   [
    6.0,
-   10.572,
+   10.41,
    "Cairn's Overview page, with sample data: context served.",
-   "Cairn's Overview page, with sample data. First, context served."
+   "This is Cairn's Overview page, with sample data. First: context served.",
+   "s2"
   ],
   [
-   10.872,
-   15.443,
+   11.01,
+   15.69,
    "Agents read 19\u00d7 fewer tokens than opening the files behind the answers.",
-   "Agents read nineteen times fewer tokens than opening the files behind the answers."
+   "Agents read nineteen times fewer tokens... than opening the files behind the answers.",
+   "s2"
   ],
   [
-   15.743,
-   22.749,
+   16.09,
+   23.432,
    "New beside it: bytes pulled raw by tools. 6.5 MB across 1,284 calls.",
-   "New beside it: bytes pulled raw by tools. Six point five megabytes, across twelve hundred and eighty-four calls."
+   "New, right beside it: bytes pulled raw by tools. Six point five megabytes, across twelve hundred and eighty-four calls.",
+   "s2"
   ],
   [
-   23.049,
-   25.948,
+   23.732,
+   26.705,
    "A measurement only. Nothing is trimmed or blocked.",
-   "It's a measurement only. Nothing is trimmed or blocked."
+   "It's a measurement only. Nothing is trimmed, or blocked.",
+   "s2"
   ],
   [
-   27.048,
-   30.906,
+   27.805,
+   31.425,
    "Deep into a long session, Claude Code compacts the conversation.",
-   "Deep into a long session, Claude Code compacts the conversation."
+   "Deep into a long session... Claude Code compacts the conversation.",
+   "s3"
   ],
   [
-   31.206,
-   35.391,
+   31.725,
+   35.686,
    "Just before, Cairn's PreCompact hook saves a resume snapshot.",
-   "Just before that, Cairn's pre-compact hook saves a resume snapshot."
+   "Just before it does, Cairn's pre-compact hook saves a resume snapshot.",
+   "s3"
   ],
   [
-   35.691,
-   41.438,
+   36.186,
+   41.607,
    "Last request, files changed, open tasks, decisions. Under 2 KB.",
-   "The last request, files changed, open tasks and decisions, in under two kilobytes."
+   "The last request, the files changed, open tasks, decisions... all in under two kilobytes.",
+   "s3"
   ],
   [
-   41.738,
-   46.136,
+   41.907,
+   45.956,
    "Pointers, not content: each line names the <code>cairn_session_*</code> tool to call.",
-   "Pointers, not content. Each line names the cairn session tool to call."
+   "Pointers, not content. Each line names the cairn session tool to call.",
+   "s3"
   ],
   [
-   46.436,
-   49.369,
-   "No model call. The agent picks up where it was.",
-   "No model call. The agent picks up where it was."
+   46.256,
+   49.322,
+   "No model call. The agent picks up right where it was.",
+   "No model call. The agent picks up right where it was.",
+   "s3"
   ],
   [
-   50.469,
-   52.707,
+   50.422,
+   52.881,
    "Cairn also records what not to repeat.",
-   "Cairn also records what not to repeat."
+   "Cairn also records... what not to repeat.",
+   "s4"
   ],
   [
-   53.007,
-   58.135,
+   53.181,
+   58.212,
    "Rejected approaches, error-then-fix pairs, retry loops, user corrections.",
-   "Rejected approaches, errors and their fixes, retry loops, and user corrections."
+   "Rejected approaches. Errors, and their fixes. Retry loops. And user corrections.",
+   "s4"
   ],
   [
-   58.435,
-   61.702,
+   58.512,
+   61.613,
    "Only explicit signals count, and no model is called.",
-   "Only explicit signals count, and no model is called."
+   "Only explicit signals count, and no model is called.",
+   "s4"
   ],
   [
-   62.002,
-   64.469,
+   61.913,
+   63.996,
    "Next session, one search finds them.",
-   "Next session, one search finds them."
+   "Next session... one search finds them.",
+   "s4"
   ],
   [
-   65.569,
-   69.939,
+   65.096,
+   68.954,
    "Memory ages. The Memory page, with sample data.",
-   "Memory ages, too. Here is the Memory page, with sample data."
+   "Memory ages, too. Here's the Memory page, with sample data.",
+   "s5"
   ],
   [
-   70.239,
-   74.589,
+   69.404,
+   73.834,
    "A memory no agent was told for 90 days is marked Stale and ranks lower.",
-   "A memory no agent was told for ninety days is marked stale, and ranks lower."
+   "A memory no agent was told for ninety days is marked stale... and ranks lower.",
+   "s5"
   ],
   [
-   74.889,
-   77.002,
+   74.134,
+   76.349,
    "Conventions and decisions never age.",
-   "Conventions and decisions never age."
+   "Conventions and decisions never age.",
+   "s5"
   ],
   [
-   77.302,
-   80.478,
-   "Nothing is deleted. Being used again restarts the clock.",
-   "Nothing is deleted. Being used again restarts the clock."
+   76.649,
+   79.994,
+   "Nothing is deleted. Using it again restarts the clock.",
+   "Nothing is deleted. Using it again restarts the clock.",
+   "s5"
   ],
   [
-   81.578,
-   85.434,
+   81.394,
+   85.626,
    "Cairn. Install it once, then run <code>cairn</code> in your repository.",
-   "Cairn. Install it once, then run cairn in your repository."
+   "Cairn. Install it once, then run cairn in your repository.",
+   "s6"
   ]
  ]
 }
