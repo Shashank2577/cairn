@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import ingest
+from . import ingest, sources
 from .context import claude_config_dir, cwd_to_dashed, inject_context
 from .platforms import normalize_platform_source
 from .projects import expand_home, find_store_root, project_context, should_track
@@ -102,8 +102,36 @@ CODEX_SCHEMA: dict = {
          "action": "session_end"},
     ],
 }
-BUILTIN_SCHEMAS: dict[str, dict] = {"codex": CODEX_SCHEMA}
+# Cursor's saved agent transcripts carry no cwd or end marker: a Cursor watch must set ``workspace``, and its
+# sessions record prompts but are never summarized by a session-end entry.
+_CURSOR_USER_QUERY = r"<user_query>\s*([\s\S]*?)\s*</user_query>"
+CURSOR_SCHEMA: dict = {
+    "name": "cursor",
+    "version": "0.1",
+    "description": "Schema for Cursor agent transcripts under ~/.cursor/projects/<project>/agent-transcripts.",
+    "events": [
+        {"name": "user-message", "match": {"path": "role", "equals": "user"}, "action": "session_init",
+         "fields": {"prompt": {"coalesce": [{"path": "message.content[0].text", "extract": _CURSOR_USER_QUERY},
+                                            "message.content[0].text"]}}},
+        {"name": "assistant-message", "match": {"path": "role", "equals": "assistant"},
+         "action": "assistant_message", "fields": {"message": "message.content[0].text"}},
+    ],
+}
+BUILTIN_SCHEMAS: dict[str, dict] = {"codex": CODEX_SCHEMA, "cursor": CURSOR_SCHEMA}
 CODEX_WATCH_PATH = "~/.codex/sessions/**/*.jsonl"
+CURSOR_WATCH_PATH = "~/.cursor/projects/*/agent-transcripts/**/*.jsonl"
+
+
+def codex_sessions_root() -> Path:
+    """``$CODEX_HOME/sessions`` when ``CODEX_HOME`` is set, else ``~/.codex/sessions``."""
+    home = os.environ.get("CODEX_HOME", "").strip()
+    return (Path(expand_home(home)) if home else Path.home() / ".codex") / "sessions"
+
+
+def codex_watch_path() -> str:
+    """The canonical Codex watch glob, honouring ``CODEX_HOME`` (``~`` is kept for the default location)."""
+    return f"{codex_sessions_root().as_posix()}/**/*.jsonl" if os.environ.get("CODEX_HOME", "").strip() \
+        else CODEX_WATCH_PATH
 
 
 # ---- config ------------------------------------------------------------------------------------------------
@@ -122,7 +150,7 @@ def default_state_path() -> Path:
 def sample_config() -> dict:
     """What ``init`` writes: the built-in Codex schema and a Codex watch that starts at the end of files."""
     return {"version": 1, "schemas": {"codex": copy.deepcopy(CODEX_SCHEMA)},
-            "watches": [{"name": "codex", "path": CODEX_WATCH_PATH, "schema": "codex", "startAtEnd": True}],
+            "watches": [{"name": "codex", "path": codex_watch_path(), "schema": "codex", "startAtEnd": True}],
             "stateFile": str(default_state_path())}
 
 
@@ -199,6 +227,9 @@ def validate_config(config: dict) -> list[str]:
             problems.append(f"watch {i}: not an object")
             continue
         label = f"watch {watch.get('name', i)!r}"
+        if sources.is_source_watch(watch):
+            problems += [f"{label}: {p}" for p in sources.validate_source_watch(watch)]
+            continue
         if not watch.get("path"):
             problems.append(f"{label}: missing path")
         if resolve_schema(watch, config) is None:
@@ -218,7 +249,7 @@ def is_native_hook_backed_codex_watch(watch: dict) -> bool:
     if not (watch.get("name") == "codex" or _schema_name(watch) == "codex") or not watch.get("path"):
         return False
     normalized = expand_home_path(str(watch["path"])).replace("\\", "/")
-    sessions_root = str(Path.home() / ".codex" / "sessions").replace("\\", "/")
+    sessions_root = str(codex_sessions_root()).replace("\\", "/")
     return normalized == f"{sessions_root}/**/*.jsonl"
 
 
@@ -342,7 +373,10 @@ def _resolve_from_context(path: str, ctx: dict) -> Any:
 
 
 def resolve_field_spec(spec: Any, entry: Any, ctx: dict) -> Any:
-    """A field spec: a path string, or ``{"path", "value", "coalesce": [specs], "default"}``.
+    """A field spec: a path string, or ``{"path", "value", "coalesce": [specs], "default", "extract"}``.
+
+    ``extract`` is a regex applied to the string read from ``path``: the value becomes its first group (or the
+    whole match), and the spec resolves to nothing when it does not match.
 
     Paths starting ``$watch.``, ``$schema.``, ``$session.``, ``$cwd`` or ``$project`` read the watch, the
     schema or the session being built; when those are absent the path is read from the entry instead.
@@ -364,6 +398,8 @@ def resolve_field_spec(spec: Any, entry: Any, ctx: dict) -> Any:
         if from_ctx is not MISSING:
             return from_ctx
         value = get_value_by_path(entry, str(spec["path"]))
+        if spec.get("extract") and isinstance(value, str):
+            value = _extract(value, str(spec["extract"]))
         if not _is_empty(value):
             return value
     if "value" in spec:
@@ -371,6 +407,17 @@ def resolve_field_spec(spec: Any, entry: Any, ctx: dict) -> Any:
     if "default" in spec:
         return spec["default"]
     return MISSING
+
+
+def _extract(text: str, pattern: str) -> Any:
+    try:
+        m = re.search(pattern, text)
+    except re.error:
+        log.debug("invalid extract regex in transcript field spec: %s", pattern)
+        return MISSING
+    if m is None:
+        return MISSING
+    return m.group(1) if m.re.groups else m.group(0)
 
 
 def resolve_fields(fields: dict | None, entry: Any, ctx: dict) -> dict[str, Any]:
@@ -453,8 +500,9 @@ def resolve_watch_agent_id(watch: dict) -> str | None:
 
 
 def extract_session_id_from_path(file_path: str) -> str | None:
-    m = _UUID.search(file_path)
-    return m.group(0) if m else None
+    """The session id in a transcript path: the last UUID, which is the file's own (a parent folder may hold one too)."""
+    found = _UUID.findall(file_path)
+    return found[-1] if found else None
 
 
 def parse_apply_patch_files(patch: str) -> list[str]:
@@ -951,8 +999,8 @@ class TranscriptWatcher:
         """Pick up files that newly match a watch (``startAtEnd`` applies to files present at the first scan)."""
         initial = not self._scanned
         for watch in self.config.get("watches") or []:
-            if not isinstance(watch, dict):
-                continue
+            if not isinstance(watch, dict) or sources.is_source_watch(watch):
+                continue   # source watches (Gemini, Cline, OpenCode) are polled by _poll_sources
             schema = resolve_schema(watch, self.config)
             if schema is None:
                 if str(watch.get("name")) not in self._warned:
@@ -963,6 +1011,28 @@ class TranscriptWatcher:
                 if file_path not in self.tails:
                     self._add_tail(file_path, watch, schema, initial)
         self._scanned = True
+
+    def _poll_sources(self, initial: bool) -> int:
+        """Whole-file JSON / SQLite sessions: feed each source watch's new normalized entries to the processor."""
+        count = 0
+        for watch in self.config.get("watches") or []:
+            if not sources.is_source_watch(watch):
+                continue
+            try:
+                entries = sources.poll_source(watch, self.state, initial)
+            except Exception as exc:  # noqa: BLE001 - one broken source never stops the others
+                log.debug("failed to poll source %s: %s", watch.get("name"), exc)
+                continue
+            if entries or initial:
+                self._dirty = True
+            for entry in entries:
+                count += 1
+                try:
+                    self.processor.process_entry(entry, watch, sources.NORMALIZED_SCHEMA)
+                except Exception as exc:  # noqa: BLE001
+                    self.processor.counts["errors"] += 1
+                    log.debug("failed to process %s entry: %s", watch.get("name"), exc)
+        return count
 
     def _add_tail(self, file_path: str, watch: dict, schema: dict, initial: bool) -> None:
         offsets = self.state.setdefault("offsets", {})
@@ -1041,8 +1111,10 @@ class TranscriptWatcher:
     def poll(self) -> dict:
         """One tick: discover files, read what was appended, persist offsets. Returns this tick's counts."""
         before = Counter(self.processor.counts)
+        initial = not self._scanned
         self.scan()
-        lines = sum(self._read_new(tail) for tail in list(self.tails.values()))
+        lines = self._poll_sources(initial)
+        lines += sum(self._read_new(tail) for tail in list(self.tails.values()))
         if lines or self._dirty:
             self.save()
         delta = Counter(self.processor.counts)

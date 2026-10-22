@@ -22,6 +22,13 @@
   from this project's own ledger (or the spec-002 study when it has no old calls). Tokens are labelled measured, dollars estimated.
 - The ledger keeps thinking tokens and the 1-hour cache write per call (additive columns; older stores upgrade in place). `cairn models --ledger` shows them.
 - `cairn doctor` and Settings warn when a project still pins the old default fast model; `cairn models --upgrade` rewrites only such a pin to Haiku 5.5.
+- **`cairn handoff`** builds a resume briefing for the next agent from a captured session: what was asked, where it stopped, the files touched with
+  their `cairn impact` summary, and the team's conventions. `--to claude|codex|gemini|opencode|cline|cursor` saves it under `.cairn/handoffs/` and
+  prints the command that starts that agent on it.
+- **Cursor agent transcripts** are a built-in watch schema (`schema: "cursor"`, set `workspace` on the watch, since the transcripts carry no cwd), and
+  field specs accept an `extract` regex. `CODEX_HOME` is honoured by the Codex watch.
+- **Gemini CLI, Cline and OpenCode sessions** can be watched with `{"name": "gemini", "source": "gemini"}` (likewise `cline`, `opencode`) in the
+  transcript watch config. These read whole-file JSON and SQLite stores that the JSONL tailer cannot.
 
 ### Changed
 
