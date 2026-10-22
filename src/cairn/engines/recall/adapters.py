@@ -53,9 +53,13 @@ def claude_code_normalize(r: dict) -> dict:
     cwd = hook_project_path(cwd)
     if not _valid_cwd(cwd):
         raise AdapterRejectedInput("invalid_cwd")
+    response = r.get("tool_response")
+    if response is None and isinstance(r.get("error"), str) and r.get("error"):
+        # PostToolUseFailure carries the failure as `error`; an interruption (the person pressed Esc) is not one
+        response = {"interrupted": True} if r.get("is_interrupt") is True else {"error": r["error"], "is_error": True}
     return {"session_id": r.get("session_id") or r.get("id") or r.get("sessionId"), "cwd": cwd,
             "prompt": r.get("prompt"), "tool_name": r.get("tool_name"), "tool_input": r.get("tool_input"),
-            "tool_response": r.get("tool_response"),
+            "tool_response": response,
             "tool_use_id": r.get("tool_use_id") if isinstance(r.get("tool_use_id"), str) else None,
             "transcript_path": r.get("transcript_path"),
             "reason": r.get("reason") if isinstance(r.get("reason"), str) else None,

@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -99,6 +99,12 @@ CREATE TABLE IF NOT EXISTS sm_flow_step(
   evidence TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(flow_id, idx));
 """,
     3: "",  # columns: see _add_ledger_detail
+    # 4: when each memory was last returned to an agent (memory aging). A table of its own, so the memories
+    # keep their shape and dropping it loses nothing but the usage history.
+    4: """
+CREATE TABLE IF NOT EXISTS memory_use(
+  memory_id TEXT PRIMARY KEY, last_used REAL NOT NULL, uses INTEGER NOT NULL DEFAULT 1);
+""",
 }
 
 
@@ -124,6 +130,10 @@ def migrate(db: sqlite3.Connection, current: int) -> int:
         v = target
     return v
 
+
+AGING_SINCE = "memory.aging_since"
+TOUCH_WAIT_MS = 300  # a hook never waits on a sync's write: a use that can't be noted right now is dropped
+LOCK_WAIT_MS = 30_000
 
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _WORD = re.compile(r"[A-Za-z0-9_]{2,}")
@@ -166,6 +176,8 @@ class Brain:
                 if current < SCHEMA_VERSION:  # a newer store opened by an older build is left as it is
                     migrate(self.db, current)
                     self.set_kv("schema_version", str(SCHEMA_VERSION))
+                    if self.get_kv(AGING_SINCE) is None:  # memories start aging from here, whatever their age
+                        self.set_kv(AGING_SINCE, str(time.time()))
 
     # ---- plumbing -------------------------------------------------------------------------------
     @contextmanager
@@ -362,6 +374,37 @@ class Brain:
             n = db.execute("UPDATE memories SET forgotten=1 WHERE id=?", (mid,)).rowcount
             db.execute("DELETE FROM fts WHERE id=?", (f"memory:{mid}",))
         return n > 0
+
+    def touch_memories(self, ids: Iterable[str], now: float | None = None) -> int:
+        """Note that these memories were just returned to an agent. Quick to give up (see ``TOUCH_WAIT_MS``)."""
+        ids = list(dict.fromkeys(i for i in ids if i))
+        if not ids:
+            return 0
+        now = time.time() if now is None else now
+        with self._lock:
+            try:
+                self.db.execute(f"PRAGMA busy_timeout={TOUCH_WAIT_MS}")
+                with self.tx() as db:
+                    db.executemany("INSERT INTO memory_use(memory_id,last_used,uses) VALUES(?,?,1) ON CONFLICT(memory_id)"
+                                   " DO UPDATE SET last_used=excluded.last_used, uses=uses+1", [(i, now) for i in ids])
+                return len(ids)
+            except sqlite3.Error:
+                return 0
+            finally:
+                self.db.execute(f"PRAGMA busy_timeout={LOCK_WAIT_MS}")
+
+    def memory_use(self) -> dict[str, dict]:
+        """``{memory id: {last_used, uses}}`` for every memory that was ever returned to an agent."""
+        return {r["memory_id"]: {"last_used": r["last_used"], "uses": r["uses"]}
+                for r in self.q("SELECT memory_id, last_used, uses FROM memory_use")}
+
+    def clear_memory_use(self) -> int:
+        """Forget all usage history: every memory is as fresh as the day aging started (nothing else changes)."""
+        with self.tx() as db:
+            n = db.execute("DELETE FROM memory_use").rowcount
+            db.execute("INSERT INTO kv(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                       (AGING_SINCE, str(time.time())))
+        return n
 
     # ---- history stats -------------------------------------------------------------------------
     def cochanged(self, path: str, limit: int = 8) -> list[dict]:

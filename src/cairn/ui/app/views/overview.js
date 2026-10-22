@@ -10,7 +10,7 @@ import { useApp, useFetch, useLive } from "../state.js";
 import { api } from "../api.js";
 import { link, citeHref } from "../router.js";
 import { usd, tokensUsd } from "../lib/cost.js";
-import { ago, fmt, plural, rich, base, dir, stepNames, listOf, failText, STEP_LABEL } from "../lib/format.js";
+import { ago, fmt, fmtBytes, fmtK, plural, rich, base, dir, stepNames, listOf, failText, STEP_LABEL } from "../lib/format.js";
 
 export const SURFACE = { mcp: "Agent tool call", hook: "Session start", cli: "Terminal", ui: "This page", api: "API token" };
 export const PACK = { impact: "impact", why: "why", context: "context", brief: "briefing", recall: "recall", ask: "answer" };
@@ -61,7 +61,7 @@ export function Overview() {
     <div class="ov-grid">
       <section class="sec ov-served" aria-labelledby="h-served">
         <div class="sec-h"><div><h2 id="h-served">Context served</h2><p class="sub">Every impact, why and context answer is a short cited pack instead of the files behind it.</p></div></div>
-        <${Load} res=${sav} rows="4">${s => html`<${Served} s=${s}/>`}</${Load}>
+        <${Load} res=${sav} rows="4">${s => html`<${Served} s=${s} tools=${ov.tool_output}/>`}</${Load}>
       </section>
       <section class="sec ov-attn" aria-labelledby="h-attn">
         <div class="sec-h"><div><h2 id="h-attn">Needs attention</h2></div></div>
@@ -130,7 +130,7 @@ function FirstSync() {
   </${Empty}></div>`;
 }
 
-function Served({ s }) {
+function Served({ s, tools }) {
   const { pid } = useApp();
   const rows = s.totals.filter(r => r.kind !== "brief");
   const agentRows = rows.filter(r => r.surface === "mcp");
@@ -152,7 +152,19 @@ function Served({ s }) {
         <span class="k">${SURFACE[r.surface] || r.surface}</span><span class="t">${cap(PACK[r.kind] || r.kind)}</span>
         <span class="n num">${fmt(r.n)}×</span><span class="n num">${fmt(r.sent / Math.max(1, r.n))} <small>avg tokens</small></span></div>`)}
     </div>
+    <${RawPulled} t=${tools}/>
     ${briefs.length ? html`<p class="sub" style="margin-top:10px">Session briefings add about ${fmt(sum(briefs, "sent") / Math.max(1, sum(briefs, "n")))} tokens at the start of each agent session. They have no file baseline, so they count as cost, not savings.</p>` : null}
+  </div>`;
+}
+
+// What tools put into the agent's context on their own (file reads, command output, searches). Cairn only
+// measures this: it neither trims nor blocks any of it.
+function RawPulled({ t }) {
+  if (!t || !t.calls) return null;
+  return html`<div class="raw-pulled">
+    <p class="lede" style="margin:18px 0 6px">Bytes pulled raw by tools: <b class="num">${fmtBytes(t.bytes)}</b> <span class="sub">(about ${fmtK(t.bytes / 4)} tokens) across ${plural(t.calls, "tool call")}</span></p>
+    <ul class="list raw-tools">${t.tools.slice(0, 5).map(x => html`<li><code>${x.tool}</code> <span class="num">${fmtBytes(x.bytes)}</span> <span class="sub">${plural(x.calls, "call")}</span></li>`)}</ul>
+    <p class="sub">Measured from the agents' own tool results. Cairn does not trim or block any of it.</p>
   </div>`;
 }
 

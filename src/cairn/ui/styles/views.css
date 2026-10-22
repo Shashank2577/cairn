@@ -32,6 +32,9 @@
 .ov-meta span + span::before { content: ""; position: absolute; left: -12px; top: 50%; width: 4px; height: 4px; margin-top: -3px; border-radius: 50%; background: var(--rule-strong); }
 .ov-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 0 48px; align-items: start; }
 .ov-grid.lower { grid-template-columns: minmax(0, 1.2fr) minmax(300px, 1fr); }
+.raw-pulled .raw-tools { margin: 4px 0 6px; padding-left: 0; }
+.raw-pulled .raw-tools li { display: flex; gap: 12px; align-items: baseline; padding: 3px 0; border-top: 1px solid var(--rule); max-width: 560px; }
+.raw-pulled .raw-tools code { min-width: 90px; }
 .surfaces { margin-top: 18px; border-top: 1px solid var(--rule); max-width: 980px; }
 .surf { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 70px 130px; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--rule); font-size: var(--t-s); align-items: baseline; }
 .surf .k { font-weight: 650; }
@@ -543,6 +546,7 @@ blockquote.why p { margin: 3px 0; }
 .mhist .hdiff { grid-column: 2; display: grid; gap: 2px; }
 .mhist del { color: var(--muted); }
 .mhist ins { text-decoration: none; }
+.mmeta .stale { color: var(--muted); border: 1px dashed var(--rule); border-radius: 4px; padding: 0 6px; font-size: 12px; }
 .mem.flash { background: var(--memory-wash); }
 @media (prefers-reduced-motion: no-preference) { .mem.flash { animation: memflash 3s ease-out both; } @keyframes memflash { from { background: color-mix(in srgb, var(--memory) 30%, transparent); } to { background: transparent; } } }
 .memside { display: grid; gap: 16px; position: sticky; top: 12px; }

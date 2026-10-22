@@ -4,6 +4,19 @@
 
 ### Added
 
+- **Claude Code keeps its place through a compaction.** A `PreCompact` hook saves a resume snapshot of under 2 KB (last request, files
+  changed, open tasks, decisions and rejected approaches), and the compact session start hands it back as pointers to
+  `cairn_session_search`, `cairn_session_timeline` and `cairn_session_observations`. No model call. `cairn init` adds the hook for Claude Code only
+  and `cairn uninstall` removes it; running `init` again changes nothing.
+- **Richer session events without a model:** rejected approaches (a tool call you refused), error-then-fix pairs, retry loops (the same call
+  three or more times, at least two failing) and user corrections are stored as observations of their own and found by search. Only explicit
+  signals count (an error flag or field, a non-zero exit code, an explicit refusal), so ordinary output that mentions "error" is not an event.
+  Claude Code's `PostToolUseFailure` hook is added so failed and refused calls reach the store.
+- **Bytes pulled raw by tools.** Each tool result's size is recorded per tool, and the Overview page shows it beside what Cairn served
+  (`tool_output` in the overview API). A measurement only: nothing is trimmed, blocked or rerouted.
+- **Memory aging.** A memory no agent has been told for 90 days is marked *stale* in the Memory page and ranks lower in context, recall and the
+  session-start brief. Nothing is deleted; `convention` and `decision` memories never age; being returned to an agent restarts the clock;
+  `[memory] aging = false` turns it off. Existing `brain.db` files migrate in place.
 - **The savings are visible.** Overview has a *Model cost* section and Settings a fuller *Model spend* one: tokens per observation and per tool
   event, estimated dollars (list price, or `[models.prices]`), cache write vs read, thinking tokens, and before/after the cache-write default,
   from this project's own ledger (or the spec-002 study when it has no old calls). Tokens are labelled measured, dollars estimated.

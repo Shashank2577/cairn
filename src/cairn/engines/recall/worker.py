@@ -32,7 +32,7 @@ from .modes import load_mode
 from .observer import ObserverLLM, Outcome, SessionObserver
 from .projects import project_context
 from .settings import load as load_settings
-from .store import Store
+from .store import Store, parse_list
 
 log = logging.getLogger("cairn.recall")
 
@@ -190,6 +190,9 @@ class Worker:
                                                earliest, None)
                 stored_obs += res["observation_ids"]
             observations.append(obs)
+        self.record_events(store, session, memory_id, groups, [m.get("prompt_number") for m in messages
+                                                              if m["message_type"] == "summarize"], stored_obs,
+                           observations)
         summary_id = None
         for m in messages:
             if m["message_type"] != "summarize":
@@ -212,6 +215,43 @@ class Worker:
                                      "summary_id": summary_id, "observations": observations,
                                      "project": session["project"] or self.project, "derived": True})
 
+    def record_events(self, store: Store, session: dict, memory_id: str, turns: dict, summarized: list,
+                      stored_obs: list[int], observations: list[dict]) -> None:
+        """Find the rejected approaches, error-then-fix pairs, retry loops and user corrections in these turns and
+        store each as an observation of its own, whether or not a model wrote the turn's observation. ``turns`` maps
+        a prompt number to the tool events just claimed for it; ``summarized`` lists the prompts that just ended."""
+        mode = load_mode(self.settings.get("mode"))
+        root = str(self.root)
+        csid = session["content_session_id"]
+        for number, msgs in turns.items():
+            calls = store.turn_tool_uses(csid, number)  # the whole turn, not only what this batch claimed
+            self._store_events(store, session, memory_id, number,
+                               fallback.turn_events(calls if len(calls) >= len(msgs) else msgs, root), mode, stored_obs,
+                               observations)
+        for number in dict.fromkeys(n for n in summarized if n and n > 1):
+            prompt = store.get_user_prompt(csid, number, session["id"])
+            prev = store.db.execute("SELECT files_modified FROM observations WHERE memory_session_id=? AND"
+                                    " prompt_number=? AND metadata LIKE '%\"derived\": true%'", (memory_id, number - 1))
+            corrected = fallback.correction_event(prompt, number, [f for r in prev.fetchall() for f in parse_list(r[0])])
+            if corrected:
+                self._store_events(store, session, memory_id, number, [corrected], mode, stored_obs, observations)
+
+    def _store_events(self, store: Store, session: dict, memory_id: str, number: int | None, events: list[dict],
+                      mode, stored_obs: list[int], observations: list[dict]) -> None:
+        """Store detected events as observations of their own; one already stored is refreshed, not repeated."""
+        for ev in events:
+            obs = fallback.event_observation(ev, mode)
+            existing = store.find_event_observation(memory_id, ev["key"])
+            if existing:
+                store.update_observation(existing["id"], {k: obs[k] for k in (
+                    "title", "subtitle", "facts", "narrative", "concepts", "files_read", "files_modified", "metadata")})
+                stored_obs.append(existing["id"])
+            else:
+                res = store.store_observations(memory_id, session["project"] or self.project, [obs], None, number, 0,
+                                               None, None)
+                stored_obs += res["observation_ids"]
+            observations.append(obs)
+
     # ---- one session ----------------------------------------------------------------------------------
     def _next_batch(self, store: Store, sid: int) -> int:
         pending = store.peek_pending(sid)
@@ -231,6 +271,7 @@ class Worker:
     def process_session(self, sid: int, llm: ObserverLLM | None) -> str:
         """Drain one session; returns 'done', 'deferred' (kept for later) or 'missing'."""
         store = self._store()
+        session, covered, ended = None, {}, []
         try:
             session = store.get_session_by_id(sid)
             if session is None:
@@ -248,6 +289,10 @@ class Worker:
                                                            projects=projects, settings=self.settings),
                     on_stored=lambda ev: self.after_store(store, ev))
             max_retries = int(self.settings.get("max_retries") or 3)
+            if use_model:  # the model writes the turn's observation; the events are found by rule, in addition
+                pending = store.peek_pending(sid)
+                covered = {p["prompt_number"]: [] for p in pending if p["message_type"] == "observation"}
+                ended = [p["prompt_number"] for p in pending if p["message_type"] == "summarize"]
             for _ in range(10_000):
                 if not use_model:
                     msgs = store.claim(sid, 10_000)
@@ -284,6 +329,11 @@ class Worker:
                     return "deferred"
             return "done"
         finally:
+            if session is not None and (covered or ended):
+                try:
+                    self.record_events(store, session, store.ensure_memory_session_id(sid), covered, ended, [], [])
+                except Exception as exc:  # noqa: BLE001 - events are a bonus on top of what was recorded
+                    log.warning("event detection failed: %s", exc)
             store.close()
 
     # ---- the whole queue ------------------------------------------------------------------------------

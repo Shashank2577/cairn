@@ -46,7 +46,7 @@ from .settings import cairn_home
 HOOK_MODULE = "cairn.capture"
 MARK = "cairn"  # the hook name / MCP server key Cairn owns
 CAPTURE_EVENTS = ("context", "session-init", "observation", "file-context", "summarize", "session-end",
-                  "user-message", "file-edit")
+                  "user-message", "file-edit", "pre-compact")
 CONTEXT_TAG_OPEN = "<cairn-context>"
 CONTEXT_TAG_CLOSE = "</cairn-context>"
 PLACEHOLDER_CONTEXT = """# Cairn: Cross-Session Memory
@@ -347,6 +347,8 @@ CLAUDE_CODE_HOOKS = (
     ("UserPromptSubmit", None, "session-init", 60, False),
     ("PostToolUse", "*", "observation", 120, True),
     ("PreToolUse", "Read", "file-context", 60, True),
+    ("PostToolUseFailure", "*", "observation", 120, True),
+    ("PreCompact", None, "pre-compact", 30, False),
     ("Stop", None, "summarize", 120, True),
     ("SessionEnd", None, "session-end", None, True),
 )

@@ -166,7 +166,7 @@ def session_panel(cairn) -> str:
         if nxt:
             lines.append("   Next   " + _clip(nxt[0], w - 10))
 
-    mems = b.memories(limit=200)
+    mems = cairn.memory.fresh_first(b.memories(limit=200))
     new_mems = [x for x in mems if since and float(x["created_at"] or 0) > since]
     new_commits = b.events(kinds=["commit"], since=since, limit=50) if since else []
     if new_mems or new_commits:
@@ -291,8 +291,9 @@ def ambient(cairn, payload: str = "") -> dict | None:
 
     UserPromptSubmit output is injected into the model's context, so this is the enforced read path: agents get
     Cairn's memory without choosing to consult it. Guardrails: the ``[context] ambient`` kill-switch (on by
-    default; ``false`` turns it off), a code-relevance gate, a hard size cap, and strictly read-only access (no brain writes, no model
-    calls). Nothing resolves → None. Any exception → None: a hook must never block a prompt."""
+    default; ``false`` turns it off), a code-relevance gate, a hard size cap, and no model calls. Its only write is
+    noting which memories it returned (memory aging), which gives up quickly instead of waiting behind a sync.
+    Nothing resolves → None. Any exception → None: a hook must never block a prompt."""
     try:
         if not cairn.project.cfg("context.ambient", True):
             return None

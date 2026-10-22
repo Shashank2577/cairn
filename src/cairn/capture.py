@@ -7,7 +7,7 @@ which turns the queued events into observations and summaries (``engines/recall/
 
 Usage (from an agent hook, JSON payload on stdin):
   python -m cairn.capture [--platform claude-code|codex|cursor|windsurf|antigravity|gemini|raw] <event>
-  events: context, session-init, observation, file-context, summarize, session-end, user-message, file-edit
+  events: context, session-init, observation, file-context, summarize, session-end, user-message, file-edit, pre-compact
   (the earlier names prompt, tool and stop still work)
 """
 from __future__ import annotations

@@ -15,6 +15,7 @@ Tables
   remote_outbox       hook events waiting to be pushed to a team server (client side)
   remote_received     ids of events already received from other machines (server side)
   kv                  small state: observer health, quota cooldown, cursors
+  tool_output_sizes   how many bytes each tool call returned to the agent (measurement only)
 
 Migrations are numbered and recorded in ``schema_versions``; ``connect()`` applies any missing
 ones, so every process (hook, worker, server) can open the store in any order.
@@ -31,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 BUSY_TIMEOUT_MS = 5000
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def store_path(root: Path | str) -> Path:
@@ -455,8 +456,30 @@ def _v6(db: sqlite3.Connection) -> None:
     _add_column(db, "sdk_sessions", "pushed_by", "TEXT")
 
 
+V7 = """
+CREATE TABLE IF NOT EXISTS tool_output_sizes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content_session_id TEXT NOT NULL,
+  session_db_id INTEGER,
+  project TEXT NOT NULL DEFAULT '',
+  tool_use_id TEXT,
+  tool_name TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  created_at_epoch INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_tool_output_use ON tool_output_sizes(content_session_id, tool_use_id)
+  WHERE tool_use_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tool_output_tool ON tool_output_sizes(tool_name);
+"""
+
+
+def _v7(db: sqlite3.Connection) -> None:
+    """How large each tool result was (bytes the agent pulled into its context), per tool."""
+    run_script(db, V7)
+
+
 MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [(1, _v1), (2, _v2), (3, _v3), (4, _v4),
-                                                                      (5, _v5), (6, _v6)]
+                                                                      (5, _v5), (6, _v6), (7, _v7)]
 
 
 def migrate(db: sqlite3.Connection) -> list[int]:

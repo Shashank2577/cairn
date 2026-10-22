@@ -52,6 +52,9 @@ When you use `openai` or a local endpoint, set every tier to a model that endpoi
 | `rerank` | `false` | Rerank recall results with a model |
 | `graph` | `false` | Also write memories into the timeline fact graph |
 | `instructions` | `""` | Extra guidance for what counts as a memory |
+| `aging` | `true` | A memory that no agent has been told for `stale_days` days is marked *stale* and ranks lower. Nothing is deleted, and a memory counts as used again the moment an agent is told it. `false` turns aging off |
+| `stale_days` | `90` | How long a memory can go unused before it is stale (aging starts when the store is first opened by this version, so old memories are not stale on day one) |
+| `pinned_kinds` | `["convention", "decision"]` | Kinds that never age |
 | `vector_store` | local index in `.cairn/memstore/` | A shared store for a team, for example `{ provider = "qdrant", config = { url = "http://team-server:6333" } }`. `qdrant`, `pgvector` and `chroma` come with the `memory-server` extra. |
 
 Other `[memory]` keys the code reads: `engine` (`"auto"`; `false` turns the memory engine off so

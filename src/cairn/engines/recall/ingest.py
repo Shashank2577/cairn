@@ -21,6 +21,9 @@ log = logging.getLogger("cairn.recall")
 MAX_USER_PROMPT_BYTES = 256 * 1024
 MEDIA_PROMPT = "[media prompt]"
 FILE_OPERATION_TOOLS = {"Edit", "Write", "Read", "NotebookEdit", "MultiEdit"}
+# The agent's own task list. Not worth an observation (hence in the default skip list), but the latest one is what a
+# resume snapshot reads to say which tasks are still open, so it is kept in the tool-use index.
+TASK_LIST_TOOLS = {"TodoWrite"}
 
 
 def _truncate_bytes(text: str, max_bytes: int) -> str:
@@ -66,6 +69,18 @@ def session_init(store: Store, *, content_session_id: str, project: str | None =
             "platformSource": src, "project": project}
 
 
+def response_size(value: Any) -> int:
+    """Bytes of a tool result as the agent received it (before redaction and truncation)."""
+    if value is None:
+        return 0
+    if isinstance(value, str):
+        return len(value.encode("utf-8", "replace"))
+    try:
+        return len(json.dumps(value, ensure_ascii=False, default=str).encode("utf-8", "replace"))
+    except (TypeError, ValueError):
+        return len(str(value).encode("utf-8", "replace"))
+
+
 def _json_text(value: Any) -> str:
     if value is None:
         return "{}"
@@ -87,7 +102,8 @@ def ingest_observation(store: Store, settings: dict, *, content_session_id: str,
         project = project_context(cwd).primary if cwd.strip() else ""
     if cwd and is_project_excluded(cwd, str(settings.get("excluded_projects") or "")):
         return {"ok": True, "status": "skipped", "reason": "project_excluded"}
-    if tool_name in set(csv(settings.get("skip_tools") or "")):
+    excluded = tool_name in set(csv(settings.get("skip_tools") or ""))
+    if excluded and not (tool_name in TASK_LIST_TOOLS and tool_use_id):
         return {"ok": True, "status": "skipped", "reason": "tool_excluded"}
     if tool_name in FILE_OPERATION_TOOLS and isinstance(tool_input, dict):
         fp = tool_input.get("file_path") or tool_input.get("notebook_path")
@@ -100,6 +116,13 @@ def ingest_observation(store: Store, settings: dict, *, content_session_id: str,
         if not privacy["allow"]:
             return {"ok": True, "status": "skipped", "reason": "private"}
         ti, tr = _json_text(tool_input), _json_text(tool_response)
+        if not excluded and not tool_name.startswith("mcp__cairn__"):  # Cairn's own answers are what savings count
+            try:
+                store.record_tool_output(content_session_id=content_session_id, tool_name=tool_name,
+                                         size=response_size(tool_response), tool_use_id=tool_use_id,
+                                         session_db_id=sid, project=project)
+            except Exception as exc:  # measuring never costs the observation
+                log.warning("tool output size not recorded: %s", exc)
         if tool_use_id:
             try:
                 store.upsert_tool_use(tool_use_id=tool_use_id, content_session_id=content_session_id, session_db_id=sid,
@@ -108,6 +131,8 @@ def ingest_observation(store: Store, settings: dict, *, content_session_id: str,
                                       agent_id=agent_id)
             except Exception as exc:  # the backup index never costs the observation
                 log.warning("tool_uses backup write failed: %s", exc)
+        if excluded:
+            return {"ok": True, "status": "skipped", "reason": "tool_excluded"}
         mid = store.enqueue(sid, content_session_id, "observation", tool_name=tool_name, tool_input=ti,
                             tool_response=tr, prompt_number=number, cwd=cwd, agent_id=agent_id, agent_type=agent_type,
                             tool_use_id=tool_use_id)

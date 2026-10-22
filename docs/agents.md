@@ -111,9 +111,26 @@ Session memory is built in ([ADR-0006](adr/0006-built-in-session-capture.md)). F
 | `SessionStart` (startup, resume, clear, compact) | `context` | Injects a timeline of recent observations and session summaries (or a first-run hint) |
 | `UserPromptSubmit` | `session-init` | Stores the numbered prompt |
 | `PreToolUse` (Read) | `file-context` | Adds the earlier observations about a file before the agent reads it |
-| `PostToolUse` (all tools) | `observation` | Queues the tool event |
+| `PostToolUse` (all tools) | `observation` | Queues the tool event, and notes how many bytes its result put into the agent's context |
+| `PostToolUseFailure` (all tools) | `observation` | Queues a failed or refused tool call, so rejected approaches and errors are recorded |
+| `PreCompact` | `pre-compact` | Saves a resume snapshot (under 2 KB) before Claude Code compacts the conversation; the `SessionStart` hook for the `compact` start hands it back in place of the timeline |
 | `Stop` | `summarize` | Queues a summary of the prompt that just finished, and starts the worker |
 | `SessionEnd` | `session-end` | Marks the session completed |
+
+**After a compaction.** The resume snapshot is built from `.cairn/sessions.db` by fixed rules, with no model: the last
+request, the files changed, the tasks still open in the agent's task list, and the decisions and rejected
+approaches recorded so far. It is a list of pointers: each line names the `cairn_session_search`,
+`cairn_session_timeline` or `cairn_session_observations` call that returns the detail. Only Claude Code has a
+compaction hook; the other agents are unchanged.
+
+**Events found without a model.** Besides one observation per prompt, the worker records four kinds of event, each as
+an observation of its own that `cairn_session_search` finds: a tool call you refused (*rejected approach*), a call that
+failed and then worked after a change (*error then fix*), the same call tried three or more times with at least two
+failures (*retry loop*), and a prompt that tells the agent it was wrong (*user correction*). Only explicit signals
+count, so ordinary output that contains the word "error" does not.
+
+**Tool output.** Each tool result's size is recorded per tool, and the Overview page shows the bytes the agents pulled
+through tools next to what Cairn served. It is a measurement only: nothing is trimmed, blocked or rerouted.
 
 The hooks use only the standard library, and all they do is write to `.cairn/sessions.db`. A hook
 never fails the agent: bad input or a locked store is ignored. The older event names

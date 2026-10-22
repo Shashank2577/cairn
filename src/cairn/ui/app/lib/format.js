@@ -8,6 +8,13 @@ export function fmtK(n) {
   if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1).replace(/\.0$/, "") + "k";
   return String(Math.round(n));
 }
+export function fmtBytes(n) {
+  n = Math.max(0, Number(n) || 0);
+  if (n >= 1073741824) return (n / 1073741824).toFixed(1).replace(/\.0$/, "") + " GB";
+  if (n >= 1048576) return (n / 1048576).toFixed(n >= 10485760 ? 0 : 1).replace(/\.0$/, "") + " MB";
+  if (n >= 1024) return Math.round(n / 1024) + " KB";
+  return Math.round(n) + " B";
+}
 export const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : (many || one + "s")}`;
 export const base = p => String(p || "").replace(/\/$/, "").split("/").pop();
 export const dir = p => { const s = String(p || ""); const i = s.lastIndexOf("/"); return i < 0 ? "" : s.slice(0, i + 1); };

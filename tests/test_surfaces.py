@@ -289,6 +289,24 @@ def test_http_api(cairn, tmp_path):
     assert "<title>" in c.get("/").text
 
 
+def test_http_api_reports_tool_output_and_memory_aging(cairn, tmp_path):
+    from cairn.engines.recall import hooks as recall_hooks
+    c, p = _client(cairn, tmp_path)
+    assert c.get(f"{p}/overview").json()["tool_output"] == {"calls": 0, "bytes": 0, "tools": []}
+    root = str(cairn.project.root)
+    recall_hooks.run("session-init", {"session_id": "w1", "cwd": root, "prompt": "Read the payments module"})
+    recall_hooks.run("observation", {"session_id": "w1", "cwd": root, "tool_name": "Read", "tool_input": {"file_path": "a"},
+                                     "tool_response": {"content": "x" * 3000}, "tool_use_id": "u1"})
+    out = c.get(f"{p}/overview").json()["tool_output"]
+    assert out["calls"] == 1 and out["bytes"] > 3000 and out["tools"][0]["tool"] == "Read"
+    assert c.get(f"{p}/savings").status_code == 200  # the savings meter is unchanged
+    mid = c.post(f"{p}/memories", json={"text": "Ledger rows are append-only", "kind": "fact"}).json()["id"]
+    row = next(m for m in c.get(f"{p}/memories").json() if m["id"] == mid)
+    assert row["stale"] is False and row["last_used"] is None
+    c.get(f"{p}/memories", params={"q": "ledger"})
+    assert cairn.brain.memory_use() == {}  # a person searching the Memory page is not an agent being told
+
+
 def test_mcp_tools(cairn, monkeypatch):
     from cairn import mcp_server
     mcp_server._cairn.cache_clear()
