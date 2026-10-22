@@ -38,7 +38,7 @@ def narrate_export(root: Path, out: Path, pm: Model) -> bool:
 
     written = False
     for md_file in sorted(Path(out).glob("*.md")):
-        if md_file.name == "README.md":
+        if md_file.name in ("README.md", "flows.md"):
             continue
         try:
             text = md_file.read_text(encoding="utf-8")

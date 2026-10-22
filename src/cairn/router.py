@@ -82,8 +82,39 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+# List prices in USD per million tokens, only for models whose price was confirmed (specs/002-observation-token-cost:
+# Haiku 4.5 from Anthropic's published table; Haiku 5.5 and Sonnet 5.5 from the first-party pricing table cached
+# 2026-10-06). Cache reads cost 0.1x the input rate; writes 1.25x (5-minute entry) or 2x (1-hour entry, which the
+# Claude Code CLI writes). A model not listed has no price here and shows tokens only: a price is never guessed.
+# Matched by prefix, longest first, so a dated id such as claude-haiku-4-5-20251001 finds its row.
+PRICES_AS_OF = "2026-10-06"
+PRICES: dict[str, dict[str, float]] = {
+    "claude-haiku-5-5": {"input": 0.10, "output": 0.50},
+    "claude-haiku-4-5": {"input": 1.00, "output": 5.00},
+    "claude-sonnet-5": {"input": 2.00, "output": 10.00},
+}
+CACHE_READ_X, CACHE_WRITE_X = 0.1, 2.0
+
+
+def price_for(model: str) -> dict[str, float] | None:
+    """Per-million-token list rates for ``model`` (input, output, cache_read, cache_write), or None when unknown."""
+    best = max((k for k in PRICES if (model or "").startswith(k)), key=len, default=None)
+    if best is None:
+        return None
+    p = PRICES[best]
+    return {**p, "cache_read": p["input"] * CACHE_READ_X, "cache_write": p["input"] * CACHE_WRITE_X}
+
+
+def cost_usd(model: str, input: int = 0, output: int = 0, cache_read: int = 0, cache_write: int = 0) -> float | None:
+    """List-price estimate of one set of token counts, or None when the model has no known price."""
+    p = price_for(model)
+    if p is None:
+        return None
+    return (input * p["input"] + output * p["output"] + cache_read * p["cache_read"] + cache_write * p["cache_write"]) / 1e6
+
+
 PROVIDERS = ("anthropic", "openai", "claude-code")
-NO_USAGE = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+NO_USAGE = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "thinking": 0, "cache_write_1h": 0}
 
 
 # Where the Claude Code CLI is usually installed. A server started by a hook, an IDE or a service manager often has a
@@ -182,8 +213,18 @@ class Router:
         rows = []
         for tier in TIERS:
             tasks = sorted(t for t, v in TASK_TIER.items() if v == tier)
-            rows.append({"tier": tier, "model": self.model(tier), "tasks": tasks})
+            rows.append({"tier": tier, "model": self.model(tier), "tasks": tasks, "price": price_for(self.model(tier))})
         return rows
+
+    def reference_price(self) -> dict | None:
+        """The rates a dollar figure for tokens kept out of an agent's context is quoted at: the deep tier's model,
+        else the first configured tier with a known price. None when none of them has a confirmed price."""
+        for tier in ("deep", "balanced", "fast", "frontier"):
+            m = self.model(tier)
+            p = price_for(m)
+            if p:
+                return {"model": m, "tier": tier, **p, "as_of": PRICES_AS_OF}
+        return None
 
     def tier_for(self, task: str, input_tokens: int = 0) -> str:
         """The task's tier. A big input moves a judgement task up one step for quality, never to frontier.
@@ -286,7 +327,8 @@ class Router:
     def _anthropic_usage(u: Any) -> dict:
         return {"input": u.input_tokens or 0, "output": u.output_tokens or 0,
                 "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0,
-                "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0}
+                "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0,
+                "cache_write_1h": getattr(getattr(u, "cache_creation", None), "ephemeral_1h_input_tokens", 0) or 0}
 
     def _anthropic(self, model: str, system: str, cached: str, prompt: str, max_tokens: int):
         import anthropic
@@ -341,7 +383,9 @@ class Router:
             raise RuntimeError(f"model call failed: {str(data.get('result'))[:200]}")
         u = data.get("usage") or {}
         return {"input": u.get("input_tokens", 0), "output": u.get("output_tokens", 0),
-                "cache_read": u.get("cache_read_input_tokens", 0), "cache_write": u.get("cache_creation_input_tokens", 0)}
+                "cache_read": u.get("cache_read_input_tokens", 0), "cache_write": u.get("cache_creation_input_tokens", 0),
+                "thinking": (u.get("output_tokens_details") or {}).get("thinking_tokens", 0),
+                "cache_write_1h": (u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens", 0)}
 
     def _claude_code(self, model: str, system: str, cached: str, prompt: str, max_tokens: int, task: str | None = None):
         del max_tokens

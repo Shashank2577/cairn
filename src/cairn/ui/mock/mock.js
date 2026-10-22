@@ -57,6 +57,12 @@ export function ready() {
     if (url.searchParams.get("nomodel") === "1") { D.overview.models.available = false; D.models.available = false; }
     // Every key the server reports, as it reports it. Through the Claude CLI most input arrives as cache tokens.
     for (const r of D.models.ledger) { r.cache_read ??= r.input_tokens * 5; r.cache_write ??= Math.round(r.input_tokens / 2); r.input_total ??= r.input_tokens + r.cache_read + r.cache_write; }
+    D.models.totals ??= [];
+    D.settings.context.ambient ??= true; D.settings.deep.wall_seconds ??= 300; D.settings.memory ??= { seed: true, rerank: false, wall_seconds: 300 };
+    D.settings.recall ??= { worker_spawn: true, observe_batch: 5, context_observations: 50 };
+    D.settings.defaults ??= { "models.provider": "auto", "models.fast": "claude-haiku-5-5", "models.balanced": "claude-sonnet-5", "models.deep": "claude-opus-5-5", "models.frontier": "claude-fable-5-1",
+      "models.base_url": null, "sessions.capture": true, "deep.enabled": "auto", "deep.budget_tokens": 150000, "deep.wall_seconds": 300, "context.budget": 1800, "context.ambient": true,
+      "memory.seed": true, "memory.rerank": false, "memory.wall_seconds": 300, "recall.worker_spawn": true, "recall.observe_batch": 5, "recall.context_observations": 50 };
     D.settings.models.base_url ??= null; D.settings.deep.budget_tokens ??= 150000; D.settings.deep.enabled = D.settings.deep.enabled === true ? "auto" : D.settings.deep.enabled;
     // Facts and preferences that no agent has been told for months, so the Memory page can show them as stale.
     for (const m of D.memories) if (m.kind === "fact" || m.kind === "preference") m.created_at -= 130 * 86400;

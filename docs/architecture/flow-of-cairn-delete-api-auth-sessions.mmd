@@ -1,0 +1,27 @@
+---
+title: "Flow of cairn DELETE /api/auth/sessions/{}"
+---
+sequenceDiagram
+%% cairn:diagram {"diagram":"flow","title":"Flow of cairn DELETE /api/auth/sessions/{}","scope":"ui-docs-view-58f22d (software system, 1 repository) \u00b7 commit 39b9ad74657b \u00b7 0 model calls \u00b7 from endpoint DELETE /api/auth/sessions/{} in cairn \u00b7 4 of 5 steps inferred","description":"The steps DELETE /api/auth/sessions/{} reaches across this container, ordered by where each call site sits in the code. Every step carries its evidence; computed with no model calls.","source_note":"computed, 0 model calls"}
+  %% cairn:element n1 {"id":"ui-docs-view-58f22d:container:cairn","name":"cairn","type":"container","kind":"web-app","tech":"Python \u00b7 FastAPI","desc":"Institutional memory for coding agents: map, specs, timeline, memory and sessions behind one command.","provenance":"extracted","kind_provenance":"inferred","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/deploy/docker-compose.yml:7","ui-docs-view-58f22d/deploy/Dockerfile:10","ui-docs-view-58f22d/deploy/Dockerfile:32","ui-docs-view-58f22d/deploy/Dockerfile:36","ui-docs-view-58f22d/pyproject.toml:103"]}
+  participant n1 as cairn
+  %% cairn:element n2 {"id":"ui-docs-view-58f22d:data-store:sqlite","name":"SQLite","type":"data-store","tech":"SQLite","desc":"Used by cairn","provenance":"extracted","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/specs/002-observation-token-cost/measure/ledger_report.py:19","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/replay.py:136"]}
+  participant n2 as SQLite
+  %% cairn:element n3 {"id":"ui-docs-view-58f22d:data-store:postgresql","name":"PostgreSQL","type":"data-store","tech":"PostgreSQL","desc":"Used by cairn","provenance":"extracted","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/src/cairn/engines/graph/pg_introspect.py:22","ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/pgvector.py:205"]}
+  participant n3 as PostgreSQL
+  %% cairn:element n4 {"id":"ui-docs-view-58f22d:data-store:mongodb","name":"MongoDB","type":"data-store","tech":"MongoDB","desc":"Used by cairn","provenance":"extracted","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/mongodb.py:52"]}
+  participant n4 as MongoDB
+  %% cairn:element n5 {"id":"ui-docs-view-58f22d:data-store:redis","name":"Redis","type":"data-store","tech":"Redis","desc":"Used by cairn","provenance":"extracted","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/redis.py:77"]}
+  participant n5 as Redis
+  %% cairn:element n6 {"id":"ui-docs-view-58f22d:external:anthropic","name":"Anthropic API","type":"external-system","tech":"Anthropic API","desc":"Hosted language models","provenance":"extracted","repo":"ui-docs-view-58f22d","evidence":["ui-docs-view-58f22d/src/cairn/router.py:314"]}
+  participant n6 as Anthropic API
+  %% cairn:msg 1 {"from":"ui-docs-view-58f22d:container:cairn","to":"ui-docs-view-58f22d:data-store:sqlite","style":"sync","provenance":"extracted","rule":"store-use","computed":true,"evidence":["ui-docs-view-58f22d/specs/002-observation-token-cost/measure/ledger_report.py:19","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/replay.py:136","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/replay.py:173","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/skip_escalate.py:30","ui-docs-view-58f22d/specs/002-observation-token-cost/measure/tool_share.py:26"],"what":"Reads and writes 44 tables","how":"SQL \u00b7 sqlite3"}
+  n1->>n2: Reads and writes 44 tables<br/>[SQL · sqlite3]
+  %% cairn:msg 2 {"from":"ui-docs-view-58f22d:container:cairn","to":"ui-docs-view-58f22d:data-store:postgresql","style":"sync","provenance":"inferred","rule":"store-use","computed":true,"evidence":["ui-docs-view-58f22d/src/cairn/engines/graph/pg_introspect.py:22","ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/pgvector.py:205","ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/pgvector.py:214","ui-docs-view-58f22d/src/cairn/engines/graph/pg_introspect.py:34","ui-docs-view-58f22d/src/cairn/engines/graph/pg_introspect.py:43"],"what":"Reads pg_extension (+3)","how":"SQL \u00b7 psycopg"}
+  n1->>n3: Reads pg_extension #40;+3#41;<br/>[SQL · psycopg]
+  %% cairn:msg 3 {"from":"ui-docs-view-58f22d:container:cairn","to":"ui-docs-view-58f22d:data-store:mongodb","style":"sync","provenance":"inferred","rule":"store-use","computed":true,"evidence":["ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/mongodb.py:52"],"what":"Reads and writes MongoDB","how":"MongoDB driver"}
+  n1->>n4: Reads and writes MongoDB<br/>[MongoDB driver]
+  %% cairn:msg 4 {"from":"ui-docs-view-58f22d:container:cairn","to":"ui-docs-view-58f22d:data-store:redis","style":"sync","provenance":"inferred","rule":"store-use","computed":true,"evidence":["ui-docs-view-58f22d/src/cairn/engines/memstore/vector_stores/redis.py:77"],"what":"Reads and writes Redis","how":"Redis"}
+  n1->>n5: Reads and writes Redis<br/>[Redis]
+  %% cairn:msg 5 {"from":"ui-docs-view-58f22d:container:cairn","to":"ui-docs-view-58f22d:external:anthropic","style":"sync","provenance":"inferred","rule":"catalog-sdk","computed":true,"evidence":["ui-docs-view-58f22d/src/cairn/router.py:314"],"what":"Calls a language model","how":"HTTPS \u00b7 Anthropic SDK"}
+  n1->>n6: Calls a language model<br/>[HTTPS · Anthropic SDK]

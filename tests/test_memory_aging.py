@@ -148,7 +148,7 @@ def test_an_existing_brain_db_migrates_in_place_without_losing_memories(cairn):
     db.close()
     brain = Brain(path)                                                       # an older store, as a prior release left it
     try:
-        assert brain.get_kv("schema_version") == "3" and brain.memory_use() == {}
+        assert brain.get_kv("schema_version") == "4" and brain.memory_use() == {}
         assert float(brain.get_kv(AGING_SINCE)) > time.time() - 60            # aging starts at the upgrade
         assert "Keep me through the migration" in [m["text"] for m in brain.memories()]
     finally:

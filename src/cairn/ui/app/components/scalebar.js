@@ -6,7 +6,10 @@ import { useCountUp } from "../state.js";
 
 export function ScaleBar({ sent, source, files, sentLabel = "Sent to the agent", sourceLabel = "Files behind the answers", unit = "tokens", compact }) {
   const [on, setOn] = useState(false);
-  useEffect(() => { const t = requestAnimationFrame(() => setOn(true)); return () => cancelAnimationFrame(t); }, []);
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setOn(true)), late = setTimeout(() => setOn(true), 120);  // no frames in a hidden tab
+    return () => { cancelAnimationFrame(t); clearTimeout(late); };
+  }, []);
   const max = Math.max(source, sent, 1);
   const step = [100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 1e5, 2e5, 5e5, 1e6, 2e6, 5e6, 1e7].find(s => max / s <= 5) || 2e7;
   const srcPct = source / max * 100;

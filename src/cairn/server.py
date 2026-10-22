@@ -13,6 +13,7 @@ import copy
 import json
 import logging
 import os
+import re
 import threading
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -40,6 +41,7 @@ from .platform.web import (
     optional_principal,
     require,
 )
+from .project import DEFAULTS as CONFIG_DEFAULTS
 from .project import Project
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -330,10 +332,79 @@ def _system_diagram_cached(root: str, level: str, scope: str | None, stamp: tupl
     """
     from .system.diagram.svg import render_inline
     from .system.views import view as system_view_fn
-    desc = system_view_fn(Path(root), level, scope)
+    try:
+        desc = system_view_fn(Path(root), level, scope)
+    except ValueError:
+        if not scope:
+            raise
+        # A saved link names a scope from an older model (a flow whose id embeds a commit hash, say). Draw the
+        # current model's own view instead of nothing.
+        desc = system_view_fn(Path(root), level, None)
+        desc["stale_scope"] = scope
+    if level == "flows" and not scope:
+        from .system.export import _shapes
+        from .system.flows import flows as all_flows
+        from .system.link import link
+        built = all_flows(Path(root), link(Path(root)))
+        if len(built) > 1 and len(_shapes(built)) == 1:
+            raise ValueError(f"all {len(built)} entry points reach the same containers and stores, so a flow "
+                             "would be the same picture for each. Cairn cannot tell them apart without "
+                             "following calls inside the code; flows help when a request crosses services.")
     if not desc.get("elements"):
         raise ValueError("nothing to draw at this level yet; run a sync so the system model is built")
     return render_inline(desc), json.dumps(desc, default=str)
+
+
+_DOC_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.(md|html)")
+
+
+def _written_docs(root: Path) -> list[dict]:
+    """The documentation already in the repository's ``docs/`` folder (what a documentation run left there).
+
+    Each Markdown file is listed once, with its styled HTML twin when there is one (``DATA_FLOW.md`` and
+    ``data-flow.html``). Nothing here is computed: Cairn shows what is in the folder.
+    """
+    folder = root / "docs"
+    if not folder.is_dir():
+        return []
+    out = []
+    for md in sorted(folder.glob("*.md")):
+        text = md.read_text(encoding="utf-8", errors="replace")
+        title = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), md.stem)
+        twin = "index.html" if md.stem.lower() == "readme" else md.stem.lower().replace("_", "-") + ".html"
+        out.append({"name": md.name, "title": title, "html": twin if (folder / twin).is_file() else None,
+                    "bytes": md.stat().st_size, "index": md.stem.lower() == "readme"})
+    return sorted(out, key=lambda d: (not d["index"], d["name"]))
+
+
+_MERMAID_FENCE = re.compile(r"^```mermaid[ \t]*\n(.*?)^```[ \t]*$", re.S | re.M)
+
+
+def _draw_mermaid(md: str) -> tuple[str, list[str]]:
+    """Replace the Mermaid blocks Cairn's own reader understands with ``@@diagram:N@@`` markers.
+
+    Returns the Markdown and the drawn SVGs. A block it cannot read (a syntax outside the flowchart,
+    sequence and C4 subset) stays a code block, so nothing is hidden. Drawn by the diagram standard's
+    renderer, with no browser library and no model call.
+    """
+    from .system.diagram.mermaid_in import parse
+    from .system.diagram.svg import render_inline
+    svgs: list[str] = []
+
+    def one(m: re.Match) -> str:
+        try:
+            svgs.append(render_inline(parse(m.group(1)).description))
+        except Exception:
+            return m.group(0)
+        return f"\n@@diagram:{len(svgs) - 1}@@\n"
+    return _MERMAID_FENCE.sub(one, md), svgs
+
+
+@lru_cache(maxsize=8)
+def _docs_bundle_cached(root: str, stamp: tuple):
+    """The architecture documents of one model, built once per stamp like the diagrams."""
+    from .system.export import bundle
+    return bundle(Path(root))
 
 
 # ---- per-project routes ------------------------------------------------------------------------------------
@@ -433,13 +504,7 @@ def project_router(hub: Hub) -> APIRouter:
 
     @r.get("/models", dependencies=read)
     def models(pid: str, since: float = 0):
-        router = c(pid).router
-        calls = [dict(r) for r in c(pid).brain.q(
-            "SELECT ts, task, tier, model, input_tokens, output_tokens, cache_read, cache_write, "
-            "input_tokens + cache_read + cache_write AS input_total, ok FROM ledger WHERE ts>=? "
-            "ORDER BY ts DESC LIMIT 300", (since,))]
-        return {"available": router.available, "provider": router.provider, "table": router.table(),
-                "totals": c(pid).brain.ledger(since), "ledger": calls}
+        return c(pid).model_report(since)
 
     def nested_settings(proj: Project) -> dict:
         from .project import OPERATOR_KEYS
@@ -450,6 +515,7 @@ def project_router(hub: Hub) -> APIRouter:
         # what this server lets a project change: the page disables the rest and says who sets them
         out["locked"] = sorted(k for k in SETTINGS if k in OPERATOR_KEYS and not proj.trusted)
         out["rules"] = SETTING_RULES_TEXT
+        out["defaults"] = {k: CONFIG_DEFAULTS[k.split(".", 1)[0]].get(k.split(".", 1)[1]) for k in SETTINGS}  # what an unset key means
         return out
 
     @r.get("/settings", dependencies=read)
@@ -557,6 +623,30 @@ def project_router(hub: Hub) -> APIRouter:
     def graph_data(pid: str, scope: str = "all", limit: int = 600):
         return graphviews.data(c(pid).map, scope, max(10, min(limit, 5000)))
 
+    @r.get("/graph/browse", dependencies=read)
+    def graph_browse(pid: str, path: str = "", offset: int = 0, limit: int = graphviews.ROW_CAP, sort: str = "name"):
+        """One level of the repository, with what Cairn knows about each row. Never the whole tree."""
+        cairn = c(pid)
+        facts = {"commits": {}, "fixes": {}, "specs": {}, "memories": {}}
+        for r_ in cairn.brain.q("SELECT path, commits, risky FROM filestats"):
+            facts["commits"][r_["path"]], facts["fixes"][r_["path"]] = r_["commits"] or 0, r_["risky"] or 0
+        for name, sql in (("specs", "SELECT dst, COUNT(DISTINCT src) n FROM links WHERE rel='owns' AND dst LIKE 'file:%' GROUP BY dst"),
+                          ("memories", "SELECT dst, COUNT(DISTINCT src) n FROM links WHERE rel='mentions' AND src LIKE 'memory:%' "
+                                       "AND dst LIKE 'file:%' GROUP BY dst")):
+            facts[name] = {r_["dst"][5:]: r_["n"] for r_ in cairn.brain.q(sql)}
+        return graphviews.browse(cairn.map, path, facts, max(0, offset), limit, "risk" if sort == "risk" else "name")
+
+    @r.get("/graph/find", dependencies=read)
+    def graph_find(pid: str, q: str = ""):
+        return graphviews.find(c(pid).map, q)
+
+    @r.get("/graph/focus", dependencies=read)
+    def graph_focus(pid: str, id: str, depth: int = 2, limit: int = 150):
+        out = graphviews.focus(c(pid).map, id, depth, max(10, min(limit, 400)))
+        if out is None:
+            raise HTTPException(404, "no such node")
+        return out
+
     @r.get("/graph/node", dependencies=read)
     def graph_node(pid: str, id: str):
         cairn = c(pid)
@@ -633,7 +723,130 @@ def project_router(hub: Hub) -> APIRouter:
             built = all_flows(root, link(root), scope=scope)
         except ValueError as exc:
             raise HTTPException(404, str(exc))
-        return [{"title": d["title"], "scope": d["scope"]} for d in built]
+        # One entry per distinct set of steps: 119 endpoints that all draw the same picture are one choice.
+        # `scope` is what the view endpoint accepts (the entry point's name), not the description's scope line.
+        from .system.export import _shapes
+        from .system.flows import entry_points
+        names = sorted({e.name for e in entry_points(link(root))}, key=len, reverse=True)
+        groups = _shapes(built)
+        if len(groups) == 1 and len(built) > 1:
+            return []      # every entry point draws the same picture: nothing to choose between, no tab
+        out = []
+        for group in groups:
+            d = group[0]
+            name = next((n for n in names if n in d["title"]), d["title"])
+            more = len(group) - 1
+            out.append({"title": d["title"] + (f" (+{more} more with the same steps)" if more else ""),
+                        "scope": name, "count": len(group)})
+        return out
+
+    @r.get("/docs", dependencies=read)
+    def docs_list(pid: str):
+        """The architecture documents computed live from the current model, and how stale that model is."""
+        from .system.export import MAX_FLOW_DOCS, commits_behind
+        root = c(pid).project.root
+        b = _docs_bundle_cached(str(root), _system_stamp(str(root)))
+        return {"commit": b.commit[:12], "head": b.head[:12], "behind": commits_behind(root, b.commit),
+                "system": b.product.get("system"), "flow_entries": b.flow_entries, "flow_shapes": b.flow_shapes,
+                "max_flow_docs": MAX_FLOW_DOCS,
+                "narrate_tokens": int(c(pid).project.cfg("system.narrate_tokens", 4000)),
+                "export_dir": "docs/architecture", "written": _written_docs(root),
+                "docs": [{"slug": d.slug, "title": d.title, "level": d.level, "summary": d.summary,
+                          "diagram": d.desc is not None} for d in b.docs]}
+
+    @r.get("/docs/generate", dependencies=read)
+    def docs_generate_status(pid: str):
+        """The documentation run for this project: idle, running, done or failed, with its cost when done."""
+        from . import docgen
+        return {**docgen.status(c(pid).project.root), "models": {k: docgen.ESTIMATE[k] for k in docgen.MODELS},
+                "budget_usd": docgen.DEFAULT_BUDGET_USD, "skill": docgen.DEFAULT_SKILL}
+
+    @r.post("/docs/generate")
+    def docs_generate(pid: str, payload: dict = Body(default={}), principal=Depends(require("project.write"))):
+        """Start the documentation skill in this repository (opt-in: it spends the caller's model quota and writes ``docs/``)."""
+        from . import docgen
+        root = c(pid).project.root
+        try:
+            job = docgen.start(root, payload.get("model") or "haiku", skill=c(pid).project.cfg("docs.skill", docgen.DEFAULT_SKILL))
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc))
+        audit(pid, principal, "docs.generate", pid, model=job["model"], budget_usd=job["budget_usd"])
+        return job
+
+    @r.post("/docs/generate/cancel")
+    def docs_generate_cancel(pid: str, principal=Depends(require("project.write"))):
+        from . import docgen
+        return docgen.cancel(c(pid).project.root)
+
+    @r.get("/docs/files/{name}", dependencies=read)
+    def docs_file(pid: str, name: str):
+        """One file of the repository's ``docs/`` folder: the styled HTML page for a frame, or the Markdown."""
+        folder = (c(pid).project.root / "docs").resolve()
+        path = (folder / name).resolve()
+        if not _DOC_FILE.fullmatch(name) or path.parent != folder or not path.is_file():
+            raise HTTPException(404, "no such document")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if name.endswith(".html"):   # the page is data: no script, nothing fetched, shown in a sandboxed frame
+            return Response(text, media_type="text/html; charset=utf-8", headers={
+                "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; "
+                                           "frame-ancestors 'self'",
+                "X-Frame-Options": "SAMEORIGIN", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+        md, svgs = _draw_mermaid(text)
+        return {"name": name, "md": md, "diagrams": svgs}
+
+    @r.get("/docs/{slug}", dependencies=read)
+    def docs_one(pid: str, slug: str):
+        """One document: its Markdown, its diagram drawn for the page, and the evidence it cites."""
+        from .system.diagram.svg import render_inline
+        root = c(pid).project.root
+        b = _docs_bundle_cached(str(root), _system_stamp(str(root)))
+        doc = next((d for d in b.docs if d.slug == slug), None)
+        if doc is None:
+            raise HTTPException(404, "no such document")
+        refs = []
+        for ref in doc.evidence:
+            path, _, line = ref.rpartition(":")
+            if not path or not line.isdigit():
+                path, line = ref, ""
+            refs.append({"ref": ref, "file": path.split("/", 1)[1] if "/" in path else path,
+                         "line": int(line) if line else None})
+        return {"slug": doc.slug, "title": doc.title, "level": doc.level, "md": doc.md, "commit": b.commit,
+                "svg": render_inline(doc.desc) if doc.desc else "", "evidence": refs}
+
+    @r.post("/docs/export")
+    def docs_export(pid: str, payload: dict = Body(default={}), principal=Depends(require("project.write"))):
+        """Write the document set into the repository (``docs/architecture``); ``narrate`` is the only way
+        a model is called, and only when the caller asks."""
+        from .system.export import export
+        root = c(pid).project.root
+        narrate = bool(payload.get("narrate"))
+        result = export(root, root / "docs" / "architecture", narrate=narrate)
+        audit(pid, principal, "docs.export", pid, narrate=narrate)
+        return {"written": len(result["written"]), "commit": result["commit"], "narrated": result["narrated"],
+                "dir": "docs/architecture"}
+
+    @r.post("/docs/zip")
+    def docs_zip(pid: str, request: Request, payload: dict = Body(default={}),
+                 principal=Depends(require("project.read"))):
+        """The same document set as a zip download, built in a temporary folder so nothing is written to the repository."""
+        import io
+        import tempfile
+        import zipfile
+
+        from .system.export import export
+        narrate = bool(payload.get("narrate"))
+        if narrate:   # narrating spends model tokens: the same permission as writing
+            get_platform(request).require(principal, "project.write", project_id=pid)
+        root = c(pid).project.root
+        with tempfile.TemporaryDirectory() as tmp:
+            result = export(root, Path(tmp), narrate=narrate)
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                for name in result["written"]:
+                    z.write(Path(tmp) / name, f"architecture/{name}")
+        return Response(buf.getvalue(), media_type="application/zip",
+                        headers={"Content-Disposition": 'attachment; filename="architecture.zip"',
+                                 "Cache-Control": "no-store"})
 
     @r.get("/diagram/tokens", dependencies=read)
     def diagram_tokens(pid: str):
@@ -649,7 +862,7 @@ def project_router(hub: Hub) -> APIRouter:
         return [{"kind": k, "title": t} for k, t in GRAPH_VIEWS.items()]
 
     @r.get("/graph/views/{kind}", dependencies=read)
-    def graph_view(pid: str, kind: str, limit: int | None = None):
+    def graph_view(pid: str, kind: str, limit: int | None = None, theme: str | None = None):
         """The graph engine's own interactive pages, for the page's Graph tab.
 
         These are the engine's views of the code map — every node, not the system model's dozen — so they
@@ -663,9 +876,14 @@ def project_router(hub: Hub) -> APIRouter:
                   "callflow": lambda: graph_api.callflow_view_html(root, asset_base=GRAPH_ASSETS)}.get(kind)
         if render is None:
             raise HTTPException(404, "no such view")
-        html = render()
+        try:
+            html = render()
+        except ValueError as exc:  # the engine refuses a graph too big to draw as one page; say so, don't 500
+            raise HTTPException(413, f"{exc} The Browse and Neighbourhood views handle a map this size.") from exc
         if not html:
             raise HTTPException(404, "not enough of a map to draw this view yet; run a sync")
+        from .graph_theme import themed
+        html = themed(html, kind, theme or "")   # the page's own colours, not the engine's
         # Shown in a frame on this page: allow same-origin framing only.
         return HTMLResponse(html, headers={"X-Frame-Options": "SAMEORIGIN",
                                            "Content-Security-Policy": "frame-ancestors 'self'; sandbox allow-scripts allow-popups"})
@@ -1193,9 +1411,12 @@ def memory_result(cairn: Cairn, res: dict, previous: dict | None) -> dict:
 SETTINGS: dict[str, type | tuple] = {
     "models.provider": str, "models.fast": str, "models.balanced": str, "models.deep": str, "models.frontier": str,
     "models.base_url": str, "sessions.capture": bool, "deep.enabled": (bool, str), "deep.budget_tokens": int,
-    "context.budget": int}
+    "context.budget": int, "context.ambient": bool, "deep.wall_seconds": int, "memory.seed": bool, "memory.rerank": bool,
+    "memory.wall_seconds": int, "recall.worker_spawn": bool, "recall.observe_batch": int, "recall.context_observations": int}
 PROVIDERS = ("auto", "anthropic", "openai", "claude-code")
-SETTING_LIMITS = {"context.budget": (200, 20_000), "deep.budget_tokens": (1_000, 5_000_000)}
+SETTING_LIMITS = {"context.budget": (200, 20_000), "deep.budget_tokens": (1_000, 5_000_000),
+                  "deep.wall_seconds": (10, 7_200), "memory.wall_seconds": (10, 7_200),
+                  "recall.observe_batch": (1, 50), "recall.context_observations": (0, 500)}
 SETTING_RULES_TEXT = {
     "models.provider": "one of " + ", ".join(PROVIDERS),
     **{f"models.{t}": "a model name" for t in ("fast", "balanced", "deep", "frontier")},

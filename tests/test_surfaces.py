@@ -850,6 +850,20 @@ def test_settings_reject_values_that_make_no_sense(cairn, tmp_path):
     assert got["locked"] == [] and "models.provider" in got["rules"]  # a local project can change everything
 
 
+def test_settings_expose_defaults_and_the_recall_and_deep_keys(cairn, tmp_path):
+    c, p = _client(cairn, tmp_path)
+    got = c.get(f"{p}/settings").json()
+    assert got["defaults"]["deep.budget_tokens"] == 150000 and got["defaults"]["recall.observe_batch"] == 5
+    assert got["defaults"]["context.ambient"] is True
+    ok = c.patch(f"{p}/settings", json={"recall.observe_batch": 10, "recall.worker_spawn": False, "context.ambient": False,
+                                        "deep.wall_seconds": 120, "memory.seed": False})
+    assert ok.status_code == 200
+    now = c.get(f"{p}/settings").json()
+    assert now["recall"]["observe_batch"] == 10 and now["recall"]["worker_spawn"] is False and now["context"]["ambient"] is False
+    for body in ({"recall.observe_batch": 0}, {"deep.wall_seconds": 1}, {"recall.worker_spawn": "yes"}):
+        assert c.patch(f"{p}/settings", json=body).status_code == 400, body
+
+
 def test_a_failed_sync_step_is_reported_as_failed(cairn, monkeypatch):
     from cairn import sync
     from cairn.engines import mapper
@@ -1064,3 +1078,53 @@ def test_handle_with_care_lists_source_files_not_tests(cairn):
     panel = hooks.session_panel(cairn)
     care = panel[panel.index("Handle with care"):]
     assert "shop/payments.py" in care and "test_payments.py" not in care and "test_utils.py" not in care
+
+
+# ---- map rework: Browse, Neighbourhood, stale flow scope ------------------------------------------------------
+def test_browse_opens_one_level_at_a_time_and_says_what_is_in_it(cairn, tmp_path):
+    c, p = _client(cairn, tmp_path)
+    top = c.get(f"{p}/graph/browse").json()
+    names = {r["name"]: r for r in top["rows"]}
+    assert "shop" in names and names["shop"]["kind"] == "folder" and names["shop"]["files"] >= 2
+    assert names["shop"]["symbols"] > 0 and names["shop"]["top"]  # best-connected symbols, not a bare name
+    inside = c.get(f"{p}/graph/browse", params={"path": "shop"}).json()
+    assert [x["name"] for x in inside["crumbs"]] == ["shop"]
+    assert all(r["path"].startswith("shop/") and r["kind"] == "file" for r in inside["rows"] if "/" not in r["name"])
+    risky = c.get(f"{p}/graph/browse", params={"path": "shop", "sort": "risk"}).json()["rows"]
+    assert [r["heat"] for r in risky] == sorted((r["heat"] for r in risky), reverse=True)
+
+
+def test_browse_never_hands_back_more_than_a_page(cairn):
+    from cairn import graphviews
+    idx = cairn.map
+    for i in range(graphviews.ROW_CAP + 50):  # a folder with far more entries than a page
+        idx.by_file[f"wide/f{i:04}.py"] = []
+    out = graphviews.browse(idx, "wide", limit=10_000)
+    assert len(out["rows"]) == graphviews.ROW_CAP and out["total"] == graphviews.ROW_CAP + 50
+    rest = graphviews.browse(idx, "wide", offset=graphviews.ROW_CAP, limit=10_000)
+    assert len(rest["rows"]) == 50
+
+
+def test_find_and_focus_are_capped_and_count_what_they_leave_out(cairn, tmp_path):
+    c, p = _client(cairn, tmp_path)
+    found = c.get(f"{p}/graph/find", params={"q": "payments"}).json()
+    assert any(f["path"] == "shop/payments.py" for f in found["files"])
+    assert c.get(f"{p}/graph/find", params={"q": "p"}).json() == {"folders": [], "files": [], "symbols": []}  # too short to mean anything
+    sym = c.get(f"{p}/graph/find", params={"q": "checkout"}).json()["symbols"]
+    assert sym
+    full = c.get(f"{p}/graph/focus", params={"id": sym[0]["id"], "depth": 3, "limit": 10}).json()
+    assert full["shown"] <= 10 and full["total"] >= full["shown"] and full["center"] == sym[0]["id"]
+    assert {l["source"] for l in full["links"]} | {l["target"] for l in full["links"]} <= {n["id"] for n in full["nodes"]}
+    assert full["nodes"][0]["hop"] == 0  # nearest first
+    assert c.get(f"{p}/graph/focus", params={"id": "shop/payments.py"}).json()["file"] == "shop/payments.py"
+    assert c.get(f"{p}/graph/focus", params={"id": "nope-not-a-node"}).status_code == 404
+
+
+def test_a_stale_scope_draws_the_current_model_instead_of_nothing(cairn, tmp_path):
+    c, p = _client(cairn, tmp_path)
+    ok = c.get(f"{p}/system/view", params={"level": "containers"})
+    assert ok.status_code == 200 and "stale_scope" not in ok.json()
+    r = c.get(f"{p}/system/view", params={"level": "containers", "scope": "entry:deadbeef0123"})
+    assert r.status_code == 200, r.text  # was a 404 the page showed as "Nothing to draw"
+    assert r.json()["stale_scope"] == "entry:deadbeef0123" and r.json()["elements"]
+    assert c.get(f"{p}/system/svg", params={"level": "containers", "scope": "entry:deadbeef0123"}).status_code == 200
