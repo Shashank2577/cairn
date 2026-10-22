@@ -500,8 +500,9 @@ def resolve_watch_agent_id(watch: dict) -> str | None:
 
 
 def extract_session_id_from_path(file_path: str) -> str | None:
-    m = _UUID.search(file_path)
-    return m.group(0) if m else None
+    """The session id in a transcript path: the last UUID, which is the file's own (a parent folder may hold one too)."""
+    found = _UUID.findall(file_path)
+    return found[-1] if found else None
 
 
 def parse_apply_patch_files(patch: str) -> list[str]:

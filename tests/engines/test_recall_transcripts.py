@@ -391,6 +391,12 @@ def test_codex_home_moves_the_canonical_watch(tmp_path, monkeypatch):
     assert tr.sample_config()["watches"][0]["path"] == tr.CODEX_WATCH_PATH
 
 
+def test_session_id_comes_from_the_file_not_a_parent_folder():
+    parent, own = "aaaaaaaa-1111-2222-3333-444444444444", "bbbbbbbb-1111-2222-3333-444444444444"
+    assert tr.extract_session_id_from_path(f"/work/{parent}/sessions/rollout-2026-{own}.jsonl") == own
+    assert tr.extract_session_id_from_path("/work/none.jsonl") is None
+
+
 # ---- config, codex filtering, helpers -----------------------------------------------------------------------
 def test_sample_config_ships_the_codex_schema(tmp_path):
     path = tr.write_sample_config()
