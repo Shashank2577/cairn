@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import ingest
+from . import ingest, sources
 from .context import claude_config_dir, cwd_to_dashed, inject_context
 from .platforms import normalize_platform_source
 from .projects import expand_home, find_store_root, project_context, should_track
@@ -227,6 +227,9 @@ def validate_config(config: dict) -> list[str]:
             problems.append(f"watch {i}: not an object")
             continue
         label = f"watch {watch.get('name', i)!r}"
+        if sources.is_source_watch(watch):
+            problems += [f"{label}: {p}" for p in sources.validate_source_watch(watch)]
+            continue
         if not watch.get("path"):
             problems.append(f"{label}: missing path")
         if resolve_schema(watch, config) is None:
@@ -995,8 +998,8 @@ class TranscriptWatcher:
         """Pick up files that newly match a watch (``startAtEnd`` applies to files present at the first scan)."""
         initial = not self._scanned
         for watch in self.config.get("watches") or []:
-            if not isinstance(watch, dict):
-                continue
+            if not isinstance(watch, dict) or sources.is_source_watch(watch):
+                continue   # source watches (Gemini, Cline, OpenCode) are polled by _poll_sources
             schema = resolve_schema(watch, self.config)
             if schema is None:
                 if str(watch.get("name")) not in self._warned:
@@ -1007,6 +1010,28 @@ class TranscriptWatcher:
                 if file_path not in self.tails:
                     self._add_tail(file_path, watch, schema, initial)
         self._scanned = True
+
+    def _poll_sources(self, initial: bool) -> int:
+        """Whole-file JSON / SQLite sessions: feed each source watch's new normalized entries to the processor."""
+        count = 0
+        for watch in self.config.get("watches") or []:
+            if not sources.is_source_watch(watch):
+                continue
+            try:
+                entries = sources.poll_source(watch, self.state, initial)
+            except Exception as exc:  # noqa: BLE001 - one broken source never stops the others
+                log.debug("failed to poll source %s: %s", watch.get("name"), exc)
+                continue
+            if entries or initial:
+                self._dirty = True
+            for entry in entries:
+                count += 1
+                try:
+                    self.processor.process_entry(entry, watch, sources.NORMALIZED_SCHEMA)
+                except Exception as exc:  # noqa: BLE001
+                    self.processor.counts["errors"] += 1
+                    log.debug("failed to process %s entry: %s", watch.get("name"), exc)
+        return count
 
     def _add_tail(self, file_path: str, watch: dict, schema: dict, initial: bool) -> None:
         offsets = self.state.setdefault("offsets", {})
@@ -1085,8 +1110,10 @@ class TranscriptWatcher:
     def poll(self) -> dict:
         """One tick: discover files, read what was appended, persist offsets. Returns this tick's counts."""
         before = Counter(self.processor.counts)
+        initial = not self._scanned
         self.scan()
-        lines = sum(self._read_new(tail) for tail in list(self.tails.values()))
+        lines = self._poll_sources(initial)
+        lines += sum(self._read_new(tail) for tail in list(self.tails.values()))
         if lines or self._dirty:
             self.save()
         delta = Counter(self.processor.counts)
