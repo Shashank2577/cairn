@@ -17,11 +17,12 @@ import { Specs } from "./views/specs.js";
 import { Sessions } from "./views/sessions.js";
 import { Timeline } from "./views/timeline.js";
 import { Memory } from "./views/memory.js";
+import { Docs } from "./views/docs.js";
 import { ProjectSettings } from "./views/settings.js";
 import { Team } from "./views/team.js";
 import { Account } from "./views/account.js";
 
-const VIEWS = { overview: Overview, impact: Impact, map: MapView, specs: Specs, sessions: Sessions, timeline: Timeline, memory: Memory, settings: ProjectSettings };
+const VIEWS = { overview: Overview, impact: Impact, map: MapView, specs: Specs, sessions: Sessions, timeline: Timeline, memory: Memory, docs: Docs, settings: ProjectSettings };
 
 function applyTheme(t) {
   const r = document.documentElement;

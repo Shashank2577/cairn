@@ -914,7 +914,7 @@ class Cairn:
 
     def savings(self, limit: int = 60) -> dict:
         """Every pack handed out, with the size of the source files it summarised."""
-        return {"totals": self.brain.query_totals(), "recent": self.brain.queries(limit)}
+        return {"totals": self.brain.query_totals(), "recent": self.brain.queries(limit), "pricing": self.router.reference_price()}
 
     def search(self, q: str, kinds: list[str] | None = None, limit: int = 20) -> list[dict]:
         asked = list(kinds or [])
