@@ -9,6 +9,8 @@
   prints the command that starts that agent on it.
 - **Cursor agent transcripts** are a built-in watch schema (`schema: "cursor"`, set `workspace` on the watch, since the transcripts carry no cwd), and
   field specs accept an `extract` regex. `CODEX_HOME` is honoured by the Codex watch.
+- **Gemini CLI, Cline and OpenCode sessions** can be watched with `{"name": "gemini", "source": "gemini"}` (likewise `cline`, `opencode`) in the
+  transcript watch config. These read whole-file JSON and SQLite stores that the JSONL tailer cannot.
 
 ### Changed
 
