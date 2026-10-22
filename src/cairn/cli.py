@@ -1064,6 +1064,36 @@ def review_context(files: str = typer.Option(..., "--files", help="Changed files
     sys.stdout.write(pack["text"] + "\n")
 
 
+@app.command()
+def handoff(session: Optional[str] = typer.Argument(None, help="Session id (default: the latest captured session)."),
+            to: Optional[str] = typer.Option(None, "--to", help="Agent that picks it up: claude, codex, gemini, "
+                                             "opencode, cline, cursor. Prints the command that starts it."),
+            write: bool = typer.Option(False, "--write", help="Save under .cairn/handoffs/ instead of printing."),
+            as_json: bool = typer.Option(False, "--json")):
+    """A resume briefing for the next agent: what was asked, where it stopped, files touched and conventions."""
+    from rich.markup import escape
+
+    from .handoff import HandoffError, build_handoff, launch_line, write_handoff
+    c = _cairn()
+    _need_init(c)
+    try:
+        text, meta = build_handoff(c, c.project.root, session, to)
+    except HandoffError as exc:
+        err.print(f"[{ROSE}]{escape(str(exc))}[/]")
+        raise typer.Exit(2)
+    path = write_handoff(c.project.root, text, meta["session"]) if (write or to) else None
+    if as_json:
+        _emit_json({**meta, "path": str(path) if path else None, "markdown": text,
+                    "launch": launch_line(to, path) if to and path else None})
+        return
+    if path is None:
+        sys.stdout.write(text + "\n")
+        return
+    console.print(Text(f"Saved {path}", style=f"bold {INK}"))
+    if to:
+        console.print(Text(launch_line(to, path)))
+
+
 @app.command("sessions", add_help_option=False,
              context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def sessions(ctx: typer.Context):

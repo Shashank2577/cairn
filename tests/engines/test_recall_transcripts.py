@@ -346,6 +346,51 @@ def test_agents_context_is_written_through_folders(repo, tmp_path, monkeypatch):
     assert proc.update_context(session, outside_path) is False and not calls
 
 
+# ---- Cursor transcripts, field extraction, CODEX_HOME --------------------------------------------------------
+CURSOR_SID = "7e1d2c3b-4a59-4687-98a7-b6c5d4e3f201"
+
+
+def cursor_file(tmp_path: Path) -> Path:
+    return tmp_path / "cursor" / "proj" / "agent-transcripts" / CURSOR_SID / f"{CURSOR_SID}.jsonl"
+
+
+def test_cursor_transcript_unwraps_the_user_query(repo, tmp_path):
+    lines = [{"role": "user", "message": {"content": [{"type": "text", "text": "<user_query>\nrename foo\n</user_query>"}]}},
+             {"role": "assistant", "message": {"content": [{"type": "text", "text": "Renamed."}]}},
+             {"role": "user", "message": {"content": [{"type": "text", "text": "plain follow up"}]}}]
+    write_jsonl(cursor_file(tmp_path), lines)
+    cfg = {"version": 1,
+           "watches": [{"name": "cursor", "path": str(tmp_path / "cursor" / "**" / "*.jsonl"), "schema": "cursor",
+                        "workspace": str(repo)}],
+           "stateFile": str(tmp_path / "state.json")}
+    cfg_path = tmp_path / "watch.json"
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    assert tr.validate_config(cfg) == []
+    res = tr.run_once(cfg_path, settings=load_settings(repo))
+    assert res["status"] == "ok" and res["prompts"] == 2
+    session = rows(repo, "SELECT content_session_id, platform_source FROM sdk_sessions")[0]
+    assert session["content_session_id"] == CURSOR_SID and session["platform_source"] == "cursor"
+    prompts = [r["prompt_text"] for r in rows(repo, "SELECT prompt_text FROM user_prompts ORDER BY id")]
+    assert prompts == ["rename foo", "plain follow up"]
+
+
+def test_extract_option_takes_the_first_group_or_nothing():
+    entry = {"t": "a <b>hello</b> c"}
+    assert tr.resolve_field_spec({"path": "t", "extract": "<b>(.*?)</b>"}, entry, {}) == "hello"
+    assert tr.resolve_field_spec({"path": "t", "extract": "b+"}, entry, {}) == "b"
+    assert tr.resolve_field_spec({"path": "t", "extract": "<z>"}, entry, {}) is tr.MISSING
+    assert tr.resolve_field_spec({"path": "t", "extract": "("}, entry, {}) is tr.MISSING
+
+
+def test_codex_home_moves_the_canonical_watch(tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "chome"))
+    watch = tr.sample_config()["watches"][0]
+    assert watch["path"] == f"{(tmp_path / 'chome' / 'sessions').as_posix()}/**/*.jsonl"
+    assert tr.is_native_hook_backed_codex_watch(watch)
+    monkeypatch.delenv("CODEX_HOME")
+    assert tr.sample_config()["watches"][0]["path"] == tr.CODEX_WATCH_PATH
+
+
 # ---- config, codex filtering, helpers -----------------------------------------------------------------------
 def test_sample_config_ships_the_codex_schema(tmp_path):
     path = tr.write_sample_config()

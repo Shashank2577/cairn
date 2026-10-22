@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **`cairn handoff`** builds a resume briefing for the next agent from a captured session: what was asked, where it stopped, the files touched with
+  their `cairn impact` summary, and the team's conventions. `--to claude|codex|gemini|opencode|cline|cursor` saves it under `.cairn/handoffs/` and
+  prints the command that starts that agent on it.
+- **Cursor agent transcripts** are a built-in watch schema (`schema: "cursor"`, set `workspace` on the watch, since the transcripts carry no cwd), and
+  field specs accept an `extract` regex. `CODEX_HOME` is honoured by the Codex watch.
+
 ### Changed
 
 - **Session observations cost far fewer model tokens.** Replayed on two real repositories (measured tokens, estimated dollars; see
