@@ -16,6 +16,7 @@ from cairn.engines.recall.store import Store
 def _env(tmp_path, monkeypatch):
     monkeypatch.setenv("CAIRN_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("HOME", str(tmp_path / "userhome"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "userhome"))  # Path.home() on Windows
     monkeypatch.setenv("CAIRN_RECALL_NO_SPAWN", "1")
     for var in ("GEMINI_CLI_HOME", "OPENCODE_DB", "XDG_DATA_HOME", "APPDATA", "XDG_CONFIG_HOME"):
         monkeypatch.delenv(var, raising=False)
