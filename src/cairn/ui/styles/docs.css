@@ -1,0 +1,25 @@
+/* Docs view: the architecture documents, previewed. */
+.docs { display: grid; grid-template-columns: minmax(200px, 270px) minmax(0, 1fr); gap: 22px; align-items: start; }
+@media (max-width: 860px) { .docs { grid-template-columns: minmax(0, 1fr); } }
+.docs-stale { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 14px; margin: 14px 0 18px; border: 1px solid var(--rule-strong); border-radius: 8px; background: var(--sheet); font-size: 14px; }
+.docs-stale.behind { border-color: var(--code); background: var(--code-wash); }
+.docs-stale .grow { flex: 1 1 260px; min-width: 0; }
+.docs-list { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 12px; }
+.docs-list h4 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.docs-list h4:first-child { margin-top: 0; }
+.docs-list a { display: block; padding: 6px 10px; border-radius: 6px; color: var(--ink-2); text-decoration: none; font-size: 14px; overflow-wrap: anywhere; }
+.docs-list a:hover { background: var(--faint); color: var(--ink); }
+.docs-list a[aria-current="page"] { background: var(--ink); color: var(--on-ink); }
+.docs-doc { min-width: 0; border: 1px solid var(--rule); border-radius: 10px; background: var(--raised); padding: 18px 22px; }
+.docs-diagram { overflow: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--sheet); padding: 10px; margin: 8px 0 16px; }
+.docs-diagram svg { max-width: 100%; height: auto; }
+.docs-doc .prose { overflow-x: auto; }
+.docs-doc .prose table { font-size: 13px; }
+.docs-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 6px; }
+.docs-narrate { margin-top: 10px; padding: 10px 14px; border: 1px dashed var(--rule-strong); border-radius: 8px; font-size: 13px; color: var(--ink-2); }
+.docs-narrate label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.docs-doc .prose th { white-space: nowrap; }
+.docs-list h4.sub2 { margin: 8px 10px 2px; font-size: 11px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.docs-doc.written { padding: 0; overflow: hidden; }
+.docs-frame { display: block; width: 100%; height: 78vh; border: 0; background: #fff; }
+.docs-diagram.full svg { max-width: none; }

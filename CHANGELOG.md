@@ -4,6 +4,11 @@
 
 ### Added
 
+- **The savings are visible.** Overview has a *Model cost* section and Settings a fuller *Model spend* one: tokens per observation and per tool
+  event, estimated dollars (list price, or `[models.prices]`), cache write vs read, thinking tokens, and before/after the cache-write default,
+  from this project's own ledger (or the spec-002 study when it has no old calls). Tokens are labelled measured, dollars estimated.
+- The ledger keeps thinking tokens and the 1-hour cache write per call (additive columns; older stores upgrade in place). `cairn models --ledger` shows them.
+- `cairn doctor` and Settings warn when a project still pins the old default fast model; `cairn models --upgrade` rewrites only such a pin to Haiku 5.5.
 - **`cairn handoff`** builds a resume briefing for the next agent from a captured session: what was asked, where it stopped, the files touched with
   their `cairn impact` summary, and the team's conventions. `--to claude|codex|gemini|opencode|cline|cursor` saves it under `.cairn/handoffs/` and
   prints the command that starts that agent on it.

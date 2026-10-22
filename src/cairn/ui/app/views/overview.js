@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { html, Icon, Empty, Load, ContourField, Tag, Meter, Skeleton } from "../components/ui.js";
 import { ScaleBar, Ratio } from "../components/scalebar.js";
+import { ModelCost } from "../components/modelcost.js";
 import { Stepper } from "../components/stepper.js";
 import { useNarration, useModelReady, NarrationPanel } from "../components/narrate.js";
 import { useApp, useFetch, useLive } from "../state.js";
 import { api } from "../api.js";
 import { link, citeHref } from "../router.js";
+import { usd, tokensUsd } from "../lib/cost.js";
 import { ago, fmt, plural, rich, base, dir, stepNames, listOf, failText, STEP_LABEL } from "../lib/format.js";
 
 export const SURFACE = { mcp: "Agent tool call", hook: "Session start", cli: "Terminal", ui: "This page", api: "API token" };
@@ -18,6 +20,7 @@ export function Overview() {
   const { pid, project, ov, reloadOv, route } = useApp();
   const n = useNarration(pid);
   const sav = useFetch(() => api.p(pid).savings(12), [pid]);
+  const mdl = useFetch(() => api.p(pid).models(), [pid]);
   const feed = useFetch(() => api.p(pid).feed({ limit: 8 }), [pid]);
   const drift = useFetch(() => api.p(pid).drift(), [pid]);
   const wf = useFetch(() => api.p(pid).workflow(), [pid]);
@@ -67,6 +70,11 @@ export function Overview() {
         ${specs.data?.features?.length && wf.data ? html`<${ActiveSpec} specs=${specs.data} wf=${wf.data}/>` : null}
       </section>
     </div>
+    <section class="sec" aria-labelledby="h-cost">
+      <div class="sec-h"><div><h2 id="h-cost">Model cost</h2><p class="sub">What Cairn's own model calls (writing session observations, summaries, timeline facts) cost, and what the cheaper defaults saved.</p></div>
+        <a class="small" href=${link.project(pid, "settings")}>Details and models</a></div>
+      <${Load} res=${mdl} rows="4">${r => html`<${ModelCost} r=${r}/>`}</${Load}>
+    </section>
     <section class="sec ruled" aria-labelledby="h-layers">
       <div class="sec-h"><div><h2 id="h-layers">Layers</h2><p class="sub">Where the answers come from. Each layer rebuilds on every sync.</p></div></div>
       <${Layers} L=${L} ov=${ov}/>
@@ -138,6 +146,7 @@ function Served({ s }) {
     <p class="lede" style="margin:0 0 6px">${agentRows.length ? `Agents asked Cairn ${plural(n, "time")}` : `No agent has asked yet. Answers were looked up ${plural(n, "time")}`}, and got a pack a fraction of the size of the code it cites.</p>
     <${ScaleBar} sent=${sent} source=${source} files=${files || null} sentLabel=${agentRows.length ? "Sent to agents" : "Sent"}/>
     <${Ratio} sent=${sent} source=${source} who=${who}/>
+    <${KeptOut} kept=${source - sent} pricing=${s.pricing}/>
     <div class="surfaces">
       ${s.totals.sort((a, b) => b.n - a.n).map(r => html`<div class="surf">
         <span class="k">${SURFACE[r.surface] || r.surface}</span><span class="t">${cap(PACK[r.kind] || r.kind)}</span>
@@ -145,6 +154,16 @@ function Served({ s }) {
     </div>
     ${briefs.length ? html`<p class="sub" style="margin-top:10px">Session briefings add about ${fmt(sum(briefs, "sent") / Math.max(1, sum(briefs, "n")))} tokens at the start of each agent session. They have no file baseline, so they count as cost, not savings.</p>` : null}
   </div>`;
+}
+
+/** The tokens kept out of context as dollars, at list prices only: never a guess for a model without a known price. */
+function KeptOut({ kept, pricing }) {
+  const { pid } = useApp();
+  if (!(kept > 0)) return null;
+  if (!pricing) return html`<p class="sub">No confirmed price for the models set in <a href=${link.project(pid, "settings")}>Settings</a>, so this is shown in tokens only.</p>`;
+  const fresh = usd(tokensUsd(kept, pricing.input)), cached = usd(tokensUsd(kept, pricing.cache_read));
+  return html`<p class="sub" title="Estimate from Anthropic's published list prices as of ${pricing.as_of}. Subscriptions bill by plan usage, not per token, so this is a size comparison, not an invoice.">
+    Kept out of context <b class="num">${fresh}</b> at <code>${pricing.model}</code> list price ($${pricing.input} per million input tokens). If those files had been read from a warm prompt cache instead, ${cached} (cache reads cost 0.1× the input rate; cache writes cost 2×). List-price estimate, not a bill.</p>`;
 }
 
 function Attention({ findings }) {
