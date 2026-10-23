@@ -7235,9 +7235,20 @@ def extract(
         root = cache_root
     root = root.resolve()
     python_scan_paths = list(paths)
+    # Context nodes carry one source_file per node (thousands of nodes, hundreds of files): look each distinct
+    # file up once. The alias map is built from sets, so repeated paths never change the result.
+    seen_context_sources: set = set()
     for context_node in resolution_context_nodes or []:
         source_file = context_node.get("source_file")
-        if not source_file or Path(source_file).suffix.lower() != ".py":
+        if not source_file:
+            continue
+        try:
+            if source_file in seen_context_sources:
+                continue
+            seen_context_sources.add(source_file)
+        except TypeError:  # an unhashable source_file is looked up every time, as before
+            pass
+        if Path(source_file).suffix.lower() != ".py":
             continue
         context_path = Path(source_file)
         if not context_path.is_absolute():

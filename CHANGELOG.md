@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 — 2026-10-23
+
+### Fixed
+
+- **An incremental map build is about twice as fast.** After a commit, the map looked up every node's source file separately (tens of thousands of
+  lookups for a few hundred files). It now looks each file up once. On a 1,435-file repository a one-file rebuild takes 9.9 s instead of 20.7 s and
+  writes an identical graph.
+
 ## 0.3.0 — 2026-10-22
 
 ### Added
