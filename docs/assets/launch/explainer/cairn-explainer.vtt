@@ -1,0 +1,70 @@
+WEBVTT
+
+00:00:00.600 --> 00:00:05.755
+An agent gets a task: record end lines in graph/extract.py.
+
+00:00:06.105 --> 00:00:10.432
+Before it edits, it asks one question. What breaks if I change this?
+
+00:00:11.832 --> 00:00:19.569
+Reading its way to an answer is costly. extract.py alone is 8,739 lines.
+
+00:00:19.969 --> 00:00:24.892
+So it makes one call to Cairn's MCP server: cairn_context.
+
+00:00:25.692 --> 00:00:30.232
+Cairn has already built five layers from this repo, on this machine.
+
+00:00:30.532 --> 00:00:35.632
+Map: a tree-sitter code graph. It finds who calls the code being changed.
+
+00:00:36.032 --> 00:00:41.132
+Specs: the requirement and the task that own this file.
+
+00:00:41.532 --> 00:00:46.852
+Timeline: git history. Two past fixes here, one for UTF-8 on Windows.
+
+00:00:47.252 --> 00:00:52.352
+Memory: the decisions and conventions the team recorded.
+
+00:00:52.752 --> 00:00:58.252
+Sessions: an earlier agent found that locations store one line, never a range.
+
+00:00:58.952 --> 00:01:04.052
+It all comes back as one pack: ranked, cited and cut to a token budget.
+
+00:01:04.852 --> 00:01:11.963
+1,192 tokens, inside a 1,200-token budget. No files copied in.
+
+00:01:12.313 --> 00:01:16.689
+Every line names its source, so the agent knows what to verify.
+
+00:01:17.289 --> 00:01:21.389
+Now it edits with the blast radius in view.
+
+00:01:22.189 --> 00:01:27.433
+cairn_impact confirms it: medium risk, three dependents, two past fixes.
+
+00:01:27.833 --> 00:01:32.832
+It writes the range, keeps text I/O in UTF-8, and checks the dependents.
+
+00:01:33.432 --> 00:01:37.932
+What it learned goes back with cairn_remember, as one sentence.
+
+00:01:38.282 --> 00:01:42.482
+The next session starts with it in the brief. Nothing is learned twice.
+
+00:01:42.832 --> 00:01:46.932
+And cairn_session_search finds what any earlier session did.
+
+00:01:47.532 --> 00:01:52.857
+None of this needs a model: ASTs, git, spec files and session logs.
+
+00:01:53.207 --> 00:01:58.810
+A model only enriches, on Haiku, Sonnet or Opus tiers. It never gates an answer.
+
+00:01:59.410 --> 00:02:03.510
+Cairn. Institutional memory for coding agents.
+
+00:02:03.910 --> 00:02:06.810
+One command, in any git repository.
