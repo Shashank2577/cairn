@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cairn Field Demo</title>
+<meta name="description" content="Watch the same coding task run twice: once by an agent with no memory, once by an agent using Cairn.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cellipse cx='16' cy='27' rx='13' ry='4' fill='%239A6434'/%3E%3Cellipse cx='15.5' cy='21' rx='10.5' ry='3.6' fill='%236E4A96'/%3E%3Cellipse cx='16.5' cy='15.2' rx='8' ry='3.2' fill='%238C7424'/%3E%3Cellipse cx='15.6' cy='9.8' rx='5.8' ry='2.8' fill='%234F7F3F'/%3E%3Cellipse cx='16.2' cy='4.9' rx='3.6' ry='2.3' fill='%232F6FA3'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:ital,wght@0,300..900;1,400..700&family=Overpass+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="canonical" href="https://cairn.spreix.com/demo.html">
+<style>
+.demo-head { position: relative; overflow: hidden; border-bottom: 1px solid var(--rule); }
+.demo-head .topo { mask-image: linear-gradient(90deg, transparent, #000 60%); -webkit-mask-image: linear-gradient(90deg, transparent, #000 60%); }
+.demo-head .wrap { position: relative; display: grid; gap: 18px; padding-block: clamp(36px, 5vw, 60px) 28px; }
+.demo-head h1 { font-size: clamp(2.2rem, 1.4rem + 3.4vw, 3.8rem); font-weight: 850; letter-spacing: -.04em; line-height: 1; }
+.demo-head p { color: var(--ink-2); font-size: var(--t-l); max-width: 62ch; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab {
+  all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 3px; padding: 12px 16px; min-width: 0;
+  border: 1px solid var(--rule-strong); border-radius: var(--r-m); background: var(--raised); max-width: 300px;
+  transition: border-color .2s, background .2s;
+}
+.tab .label { color: var(--c); }
+.tab b { font: 700 var(--t-m)/1.25 var(--display); color: var(--ink); }
+.tab[aria-selected="true"] { border-color: var(--c); background: var(--w); box-shadow: inset 0 -3px 0 var(--c); }
+.tab:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+
+.task { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; padding-block: 22px; }
+.task-prompt { display: flex; gap: 12px; align-items: baseline; min-width: 0; flex: 1 1 420px; }
+.task-prompt .who { flex: none; font: 600 var(--t-xs)/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.task-prompt q { font: 600 var(--t-l)/1.4 var(--display); quotes: "“" "”"; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--r-m); overflow: hidden; }
+.seg button { all: unset; cursor: pointer; padding: 0 12px; height: 36px; display: grid; place-items: center; font: 600 var(--t-xs)/1 var(--mono); color: var(--ink-2); background: var(--raised); }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+.seg button:focus-visible { outline: 2px solid var(--agent); outline-offset: -2px; }
+
+.runs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(14px, 2vw, 24px); padding-bottom: 28px; }
+@media (max-width: 900px) { .runs { grid-template-columns: minmax(0, 1fr); } }
+.run { display: grid; grid-template-rows: auto 1fr auto; border: 1px solid var(--rule); border-radius: var(--r-l); background: var(--raised); overflow: hidden; min-width: 0; }
+.run-head { display: grid; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--rule); background: var(--sheet); }
+.run-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.run-title h2 { font-size: var(--t-l); font-weight: 750; display: flex; align-items: center; gap: 9px; }
+.run-title h2 .layer-dot { color: var(--c); }
+.meter { display: grid; gap: 6px; }
+.meter-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.meter-top .label { color: var(--muted); }
+.meter-num { font: 800 1.5rem/1 var(--display); letter-spacing: -.02em; color: var(--c); font-variant-numeric: tabular-nums; }
+.meter-track { height: 8px; background: var(--faint); border-radius: 4px; overflow: hidden; }
+.meter-fill { height: 100%; width: 0; background: var(--c); border-radius: 4px; transition: width .5s var(--ease); }
+.meter-scale { font: 500 var(--t-xs)/1 var(--mono); color: var(--muted); }
+
+.log { list-style: none; margin: 0; padding: 14px 18px; display: grid; gap: 10px; align-content: start; min-height: 420px; max-height: 560px; overflow-y: auto; }
+.ev { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; animation: rise .45s var(--ease) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+.ev-ico { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font: 700 11px/1 var(--mono); background: var(--faint); color: var(--ink-2); }
+.ev-body { display: grid; gap: 6px; min-width: 0; }
+.ev-line { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; justify-content: space-between; }
+.ev-line span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.ev-tok { font: 500 var(--t-xs)/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ev code { font-size: .86em; }
+.ev.think .ev-body { color: var(--ink-2); font-style: italic; }
+.ev.tool .ev-ico { background: var(--agent-wash); color: var(--agent); }
+.ev.read .ev-ico { background: var(--code-wash); color: var(--code); }
+.ev.edit .ev-ico { background: var(--spec-wash); color: var(--spec); }
+.ev.test .ev-ico { background: var(--faint); }
+.ev.cairn .ev-ico { background: var(--memory-wash); color: var(--memory); }
+.ev.bad .ev-ico { background: var(--risk-wash); color: var(--risk); }
+.ev.good .ev-ico { background: var(--memory-wash); color: var(--memory); }
+.ev.bad .ev-line > span:first-child { color: var(--risk); font-weight: 600; }
+.ev.good .ev-line > span:first-child { color: var(--memory); font-weight: 600; }
+.pack { background: var(--term); color: var(--term-ink); border-radius: var(--r-m); padding: 12px 14px; font: 400 .76rem/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.outcome { padding: 16px 18px; border-top: 1px solid var(--rule); display: grid; gap: 6px; background: var(--sheet); min-height: 96px; align-content: center; }
+.outcome .label { color: var(--c); }
+.outcome p { color: var(--ink-2); font-size: var(--t-s); }
+.outcome.pending p { color: var(--muted); }
+
+.verdict { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r-l); overflow: hidden; margin-bottom: 48px; }
+.verdict div { background: var(--raised); padding: 20px 22px; display: grid; gap: 6px; }
+.verdict strong { font: 850 clamp(1.8rem, 1.2rem + 2vw, 2.6rem)/1 var(--display); letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--memory); }
+.verdict span { color: var(--ink-2); font-size: var(--t-s); }
+@media (max-width: 700px) { .verdict { grid-template-columns: minmax(0, 1fr); } }
+
+.note { color: var(--muted); font-size: var(--t-xs); padding-bottom: 48px; max-width: 80ch; }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Cairn home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="27" rx="13" ry="4" fill="var(--code)"/><ellipse cx="15.5" cy="21" rx="10.5" ry="3.6" fill="var(--spec)"/><ellipse cx="16.5" cy="15.2" rx="8" ry="3.2" fill="var(--time)"/><ellipse cx="15.6" cy="9.8" rx="5.8" ry="2.8" fill="var(--memory)"/><ellipse cx="16.2" cy="4.9" rx="3.6" ry="2.3" fill="var(--agent)"/></svg>
+      Cairn
+    </a>
+    <nav class="nav-links" aria-label="Pages"><a href="index.html">Overview</a><a href="index.html#watch">Films</a><a href="index.html#receipts">Savings</a><a href="index.html#faq">FAQ</a></nav>
+    <div class="nav-end"><a class="btn btn-sm btn-primary" href="index.html#top">Install</a></div>
+  </div>
+</header>
+
+<main>
+  <section class="demo-head">
+    <canvas class="topo" data-topo data-seed="7" aria-hidden="true"></canvas>
+    <div class="wrap">
+      <span class="eyebrow l-agent"><span class="layer-dot"></span><span class="label">Field demo · replay</span></span>
+      <h1>Same task. Two agents.</h1>
+      <p>Both agents get the same request in Cairn's own repository. The one on the left has no memory. The one on the right has Cairn. Watch what each reads, what each misses and what it costs.</p>
+      <div class="tabs" role="tablist" aria-label="Scenarios" id="tabs"></div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="task">
+      <div class="task-prompt"><span class="who">You asked</span><q id="prompt"></q></div>
+      <div class="controls">
+        <button class="btn btn-sm btn-primary" type="button" id="play">Pause</button>
+        <button class="btn btn-sm" type="button" id="restart">Replay</button>
+        <button class="btn btn-sm" type="button" id="skip">Skip to end</button>
+        <div class="seg" role="group" aria-label="Speed" id="speed">
+          <button type="button" data-s="1" aria-pressed="true">1×</button><button type="button" data-s="2" aria-pressed="false">2×</button><button type="button" data-s="4" aria-pressed="false">4×</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="runs">
+      <article class="run l-risk" id="run-a">
+        <div class="run-head">
+          <div class="run-title"><h2><span class="layer-dot"></span>Agent without memory</h2><span class="label">reads to find out</span></div>
+          <div class="meter"><div class="meter-top"><span class="label">Tokens read</span><span class="meter-num" data-num>0</span></div><div class="meter-track"><div class="meter-fill" data-fill></div></div></div>
+        </div>
+        <ol class="log" data-log aria-live="polite"></ol>
+        <div class="outcome pending" data-outcome><span class="label">Outcome</span><p>Running…</p></div>
+      </article>
+      <article class="run l-memory" id="run-b">
+        <div class="run-head">
+          <div class="run-title"><h2><span class="layer-dot"></span>Agent with Cairn</h2><span class="label">asks first</span></div>
+          <div class="meter"><div class="meter-top"><span class="label">Tokens read</span><span class="meter-num" data-num>0</span></div><div class="meter-track"><div class="meter-fill" data-fill></div></div></div>
+        </div>
+        <ol class="log" data-log aria-live="polite"></ol>
+        <div class="outcome pending" data-outcome><span class="label">Outcome</span><p>Running…</p></div>
+      </article>
+    </div>
+
+    <div class="verdict" id="verdict" hidden>
+      <div><span class="label">Tokens saved</span><strong data-v="saved">—</strong><span data-v="ratio"></span></div>
+      <div><span class="label">Without memory</span><strong data-v="a" style="color:var(--risk)">—</strong><span data-v="a-out"></span></div>
+      <div><span class="label">With Cairn</span><strong data-v="b">—</strong><span data-v="b-out"></span></div>
+    </div>
+
+    <p class="note">A replay, not a live run. File names, dependents, commits, requirements and memories come from Cairn's own repository and real <code>cairn impact</code> output; token counts are estimated from file sizes, and some tool output is abridged.</p>
+  </div>
+</main>
+
+<footer class="foot"><div class="wrap"><span>Cairn · Apache-2.0</span><nav><a href="index.html">Overview</a><a href="https://github.com/Shashank2577/cairn">GitHub</a></nav></div></footer>
+
+<script src="topo.js"></script>
+<script>
+/* Event kinds: think, read, tool, cairn, edit, test, bad, good. `t` = tokens the step adds to context. */
+const SCENARIOS = [
+  {
+    id: "edit", layer: "l-risk", tag: "Edit safely", title: "Add a request timeout to the model router",
+    prompt: "Add a configurable request timeout to the model router.",
+    a: [
+      { k: "think", x: "I need to understand how the router is built and used." },
+      { k: "read", x: "Read <code>src/cairn/router.py</code>", t: 6212 },
+      { k: "tool", x: "Grep <code>Router(</code> → 18 matches in 11 files", t: 940 },
+      { k: "read", x: "Read <code>core.py</code>, <code>engines/memory.py</code>, <code>engines/chronicle.py</code>", t: 31480 },
+      { k: "read", x: "Read <code>recall/worker.py</code>, <code>recall/corpus.py</code>, <code>journal.py</code>", t: 38210 },
+      { k: "read", x: "Read 24 more files to be safe", t: 67386 },
+      { k: "edit", x: "Add <code>timeout</code> as the second positional argument of <code>Router.__init__</code>" },
+      { k: "test", x: "Run <code>tests/test_router.py</code> → 14 passed" },
+      { k: "bad", x: "CI: 47 tests fail in <code>tests/engines/</code>", sub: "<code>make_router()</code> in <code>recall/worker.py:81</code> passes the budget positionally. The agent read the file but the call slipped out of its context." },
+    ],
+    aOut: "Ships a breaking change. 47 failing tests, a second session to fix it.",
+    b: [
+      { k: "cairn", x: "Session-start brief injected", t: 1882 },
+      { k: "tool", x: "<code>cairn_impact src/cairn/router.py</code>", t: 391, pack:
+"HIGH 137 dependents in 40 files · 3 past fixes\n• make_router()  recall/worker.py:81  calls Router\n• semantic()     drift.py:92         calls Budget\nChanges together: engines/__init__.py, store.py\nWarning: f3ea2a9e fix: read/write text as UTF-8\nIntent: FR-017 · T006 model router (done)\nMemory: every call goes through cairn.router\n        with a task in TASK_TIER; all to ledger" },
+      { k: "think", x: "137 dependents and a positional caller. The timeout must be keyword-only with a default, and it belongs in the ledger record." },
+      { k: "read", x: "Read <code>src/cairn/router.py</code>", t: 6212 },
+      { k: "edit", x: "Add keyword-only <code>timeout=60.0</code>; record it in the ledger entry; add <code>[models] timeout</code>" },
+      { k: "test", x: "Run the 47 tests Cairn listed as likely affected → all pass" },
+      { k: "good", x: "Green on the first push", sub: "Followed the router convention, so a reviewer had nothing to repeat." },
+    ],
+    bOut: "Merged on the first pass. No dependent broke.",
+  },
+  {
+    id: "why", layer: "l-time", tag: "Ask why", title: "Why does Cairn capture sessions itself?",
+    prompt: "Why do we capture agent sessions ourselves instead of using an existing memory plugin?",
+    a: [
+      { k: "read", x: "Read <code>src/cairn/capture.py</code>", t: 9120 },
+      { k: "read", x: "Read <code>src/cairn/hooks.py</code> and <code>agents.py</code>", t: 18740 },
+      { k: "tool", x: "<code>git log --oneline -- src/cairn/capture.py</code> → 31 commits", t: 1210 },
+      { k: "read", x: "Read <code>docs/architecture.md</code>", t: 11960 },
+      { k: "think", x: "No comment explains it. Probably for performance." },
+      { k: "bad", x: "Answers with a confident guess", sub: "“It was likely built in for lower latency.” The real reason is in a recorded decision the agent never found." },
+    ],
+    aOut: "A plausible, wrong answer. It could steer the next design choice the wrong way.",
+    b: [
+      { k: "cairn", x: "Session-start brief injected", t: 1882 },
+      { k: "tool", x: "<code>cairn_why src/cairn/capture.py</code>", t: 612, pack:
+"[decision] Session capture is built in: Cairn records\n  sessions itself. cairn init adds UserPromptSubmit,\n  PostToolUse and Stop hooks to the agent settings.\n[decision] Cairn ships to every user, so it never\n  depends on a tool one developer has installed.\nTask: 001-cairn-core · session capture (done)\nEXTRACTED from memory + spec" },
+      { k: "good", x: "Answers with the recorded decision", sub: "Cites the decision and the owning task, and says which parts are EXTRACTED fact." },
+    ],
+    bOut: "The real reason, with its source, in one call.",
+  },
+  {
+    id: "resume", layer: "l-agent", tag: "Resume work", title: "Pick up yesterday's session",
+    prompt: "Carry on from where we stopped yesterday.",
+    a: [
+      { k: "think", x: "I don't have context from earlier sessions." },
+      { k: "bad", x: "Asks you to explain", sub: "“Could you tell me what you were working on?”" },
+      { k: "tool", x: "<code>git log -20</code> and <code>git diff HEAD~5</code>", t: 14380 },
+      { k: "read", x: "Read <code>specs/001-cairn-core/tasks.md</code>", t: 18920 },
+      { k: "read", x: "Read 9 recently changed files", t: 52140 },
+      { k: "think", x: "Restarts the caller-attribution work, which is already done." },
+    ],
+    aOut: "Re-does finished work. You re-explain the plan.",
+    b: [
+      { k: "cairn", x: "Session-start brief injected", t: 1882, pack:
+"Recent agent work\n• Caller attribution for remote session push (done)\n• Sessions UI shows pushed_by (done)\n• Dispatched: T066 Windows support for git hooks\n• Dispatched: T068 cross-repository map view\nGotcha: memory seeding needs the deep tier's\n  wall-clock cap" },
+      { k: "think", x: "Attribution is finished. T066 is next." },
+      { k: "tool", x: "<code>cairn_context \"T066 Windows git hooks\"</code>", t: 744 },
+      { k: "read", x: "Read <code>src/cairn/hooks.py</code>", t: 7420 },
+      { k: "good", x: "Continues with T066", sub: "No questions back to you, no repeated work." },
+    ],
+    bOut: "Starts on the right task within a minute.",
+  },
+];
+
+const $ = (s, r = document) => r.querySelector(s);
+const fmt = (n) => n.toLocaleString("en-US");
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const ICON = { think: "…", read: "R", tool: "$", cairn: "C", edit: "E", test: "T", bad: "!", good: "✓" };
+let cur = SCENARIOS[0], speed = 1, playing = true, timers = [], runId = 0;
+
+function tabs() {
+  const box = $("#tabs");
+  SCENARIOS.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "tab " + s.layer; b.type = "button"; b.role = "tab"; b.id = "tab-" + s.id;
+    b.innerHTML = `<span class="label">${s.tag}</span><b>${s.title}</b>`;
+    b.addEventListener("click", () => select(s.id));
+    box.appendChild(b);
+  });
+}
+function select(id) {
+  cur = SCENARIOS.find((s) => s.id === id) || SCENARIOS[0];
+  document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", t.id === "tab-" + cur.id));
+  $("#prompt").textContent = cur.prompt;
+  start();
+}
+const total = (steps) => steps.reduce((n, s) => n + (s.t || 0), 0);
+
+function evEl(s) {
+  const li = document.createElement("li");
+  li.className = "ev " + s.k;
+  li.innerHTML = `<span class="ev-ico" aria-hidden="true">${ICON[s.k]}</span><div class="ev-body"><div class="ev-line"><span>${s.x}</span>${s.t ? `<span class="ev-tok">+${fmt(s.t)}</span>` : ""}</div>${s.sub ? `<p>${s.sub}</p>` : ""}${s.pack ? `<div class="pack"></div>` : ""}</div>`;
+  if (s.pack) li.querySelector(".pack").textContent = s.pack;
+  return li;
+}
+
+function lane(root, steps, outText, scaleMax, onDone) {
+  const log = $("[data-log]", root), num = $("[data-num]", root), fill = $("[data-fill]", root), out = $("[data-outcome]", root);
+  log.innerHTML = ""; num.textContent = "0"; fill.style.width = "0"; out.classList.add("pending"); $("p", out).textContent = "Running…";
+  let tok = 0, i = 0;
+  const setTok = (v) => { num.textContent = fmt(v); fill.style.width = Math.max(v ? 0.6 : 0, (v / scaleMax) * 100) + "%"; };
+  const finish = () => { out.classList.remove("pending"); $("p", out).textContent = outText; onDone(tok); };
+  return {
+    step() {
+      if (i >= steps.length) return false;
+      const s = steps[i++]; tok += s.t || 0;
+      log.appendChild(evEl(s)); log.scrollTop = log.scrollHeight; setTok(tok);
+      if (i >= steps.length) finish();
+      return i < steps.length;
+    },
+    all() { while (this.step()); },
+  };
+}
+
+function start() {
+  timers.forEach(clearTimeout); timers = []; const id = ++runId;
+  $("#verdict").hidden = true;
+  const max = Math.max(total(cur.a), total(cur.b));
+  const done = {};
+  const check = () => { if (done.a !== undefined && done.b !== undefined) verdict(done.a, done.b); };
+  const A = lane($("#run-a"), cur.a, cur.aOut, max, (t) => { done.a = t; check(); });
+  const B = lane($("#run-b"), cur.b, cur.bOut, max, (t) => { done.b = t; check(); });
+  cur._lanes = [A, B];
+  if (reduce) { A.all(); B.all(); return; }
+  const tick = (L, delay) => {
+    timers.push(setTimeout(function go() {
+      if (id !== runId) return;
+      if (!playing) { timers.push(setTimeout(go, 200)); return; }
+      if (L.step()) timers.push(setTimeout(go, 1100 / speed));
+    }, delay / speed));
+  };
+  tick(A, 500); tick(B, 800);
+}
+function verdict(a, b) {
+  const v = $("#verdict"); v.hidden = false;
+  $("[data-v=saved]", v).textContent = fmt(Math.max(a - b, 0));
+  $("[data-v=ratio]", v).textContent = b ? `${(a / b).toFixed(1)}× less context for the same task` : "";
+  $("[data-v=a]", v).textContent = fmt(a); $("[data-v=a-out]", v).textContent = cur.aOut;
+  $("[data-v=b]", v).textContent = fmt(b); $("[data-v=b-out]", v).textContent = cur.bOut;
+}
+
+$("#play").addEventListener("click", (e) => { playing = !playing; e.currentTarget.textContent = playing ? "Pause" : "Play"; });
+$("#restart").addEventListener("click", () => { playing = true; $("#play").textContent = "Pause"; start(); });
+$("#skip").addEventListener("click", () => { runId++; timers.forEach(clearTimeout); cur._lanes.forEach((L) => L.all()); });
+$("#speed").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  speed = +b.dataset.s;
+  document.querySelectorAll("#speed button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+});
+
+tabs();
+select((location.hash.slice(1)) || "edit");
+</script>
+</body>
+</html>
