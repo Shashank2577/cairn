@@ -75,7 +75,8 @@ def test_ingest_end_to_end_mirrors_facts_with_validity(cairn):
     progress: list[str] = []
     out = asyncio.run(chron.ingest(Budget(1_000_000), on_progress=progress.append))
     assert out['episodes'] == 3 and out['facts'] >= 4 and out['invalidated'] >= 1
-    assert len(progress) == 3
+    assert len(progress) == 6  # one line as each day starts, one as it finishes
+    assert progress[0].startswith('extracting facts for') and 'day 1 of 3' in progress[0]
     assert (cairn.project.dir / 'temporal' / 'graph.kuzu').exists()
 
     facts = {f['name']: f for f in cairn.brain.entities('fact')}
@@ -203,7 +204,9 @@ def test_timeline_cli(cairn, monkeypatch):
              '--at', day_iso(2))
     assert '- shop/payments.py uses a retry guard' in out
     assert '× shop/payments.py uses a retry guard' in ok('search', 'retry guard')
-    assert 'retry guard' not in ok('search', 'retry guard', '--current')
+    none_current = ok('search', 'retry guard', '--current')
+    assert 'uses a retry guard' not in none_current          # no fact line, only the explanation
+    assert 'No still-true timeline fact matches "retry guard" (2 facts in the store)' in none_current
     facts = json.loads(ok('search', 'idempotency', '--json'))
     assert ok('show', facts[0]['uuid']).startswith('shop/payments.py relies on idempotency keys')
     assert 'shop/payments.py' in ok('entities', 'payments')
@@ -229,3 +232,21 @@ def test_wall_clock_stops_between_episodes_and_stays_resumable(cairn):
     out2 = asyncio.run(Chronicle(cairn.project, cairn.brain, router).ingest(Budget(1_000_000)))
     assert out2["episodes"] >= 1
     assert "later syncs" not in out2.get("note", "")
+
+
+def test_a_busy_store_is_explained_not_a_traceback(cairn, monkeypatch):
+    """A sync (often the post-commit one) holds the single-writer fact store: reads say so and exit 1."""
+    from typer.testing import CliRunner
+
+    from cairn import mcp_server
+    from cairn.engines.temporal import cli
+    from cairn.engines.temporal.service import StoreBusyError, TemporalService
+
+    async def busy(self, *a, **k):
+        raise StoreBusyError('the temporal store is in use by another process')
+    monkeypatch.setattr(TemporalService, 'search_facts', busy)
+    monkeypatch.setattr(cli, '_context', lambda: (cairn.project, cairn.brain, FakeRouter(repo_world())))
+    res = CliRunner().invoke(cli.timeline_app, ['search', 'retry guard'])
+    assert res.exit_code == 1 and 'store is busy' in res.output and 'Traceback' not in res.output
+    monkeypatch.setattr(mcp_server, '_project', lambda: cairn)
+    assert 'busy' in mcp_server.cairn_facts('retry guard')

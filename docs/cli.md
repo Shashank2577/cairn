@@ -16,7 +16,7 @@ Wherever a command takes a **target**, it accepts a path (`src/pay/service.py`),
 | `cairn status [--json]` | Every layer, the active spec, drift findings and the page's address. |
 | `cairn doctor` | Every capability, its state and the exact command that enables it. |
 | `cairn sync [--deep/--no-deep] [--budget N] [--no-map-rebuild] [-q] [--json]` | Incremental refresh of every layer. `--deep` forces timeline facts on (it needs a model) and `--no-deep` skips them. `--budget` caps their tokens. |
-| `cairn uninstall [--purge]` | Removes agent wiring, session skills, git hooks and the project's registration with the local server. `--purge` also deletes `.cairn/`. Spec files are kept. |
+| `cairn uninstall [--purge]` | Removes agent wiring, session skills, git hooks and the project's registration with the local server, and deletes config files (`.mcp.json`, `.claude/settings.json`) and directories it leaves empty. `--purge` also deletes `.cairn/` and the spec workflow's agent files (skills, commands); files you edited are kept and listed. `specs/` is kept. |
 
 ## Questions
 
@@ -24,7 +24,7 @@ Wherever a command takes a **target**, it accepts a path (`src/pay/service.py`),
 |---|---|
 | `cairn impact <target> [--depth 2] [--budget 1800] [--explain] [--json]` | What breaks if this changes. `--explain` adds a model-written summary. |
 | `cairn why <target> [--budget 1800] [--explain] [--json]` | Why the code is the way it is. |
-| `cairn ask "<question>" [--budget 1800] [--no-llm] [--json]` | An evidence pack, plus a narrated answer when a model is available. |
+| `cairn ask "<question>" [--budget 1800] [--no-llm] [--save] [--json]` | An evidence pack, plus a narrated answer when a model is available. Answers are not stored unless you pass `--save`, which keeps the answer as an inferred memory. |
 | `cairn search <query> [--kinds symbol,file,spec,task,req,commit,memory,obs,fact] [--limit 20] [--json]` | Search every layer. |
 | `cairn brief` | The compact briefing agents receive at session start. |
 
@@ -32,7 +32,7 @@ Wherever a command takes a **target**, it accepts a path (`src/pay/service.py`),
 
 | Command | What it does |
 |---|---|
-| `cairn trace path <a> <b>` | Shortest path between two things in the map. |
+| `cairn trace path <a> <b>` | Shortest path between two things in the map. Follows call direction first; when there is no directed path it shows one that follows edges either way, with each hop's real direction. |
 | `cairn trace explain <x>` | A node and its neighbourhood. |
 | `cairn trace query "<question>" [--budget 1500]` | A scoped subgraph for a plain-language question. |
 | `cairn hubs [--top 12]` | The most-connected code. |
@@ -117,7 +117,7 @@ Claude Code, get them as `/cairn-specify` and so on. See [agents](agents.md#spec
 | Command | What it does |
 |---|---|
 | `cairn timeline [--target file:<path>|spec:<id>] [--days 30] [--limit 40]` | What happened: commits, spec progress, sessions, memories, facts and drift. |
-| `cairn timeline search <q> [--limit 10] [--current] [--at ISO-DATE] [--types a,b] [--json]` | Facts with their validity windows. `--at` answers "as of that date". |
+| `cairn timeline search <q> [--limit 10] [--current] [--at ISO-DATE] [--types a,b] [--json]` | Facts with their validity windows. `--at` answers "as of that date". When no fact matches it says how many facts are in the store, how many days are still waiting for extraction, and which commits, memories or tasks do match. |
 | `cairn timeline entities <q> [--type T]` / `show <uuid>` | Entities and single facts. |
 | `cairn timeline episodes [--last 10]` / `communities [--build]` / `saga [name] [--summarize]` | Episodes, clusters and running summaries. |
 | `cairn timeline add <text|@file> [--at ISO] [--saga NAME] [--source text|json|message]` | Add an episode by hand. Needs a model. |

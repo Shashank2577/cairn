@@ -326,11 +326,37 @@ def test_cited_docs_pulls_the_document_that_answers_the_question(tmp_path):
     assert cited_docs(tmp_path, "nothing cited here", "q") == ""
 
 
-def test_answer_compounds_into_memory(cairn):
+def test_a_saved_answer_is_kept_once_and_marked_inferred(cairn):
     cairn._remember_qa("how does upload work", "streams via disk-uploader, proxy needs x-sa-api-key")
     cairn._remember_qa("how does upload work", "duplicate must not store")
-    mems = cairn.brain.q("SELECT text FROM memories WHERE text LIKE 'Q: how does upload work%'")
+    mems = cairn.brain.q("SELECT text, provenance, source FROM memories WHERE text LIKE 'Q: how does upload work%'")
     assert len(mems) == 1 and "disk-uploader" in mems[0]["text"]
+    assert mems[0]["provenance"] == "INFERRED" and mems[0]["source"] == "ask"
+    other = cairn._remember_qa("how does upload% work", "a different question, not a duplicate")
+    assert other and other != cairn._remember_qa("how does upload work", "again")  # % is not a wildcard
+
+
+class _AnsweringRouter:
+    available = True
+
+    def complete(self, task, prompt, **kw):
+        return "Uploads stream through the disk uploader."
+
+    def model(self, tier):
+        return "fake-model"
+
+    def tier_for(self, task):
+        return "balanced"
+
+
+def test_ask_does_not_write_memory_unless_asked_to_save(cairn, monkeypatch):
+    monkeypatch.setattr(cairn, "router", _AnsweringRouter())
+    monkeypatch.setattr(cairn, "brief", lambda *a, **k: "")
+    count = lambda: len(cairn.brain.q("SELECT 1 FROM memories WHERE source='ask'"))  # noqa: E731
+    out = cairn.ask("how do uploads work")
+    assert out["answer"] and "saved" not in out and count() == 0
+    out = cairn.ask("how do uploads work", save=True)
+    assert out["saved"] and count() == 1
 
 
 def test_ask_system_addresses_a_human_and_never_punts():

@@ -42,9 +42,48 @@ def test_uninstall_removes_only_ours(repo):
     agents.uninstall(proj)
     hooks.remove_git_hooks(proj)
     assert (repo / "CLAUDE.md").read_text(encoding="utf-8").strip() == "# House rules"
-    assert "cairn" not in (repo / ".mcp.json").read_text(encoding="utf-8")
+    assert not (repo / ".mcp.json").exists()               # Cairn created it and it only held Cairn
     assert not (repo / ".claude" / "agents" / "cairn-scout.md").exists()
-    assert "cairn" not in json.dumps(json.loads((repo / ".claude" / "settings.json").read_text(encoding="utf-8")).get("hooks", {}))
+    assert not (repo / ".claude" / "settings.json").exists()
+
+
+def test_uninstall_keeps_the_users_own_settings_and_servers(repo):
+    (repo / ".claude").mkdir()
+    (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"db": {"command": "dbmcp"}}}), encoding="utf-8")
+    (repo / ".claude" / "settings.json").write_text(json.dumps({"permissions": {"allow": ["Bash(ls)"]},
+                                                               "model": "opus"}), encoding="utf-8")
+    proj = Project.discover(repo)
+    proj.ensure_dir()
+    agents.install(proj, ["claude"])
+    agents.uninstall(proj)
+    assert json.loads((repo / ".mcp.json").read_text(encoding="utf-8")) == {"mcpServers": {"db": {"command": "dbmcp"}}}
+    assert json.loads((repo / ".claude" / "settings.json").read_text(encoding="utf-8")) == {
+        "permissions": {"allow": ["Bash(ls)"]}, "model": "opus"}
+
+
+def test_uninstall_purge_removes_the_workflow_agent_files_but_keeps_edited_ones(repo):
+    from cairn.engines import specs
+    proj = Project.discover(repo)
+    proj.ensure_dir()
+    ok, msg = specs.bootstrap(proj)
+    assert ok, msg
+    agents.install(proj, ["claude"])
+    skills = sorted((repo / ".claude" / "skills").glob("cairn-*/SKILL.md"))
+    workflow_skills = [p for p in skills if p.parent.name in ("cairn-specify", "cairn-plan", "cairn-tasks")]
+    assert workflow_skills, [p.parent.name for p in skills]
+    edited = workflow_skills[0]
+    edited.write_text(edited.read_text(encoding="utf-8") + "\nOur team's extra step.\n", encoding="utf-8")
+
+    kept: list[str] = []
+    agents.uninstall(proj, kept=kept)                      # without --purge the workflow stays usable
+    assert workflow_skills[-1].exists() and any("spec workflow file" in k for k in kept)
+
+    kept = []
+    agents.uninstall(proj, purge=True, kept=kept)
+    assert not workflow_skills[-1].exists()
+    assert edited.exists() and any(str(edited.relative_to(repo)) in k for k in kept)
+    assert sorted(p.parent.name for p in (repo / ".claude" / "skills").glob("*/SKILL.md")) == [edited.parent.name]
+    assert not (repo / ".mcp.json").exists() and not (repo / ".claude" / "settings.json").exists()
 
 
 def test_status_and_questions_via_cli(cairn):
@@ -228,7 +267,7 @@ def test_claude_wiring_includes_the_ambient_prompt_hook(repo):
     agents.install(proj, ["claude"], capture=False)  # the ambient hook rides on its own, not on capture
     assert len(ambient_entries()) == 1
     agents.uninstall(proj)
-    assert "cairn hook ambient" not in json.dumps(json.loads(settings_path.read_text(encoding="utf-8")).get("hooks", {}))
+    assert not settings_path.exists()  # only Cairn's entries were in it, so the emptied file is gone
 
 
 def test_doctor_reports_capture_that_never_becomes_memory(cairn, monkeypatch):
@@ -1128,3 +1167,71 @@ def test_a_stale_scope_draws_the_current_model_instead_of_nothing(cairn, tmp_pat
     assert r.status_code == 200, r.text  # was a 404 the page showed as "Nothing to draw"
     assert r.json()["stale_scope"] == "entry:deadbeef0123" and r.json()["elements"]
     assert c.get(f"{p}/system/svg", params={"level": "containers", "scope": "entry:deadbeef0123"}).status_code == 200
+
+
+def test_an_empty_timeline_search_explains_itself_and_shows_matching_activity(cairn):
+    import pytest
+    pytest.importorskip("kuzu")
+    out = CliRunner().invoke(app, ["timeline", "search", "double charge"])
+    assert out.exit_code == 0, out.output
+    assert 'No timeline fact matches "double charge" (0 facts in the store)' in out.output
+    assert "not turned into facts yet" in out.output        # extraction has not run (no model here)
+    assert "Fix double charge on retry" in out.output      # the commit that does match
+    assert 'cairn search "double charge"' in out.output
+    assert CliRunner().invoke(app, ["timeline", "search", "double charge", "--json"]).output.strip() == "[]"
+
+
+def test_bare_timeline_lists_events_and_exits_cleanly(cairn):
+    out = CliRunner().invoke(app, ["timeline", "--days", "36500"])
+    assert out.exit_code == 0 and "Fix double charge on retry" in out.output
+    assert CliRunner().invoke(app, ["timeline"]).exit_code == 0
+
+
+def test_a_closed_pipe_is_not_a_failure(monkeypatch):
+    import pytest
+
+    from cairn import cli
+    monkeypatch.setattr(cli.os, "dup2", lambda *a: None)   # keep the test runner's own stdout
+    monkeypatch.setattr(cli.console, "quiet", False)      # saved now, so teardown restores a loud console
+    with pytest.raises(SystemExit) as exc:
+        cli.console.on_broken_pipe()                      # what rich calls on `cairn … | head`
+    assert exc.value.code == 0
+
+
+def test_redaction_scan_before_any_capture_is_not_an_error(cairn):
+    out = CliRunner().invoke(app, ["redaction-scan"])
+    assert out.exit_code == 0 and "No sessions captured yet" in out.output
+
+
+def test_a_closed_pipe_on_plain_writes_is_not_a_failure_either(monkeypatch):
+    """`cairn search x --json | head`: click (typer's bundled copy) swaps stdout for a PacifyFlushWrapper
+    and exits 1; main() turns that one case into 0 and leaves real failures alone."""
+    import sys
+
+    import pytest
+
+    from cairn import cli
+
+    class PacifyFlushWrapper:  # what typer's click puts on sys.stdout after EPIPE
+        def write(self, *a):
+            return 0
+
+        def flush(self):
+            pass
+
+    def closed_pipe():
+        sys.stdout = PacifyFlushWrapper()
+        raise SystemExit(1)
+    monkeypatch.setattr(sys, "stdout", sys.stdout)       # restored at teardown
+    monkeypatch.setattr(cli, "app", closed_pipe)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+
+    def real_failure():
+        raise SystemExit(1)
+    monkeypatch.setattr(sys, "stdout", sys.__stdout__)
+    monkeypatch.setattr(cli, "app", real_failure)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1

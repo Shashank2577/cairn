@@ -232,9 +232,14 @@ def cairn_facts(query: str, at: str = "", limit: int = 12) -> str:
     """Call when you need what was true about something and when: temporal facts with valid-from/until windows;
     at=YYYY-MM-DD answers 'as of that date'. query: a topic or entity, e.g. 'deployment process'."""
     from .engines.temporal import TemporalService, run_sync
+    from .engines.temporal.service import StoreBusyError
     c = _project()
     svc = TemporalService(c.project, c.router, c.brain)
-    rows = run_sync(svc.facts_at(at, query, max_facts=limit) if at else svc.search_facts(query, max_facts=limit))
+    try:
+        rows = run_sync(svc.facts_at(at, query, max_facts=limit) if at else svc.search_facts(query, max_facts=limit))
+    except StoreBusyError:
+        return ("The timeline store is busy right now (a sync is writing facts); try again in a minute. "
+                "cairn_search covers commits and memories meanwhile.")
     if not rows:
         return "No facts recorded about that yet (facts are built from repository activity when a model is available)."
     return "\n".join(f"- {f['fact']} ({(f.get('valid_at') or '?')[:10]} → "

@@ -22,6 +22,13 @@ def test_path_and_explain(built_repo):
     assert "Node: PaymentService" in e and "checkout()" in e
 
 
+
+def test_path_against_the_call_direction_falls_back_to_either_way(built_repo):
+    from cairn.engines.graph import api
+    p = api.path(built_repo, "charge", "checkout")          # checkout calls charge, not the reverse
+    assert "No directed path from 'charge' to 'checkout'; showing a path that follows edges either way." in p
+    assert "Shortest path" in p and "<--" in p               # each hop still shows its real direction
+
 def test_affected_is_structured_and_textual(built_repo):
     from cairn.engines.graph import api
     res = api.affected(built_repo, "charge")
@@ -56,6 +63,8 @@ def test_in_process_tools(built_repo):
     assert "Community" in t.call("get_community", {"community_id": 0})
     assert "God nodes" in t.call("god_nodes", {"top_n": 3})
     assert "Shortest path" in t.call("shortest_path", {"source": "checkout", "target": "charge"})
+    back = t.call("shortest_path", {"source": "charge", "target": "checkout"})  # against the call direction
+    assert "follows edges either way" in back and "Shortest path" in back and "<--" in back
     assert "charge()" in t.call("query_graph", {"question": "charge"})
     assert t.call("nope").startswith("Unknown tool")
     uris = {r["uri"] for r in t.resources()}
