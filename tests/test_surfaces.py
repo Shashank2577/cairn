@@ -81,7 +81,7 @@ def test_uninstall_purge_removes_the_workflow_agent_files_but_keeps_edited_ones(
     kept = []
     agents.uninstall(proj, purge=True, kept=kept)
     assert not workflow_skills[-1].exists()
-    assert edited.exists() and any(str(edited.relative_to(repo)) in k for k in kept)
+    assert edited.exists() and any(edited.relative_to(repo).as_posix() in k for k in kept)  # reported as posix
     assert sorted(p.parent.name for p in (repo / ".claude" / "skills").glob("*/SKILL.md")) == [edited.parent.name]
     assert not (repo / ".mcp.json").exists() and not (repo / ".claude" / "settings.json").exists()
 
