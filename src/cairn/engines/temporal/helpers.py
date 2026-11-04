@@ -116,10 +116,28 @@ async def semaphore_gather(
     semaphore = asyncio.Semaphore(max_coroutines or SEMAPHORE_LIMIT)
 
     async def _wrap_coroutine(coroutine):
-        async with semaphore:
-            return await coroutine
+        started = False
+        try:
+            async with semaphore:
+                started = True
+                return await coroutine
+        finally:
+            if not started:  # cancelled while queued: close it, or it is never awaited
+                coroutine.close()
 
-    return await asyncio.gather(*(_wrap_coroutine(coroutine) for coroutine in coroutines))
+    # When one call fails (a BudgetExceeded mid-episode, a model error) the rest are cancelled at
+    # once: plain gather would keep starting queued calls (and spending tokens) for a result
+    # nobody will read, and the ones still queued at shutdown would never be awaited.
+    tasks = [asyncio.ensure_future(_wrap_coroutine(coroutine)) for coroutine in coroutines]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        for coroutine in coroutines:  # a wrapper cancelled before its first step never reached its finally
+            coroutine.close()          # (closing one that already finished is a no-op)
+        raise
 
 
 def validate_group_id(group_id: str | None) -> bool:

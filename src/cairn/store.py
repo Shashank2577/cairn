@@ -373,6 +373,11 @@ class Brain:
         with self.tx() as db:
             n = db.execute("UPDATE memories SET forgotten=1 WHERE id=?", (mid,)).rowcount
             db.execute("DELETE FROM fts WHERE id=?", (f"memory:{mid}",))
+            # a forgotten memory leaves the timeline (so fact extraction that has not reached its day
+            # never sees it) and its memory→code links, not only recall. Facts already extracted from
+            # an earlier day stay in the fact graph; `cairn timeline delete` removes one.
+            db.execute("DELETE FROM events WHERE id=? AND kind='memory'", (f"memory:{mid}",))
+            db.execute("DELETE FROM links WHERE src=?", (f"memory:{mid}",))
         return n > 0
 
     def touch_memories(self, ids: Iterable[str], now: float | None = None) -> int:

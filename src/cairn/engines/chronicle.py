@@ -126,6 +126,9 @@ class Chronicle:
                         note = f"budget reached ({exc}); continues next sync"
                         break
                     t0 = time.time()
+                    if on_progress:  # a day can take minutes: say which one, not a bare "working…"
+                        on_progress(f"extracting facts for {ep['day']} (day {done + 1} of {len(pending)}, "
+                                    f"{facts} facts so far)")
                     try:
                         res = await engine.add_episode(
                             name=ep["name"], episode_body=ep["body"],
