@@ -106,6 +106,8 @@ SECRET_PATTERNS: tuple[tuple[str, tuple[str, ...], re.Pattern], ...] = tuple(
         ("twilio-key", ("SK", "AC"), _B + r"(?:SK|AC)(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{32}(?![A-Za-z0-9])"),
         ("google-api-key", ("AIza",), _B + r"AIza[0-9A-Za-z_-]{35}(?![A-Za-z0-9_-])"),
         ("azure-storage-key", ("AccountKey=",), r"(?<=AccountKey=)[A-Za-z0-9+/]{60,}={0,2}"),
+        # Cairn's own team-server API tokens (platform/security.py TOKEN_RE)
+        ("cairn-token", ("cairn_",), _B + r"cairn_[a-z0-9]{8}_[A-Za-z0-9]{40}(?![A-Za-z0-9])"),
     ))
 
 # ``name = value`` / ``"name": "value"`` / ``--flag value`` for credential-looking names. Whether the value is

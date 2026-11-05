@@ -754,17 +754,22 @@ def project_router(hub: Hub) -> APIRouter:
                 "docs": [{"slug": d.slug, "title": d.title, "level": d.level, "summary": d.summary,
                           "diagram": d.desc is not None} for d in b.docs]}
 
-    @r.get("/docs/generate", dependencies=read)
-    def docs_generate_status(pid: str):
+    @r.get("/docs/generate")
+    def docs_generate_status(pid: str, principal=Depends(require("project.read"))):
         """The documentation run for this project: idle, running, done or failed, with its cost when done."""
         from . import docgen
         return {**docgen.status(c(pid).project.root), "models": {k: docgen.ESTIMATE[k] for k in docgen.MODELS},
-                "budget_usd": docgen.DEFAULT_BUDGET_USD, "skill": docgen.DEFAULT_SKILL}
+                "budget_usd": docgen.DEFAULT_BUDGET_USD, "skill": docgen.DEFAULT_SKILL,
+                "available": principal.kind == "local"}
 
     @r.post("/docs/generate")
     def docs_generate(pid: str, payload: dict = Body(default={}), principal=Depends(require("project.write"))):
         """Start the documentation skill in this repository (opt-in: it spends the caller's model quota and writes ``docs/``)."""
         from . import docgen
+        if principal.kind != "local":
+            # The run is a Claude Code agent that edits files and runs Python with the sign-in of the machine the
+            # server is on: acceptable for its owner on their own laptop, never on behalf of other people.
+            raise HTTPException(403, "Generating documentation runs only in local mode, on your own machine.")
         root = c(pid).project.root
         try:
             job = docgen.start(root, payload.get("model") or "haiku", skill=c(pid).project.cfg("docs.skill", docgen.DEFAULT_SKILL))
@@ -1329,6 +1334,34 @@ def project_router(hub: Hub) -> APIRouter:
         threading.Thread(target=recall_main, args=(args + ["--root", str(recall_root(pid))],),
                          daemon=True).start()
         return {"started": True}
+
+    @r.delete("/sessions/mine")
+    def sessions_delete_mine(pid: str, principal=Depends(require("project.capture"))):
+        """Delete every session the caller captured: the ones they pushed to this server or, in local mode, every
+        session captured on this machine."""
+        from .engines.recall import viewer
+        res = viewer.delete_pushed_by(recall_root(pid), None if principal.kind == "local" else principal.user_id)
+        audit(pid, principal, "sessions.delete_mine", pid, sessions=res["sessions"])
+        return res
+
+    @r.delete("/sessions/{sid}")
+    def sessions_delete_one(pid: str, sid: str, principal=Depends(require("project.write"))):
+        """Delete one session and everything recorded for it. On a team server only the member who pushed it or a
+        project admin may."""
+        from .engines.recall import viewer
+        from .engines.recall.store import Store
+        root = recall_root(pid)
+        with Store.open(root) as st:
+            db_id = viewer.resolve_session(st, sid)
+            row = st.db.execute("SELECT pushed_by FROM sdk_sessions WHERE id=?", (db_id,)).fetchone() if db_id else None
+        if db_id is None:
+            raise HTTPException(404, "no such session")
+        if (principal.kind != "local" and (row[0] if row else None) != principal.user_id
+                and not hub.platform.can(principal, "project.admin", pid)):
+            raise HTTPException(403, "only the member who captured this session, or a project admin, can delete it")
+        res = viewer.delete_session(root, db_id)
+        audit(pid, principal, "sessions.delete", sid, **{k: v for k, v in res.items() if k != "success"})
+        return res
 
     @r.delete("/sessions/{kind}/{item_id}", dependencies=write)
     def sessions_delete(pid: str, kind: str, item_id: int):

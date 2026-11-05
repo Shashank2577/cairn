@@ -402,6 +402,10 @@ def run_once(root: Path | str, *, router: Any = None, settings: dict | None = No
             store.close()
         if not again or stats.get("deferred_sessions", 0) >= len(again) or (stop_event and stop_event.is_set()):
             break
+    from .viewer import apply_retention
+    purged = apply_retention(root, settings if settings is not None else load_settings(root))
+    if purged and purged.get("sessions"):
+        total["retention_purged"] = purged["sessions"]
     total["status"] = "ok"
     return total
 

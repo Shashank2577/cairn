@@ -684,6 +684,56 @@ class Store:
             self.set_kv("readmodel.resync", "1")  # mirrors of deleted rows must go too
         return ok
 
+    def delete_session(self, session_db_id: int) -> dict[str, list[int]] | None:
+        """Delete one session and everything recorded for it: prompts, observations, summaries, queued work,
+        raw tool uses, output sizes, observer state and events not yet pushed to a team server. Returns the
+        deleted observation/summary/prompt ids (for the caller's vector cleanup), or None when there is no
+        such session."""
+        row = self.db.execute("SELECT id, content_session_id, memory_session_id FROM sdk_sessions WHERE id=?",
+                              (int(session_db_id),)).fetchone()
+        if row is None:
+            return None
+        sid, csid, msid = int(row[0]), row[1], row[2]
+
+        def ids(sql: str, arg) -> list[int]:
+            return [int(r[0]) for r in self.db.execute(sql, (arg,))]
+
+        gone = {"observation": ids("SELECT id FROM observations WHERE memory_session_id=?", msid) if msid else [],
+                "summary": ids("SELECT id FROM session_summaries WHERE memory_session_id=?", msid) if msid else [],
+                "prompt": ids("SELECT id FROM user_prompts WHERE session_db_id=?", sid)}
+        with self.tx() as db:
+            if msid:
+                db.execute("DELETE FROM observations WHERE memory_session_id=?", (msid,))
+                db.execute("DELETE FROM session_summaries WHERE memory_session_id=?", (msid,))
+            for table in ("user_prompts", "pending_messages", "observer_conversations"):
+                db.execute(f"DELETE FROM {table} WHERE session_db_id=?", (sid,))
+            for table in ("tool_uses", "tool_output_sizes"):
+                db.execute(f"DELETE FROM {table} WHERE session_db_id=? OR content_session_id=?", (sid, csid))
+            db.execute("DELETE FROM file_context_injections WHERE session_id=?", (csid,))
+            db.execute("DELETE FROM remote_outbox WHERE CASE WHEN json_valid(payload)"
+                       " THEN json_extract(payload, '$.session_id') END = ?", (csid,))
+            db.execute("DELETE FROM sdk_sessions WHERE id=?", (sid,))
+        self.set_kv("readmodel.resync", "1")  # mirrors of deleted rows must go too
+        return gone
+
+    def session_ids_idle_since(self, cutoff_ms: int) -> list[int]:
+        """Captured sessions with no activity (start, prompt or end) since ``cutoff_ms``. The per-source manual
+        sessions that hold memories saved by hand are never included: they are memories, not captures."""
+        return [int(r[0]) for r in self.db.execute(
+            "SELECT s.id FROM sdk_sessions s WHERE s.content_session_id NOT LIKE 'manual-content-%' AND"
+            " MAX(s.started_at_epoch, COALESCE(s.completed_at_epoch, 0),"
+            " COALESCE((SELECT MAX(created_at_epoch) FROM user_prompts p WHERE p.session_db_id = s.id), 0)) < ?",
+            (int(cutoff_ms),))]
+
+    def session_ids_pushed_by(self, user_id: str | None) -> list[int]:
+        """Sessions a team-server caller pushed (``None``: the ones captured on this machine)."""
+        if user_id is None:
+            sql, args = "SELECT id FROM sdk_sessions WHERE pushed_by IS NULL", ()
+        else:
+            sql, args = "SELECT id FROM sdk_sessions WHERE pushed_by=?", (user_id,)
+        return [int(r[0]) for r in self.db.execute(
+            sql + " AND content_session_id NOT LIKE 'manual-content-%'", args)]
+
     # ---- import ------------------------------------------------------------------------------------
     def import_sdk_session(self, s: dict) -> dict:
         src = normalize_platform_source(s.get("platform_source"))

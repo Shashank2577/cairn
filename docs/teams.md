@@ -160,6 +160,21 @@ Events captured before `[team]` was set aren't sent. Model work happens once, on
 writes local records (the session-start context keeps working offline) but derives them without a
 model. Set it back to `true` if you want both.
 
+## Deleting captured sessions
+
+Captured sessions can hold prompts and tool output, so they can be deleted and expired.
+
+- **One session:** `cairn sessions forget-session <session id>`, or `DELETE /api/p/<project id>/sessions/<session id>`.
+  It removes the session's prompts, observations, summaries, queued work, raw tool uses and any of its events
+  still waiting in the outbox. On a team server only the member who pushed the session, or a project admin, may.
+- **Delete my data:** `DELETE /api/p/<project id>/sessions/mine` deletes every session the caller pushed
+  (`project.capture`). In local mode it deletes every session captured on this machine.
+- **Retention:** `[recall] retention_days = N` deletes sessions with no activity for N days each time the worker
+  runs (0, the default, keeps everything). `cairn sessions purge --older-than N --dry-run` shows how many would go.
+  Memories saved by hand are never expired.
+
+Deletions through the server are recorded in the audit log (`sessions.delete`, `sessions.delete_mine`).
+
 ## Git projects and webhooks
 
 A project registered from a git URL is cloned under `repos_dir` (`$CAIRN_HOME/repos/<project id>`).

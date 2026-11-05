@@ -88,6 +88,7 @@ function Generate({ pid, can, onDone }) {
   return html`<div class="docs-narrate docs-generate"><b>Generate documentation (uses a model).</b>
     ${running ? html`<p>Writing <code>docs/</code> with the ${job.skill} skill on ${job.model}: ${plural(mins, "minute")} so far. Cairn finds the code, the skill writes and checks each document.
         <button class="btn xs" onClick=${cancel}>Cancel</button></p>`
+      : res.data?.available === false ? html`<p class="sub">Available only when Cairn runs on your own machine: it starts an agent with that machine's Claude sign-in, which a team server never does on someone's behalf.</p>`
       : html`<p>Runs the ${res.data?.skill || "documentation"} skill in this repository: it finds code through Cairn and writes architecture, data flow, API, data model and security documents into <code>docs/</code>, replacing the files it made before.
         One run is ${res.data?.models?.[model] || "a few hundred thousand tokens"} on your Claude sign-in, stopped at $${res.data?.budget_usd ?? 3} by the CLI. Nothing starts until you confirm.</p>
       <div class="row tight" style="gap:8px;align-items:center">
