@@ -32,7 +32,8 @@ frontier = "claude-fable-5-1"        # opt-in whole-system reviews only
 # base_url = "http://localhost:11434/v1"
 
 [deep]
-enabled = "auto"                 # auto = on when a model key is present
+enabled = "auto"                 # auto = model features on when a model is available; false turns them all off
+timeline_facts = false           # true: every sync also builds timeline facts with the model (the costliest background job)
 budget_tokens = 150000           # hard ceiling per deep sync
 wall_seconds = 300               # stop the deep tier after this many seconds; remaining days fill in on later syncs
 graph_url = ""                   # falkor://host:6379 or bolt://host:7687 ; empty = embedded store

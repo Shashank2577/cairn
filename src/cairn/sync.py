@@ -145,7 +145,9 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
             return {"findings": len(found), "high": sum(d["severity"] == "high" for d in found)}
         step("drift", do_drift)
 
-        run_deep = cairn.router.deep_enabled() if deep is None else (deep and cairn.router.available)
+        # Timeline facts are opt-in: they are the costliest background model work and no sync needs them to be useful.
+        opted_in = project.cfg("deep.timeline_facts", False) is True
+        run_deep = (opted_in and cairn.router.deep_enabled()) if deep is None else (deep and cairn.router.available)
         if run_deep:
             b = Budget(budget or int(project.cfg("deep.budget_tokens", 150000)))
 
@@ -166,6 +168,8 @@ def run(cairn, *, deep: bool | None = None, budget: int | None = None, rebuild_m
             step("timeline", do_deep)
         elif deep:
             say("timeline", "skip", f"deep is off: {cairn.router.deep_state()['reason']}")
+        elif deep is None and not opted_in and cairn.router.deep_enabled():
+            say("timeline", "skip", "timeline facts are opt-in: set deep.timeline_facts = true in .cairn/config.toml, or run `cairn sync --deep`")
         brain.set_kv("sync.last", str(time.time()))
         brain.set_kv("sync.failed", json.dumps({k: v["error"] for k, v in results.items()
                                                  if isinstance(v, dict) and v.get("error")}))

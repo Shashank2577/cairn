@@ -15,7 +15,7 @@ Wherever a command takes a **target**, it accepts a path (`src/pay/service.py`),
 | `cairn init [--agents claude,codex,cursor,gemini,vscode] [--no-hooks] [--no-ui] [--no-capture] [--no-specs]` | Idempotent setup that never prompts. Without `--agents`, it wires the agents it detects. |
 | `cairn status [--json]` | Every layer, the active spec, drift findings and the page's address. |
 | `cairn doctor` | Every capability, its state and the exact command that enables it. |
-| `cairn sync [--deep/--no-deep] [--budget N] [--no-map-rebuild] [-q] [--json]` | Incremental refresh of every layer. `--deep` forces timeline facts on (it needs a model) and `--no-deep` skips them. `--budget` caps their tokens. |
+| `cairn sync [--deep/--no-deep] [--budget N] [--no-map-rebuild] [-q] [--json]` | Incremental refresh of every layer. Timeline facts are off unless `[deep] timeline_facts = true`: `--deep` builds them for this run (it needs a model) and `--no-deep` skips them. `--budget` caps their tokens. |
 | `cairn uninstall [--purge]` | Removes agent wiring, session skills, git hooks and the project's registration with the local server, and deletes config files (`.mcp.json`, `.claude/settings.json`) and directories it leaves empty. `--purge` also deletes `.cairn/` and the spec workflow's agent files (skills, commands); files you edited are kept and listed. `specs/` is kept. |
 
 ## Questions

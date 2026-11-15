@@ -27,7 +27,7 @@ Models add what can't be computed, and every call goes through one module, `src/
 | Engine | With a model | Without one |
 |---|---|---|
 | Sessions | Observations and session summaries written from raw agent activity | Records derived deterministically from tool events |
-| Timeline | Facts with validity windows, built on each sync (`[deep] enabled = "auto"`) or by `cairn timeline ingest` | Git history, co-change and risk tags only |
+| Timeline | Facts with validity windows, built by `cairn sync --deep` or `cairn timeline ingest`, or on each sync with `[deep] timeline_facts = true` (off by default) | Git history, co-change and risk tags only |
 | Memory | Reconciliation (ADD, UPDATE, DELETE or NONE), optional reranking, extraction from conversations | Exact de-duplication, with local-embedding and full-text recall |
 | Map | Documents, papers and images (`cairn graph extract`), community names, PR triage | Code via tree-sitter ASTs |
 | Answers | `--explain`, `cairn ask`, `cairn drift --deep` | The same evidence packs, without narration |
