@@ -643,6 +643,32 @@ def ask(question: str = typer.Argument(...), budget: int = typer.Option(1800),
 
 
 @app.command()
+def context(task: str = typer.Argument(..., help="The task in a sentence, as you would give it to an agent."),
+            targets: Optional[str] = typer.Option(None, help="Comma list of paths or symbols to bias the pack."),
+            budget: int = typer.Option(1800, help="Token budget for the pack."),
+            as_json: bool = typer.Option(False, "--json")):
+    """The context pack an agent should read before a task: targets, dependents, files that change together,
+    past fixes, the owning spec, conventions and earlier agent work. No model calls. For orchestrators and
+    scripts that build an agent's prompt (agents inside a session use the cairn_context tool)."""
+    from .core import Cairn
+    from .project import agent_project
+    from .router import estimate_tokens
+    proj = agent_project()  # this checkout's store, or the main checkout's from a linked worktree; creates nothing
+    if proj is None:
+        err.print(f"[{AMBER}]Cairn is not set up here.[/] Run [bold]cairn init --no-deep[/] in the repository first.")
+        raise typer.Exit(1)
+    c = Cairn(proj)
+    _need_init(c)
+    pack = c.context(task, [t.strip() for t in targets.split(",") if t.strip()] if targets else None, budget)
+    text = pack.render()
+    tokens = sum(estimate_tokens(ln) for ln in text.splitlines())
+    if as_json:
+        _emit_json({"task": task, "tokens": tokens, "text": text})
+    else:
+        sys.stdout.write(text + "\n")  # plain text: this is pasted into prompts
+
+
+@app.command()
 def search(query: str, kinds: Optional[str] = typer.Option(None, help="symbol,file,spec,task,req,commit,memory,obs,fact,text"),
            limit: int = 20, as_json: bool = typer.Option(False, "--json")):
     """Search every layer."""

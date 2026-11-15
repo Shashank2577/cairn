@@ -24,6 +24,7 @@ Wherever a command takes a **target**, it accepts a path (`src/pay/service.py`),
 |---|---|
 | `cairn impact <target> [--depth 2] [--budget 1800] [--explain] [--json]` | What breaks if this changes. `--explain` adds a model-written summary. |
 | `cairn why <target> [--budget 1800] [--explain] [--json]` | Why the code is the way it is. |
+| `cairn context "<task>" [--targets a,b] [--budget N] [--json]` | The context pack an agent should read before a task, as plain text. No model calls. For orchestrators and scripts that build an agent's prompt. |
 | `cairn ask "<question>" [--budget 1800] [--no-llm] [--save] [--json]` | An evidence pack, plus a narrated answer when a model is available. Answers are not stored unless you pass `--save`, which keeps the answer as an inferred memory. |
 | `cairn search <query> [--kinds symbol,file,spec,task,req,commit,memory,obs,fact] [--limit 20] [--json]` | Search every layer. |
 | `cairn brief` | The compact briefing agents receive at session start. |

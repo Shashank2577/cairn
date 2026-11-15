@@ -1169,6 +1169,27 @@ def test_a_stale_scope_draws_the_current_model_instead_of_nothing(cairn, tmp_pat
     assert c.get(f"{p}/system/svg", params={"level": "containers", "scope": "entry:deadbeef0123"}).status_code == 200
 
 
+def test_context_command_prints_the_pack_for_an_orchestrator(cairn):
+    runner = CliRunner()
+    out = runner.invoke(app, ["context", "change how PaymentService charges a card"])
+    assert out.exit_code == 0 and out.output.startswith("## Context:") and "PaymentService" in out.output
+    as_json = json.loads(runner.invoke(app, ["context", "refund flow", "--targets", "PaymentService", "--json"]).output)
+    assert as_json["task"] == "refund flow" and as_json["tokens"] > 0 and "PaymentService" in as_json["text"]
+    rows = cairn.brain.q("SELECT surface, kind, source_tokens FROM queries WHERE kind='context'")
+    assert len(rows) == 2 and all(r["surface"] == "cli" for r in rows)  # each call lands once in the audit trail
+
+
+def test_context_command_creates_nothing_where_cairn_is_not_set_up(tmp_path, monkeypatch):
+    import subprocess
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=bare, check=True)
+    monkeypatch.chdir(bare)
+    out = CliRunner().invoke(app, ["context", "anything"])
+    assert out.exit_code == 1 and not out.stdout.startswith("## Context")
+    assert not (bare / ".cairn").exists()  # an orchestrator calling this in every repo must not litter them
+
+
 def test_an_empty_timeline_search_explains_itself_and_shows_matching_activity(cairn):
     import pytest
     pytest.importorskip("kuzu")
