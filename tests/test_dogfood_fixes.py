@@ -305,7 +305,7 @@ def test_ask_logs_the_question_for_every_surface(cairn):
     from cairn.mcp_server import cairn_context  # the chatbot surface logs too
     cairn_context("how does transcription work")
     rows = cairn.brain.q("SELECT target FROM queries WHERE kind='context'")
-    assert any("transcription" in r["target"] for r in rows)
+    assert [r["target"] for r in rows if "transcription" in r["target"]] == ["how does transcription work"]  # once
 
 
 def test_context_shows_past_related_questions(cairn):
