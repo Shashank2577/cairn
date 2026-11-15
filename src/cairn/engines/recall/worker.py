@@ -457,6 +457,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-model", action="store_true", help="derive records without a model")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # faiss logs every CPU-feature probe at INFO (AVX512-SPR, AVX512, AVX2…), burying the worker's own line
+    logging.getLogger("faiss").setLevel(logging.WARNING)
     from .projects import find_store_root
     root = Path(args.root) if args.root else find_store_root(os.getcwd())
     if root is None:

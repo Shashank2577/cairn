@@ -97,6 +97,46 @@ def parse_json_object(text: str) -> dict[str, typing.Any]:
     return data
 
 
+def _example_value(schema: dict[str, typing.Any], defs: dict[str, typing.Any], depth: int = 0) -> typing.Any:
+    """A placeholder instance for one JSON Schema node (what an answer of that shape looks like)."""
+    if '$ref' in schema:
+        schema = defs.get(schema['$ref'].rsplit('/', 1)[-1], {})
+    for key in ('anyOf', 'oneOf', 'allOf'):
+        if key in schema:
+            if any(o.get('type') == 'null' for o in schema[key]):
+                return None  # optional (a date that may be unknown): null, never an invented value
+            return _example_value(schema[key][0], defs, depth)
+    kind = schema.get('type')
+    if kind == 'object' or 'properties' in schema:
+        if depth > 3:
+            return {}
+        return {
+            name: _example_value(prop, defs, depth + 1)
+            for name, prop in (schema.get('properties') or {}).items()
+        }
+    if kind == 'array':
+        item = _example_value(schema.get('items') or {}, defs, depth + 1)
+        return [item] if isinstance(item, dict) and item else []
+    return {'string': '...', 'integer': 0, 'number': 0.0, 'boolean': False}.get(kind, None)
+
+
+def response_format_instruction(response_model: type[BaseModel]) -> str:
+    """How to answer: an example of the object first, then the schema as field rules.
+
+    Appending the bare JSON Schema after "in the following format" made models answer with the
+    schema itself (``{"properties": {...}, "type": "object"}``) — about one call in eight in a real
+    sync, each costing a retry. An example instance shows the shape to fill in; the schema stays for
+    the field descriptions, labelled as something not to repeat."""
+    schema = response_model.model_json_schema()
+    example = _example_value(schema, schema.get('$defs') or {})
+    return (
+        '\n\nRespond with ONLY a JSON object (no prose, no code fences) shaped like this example, '
+        f'with your own values:\n\n{json.dumps(example)}\n\n'
+        'Field rules, as a JSON Schema (it describes the answer; do not repeat it):\n\n'
+        f'{json.dumps(schema)}'
+    )
+
+
 def _wrap_list(data: dict[str, typing.Any], response_model: type[BaseModel] | None) -> dict:
     if '__list__' not in data:
         return data
@@ -230,11 +270,7 @@ class RouterLLMClient(LLMClient):
         messages = [Message(role=m.role, content=m.content) for m in messages]
         self._apply_attribute_extraction_preamble(messages, attribute_extraction)
         if response_model is not None:
-            schema = json.dumps(response_model.model_json_schema())
-            messages[-1].content += (
-                '\n\nRespond with ONLY a JSON object (no prose, no code fences) in the following '
-                f'format:\n\n{schema}'
-            )
+            messages[-1].content += response_format_instruction(response_model)
         messages[0].content += get_extraction_language_instruction(group_id)
         for message in messages:
             message.content = self._clean_input(message.content)
@@ -281,7 +317,13 @@ class RouterLLMClient(LLMClient):
                         'JSON object.'
                     )
                     messages = [*messages, Message(role='user', content=hint)]
-                    logger.warning('retrying %s after invalid output (attempt %d)', prompt_name, attempt)
+                    logger.warning(
+                        'retrying %s after invalid output (attempt %d): %s: %s',
+                        prompt_name,
+                        attempt,
+                        type(e).__name__,
+                        ' '.join(str(e).split())[:160],
+                    )
                 except Exception as e:
                     last_error = e
                     if attempt >= self.max_attempts or not _is_transient(e):

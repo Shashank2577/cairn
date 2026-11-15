@@ -1,6 +1,7 @@
 """The terminal experience. `cairn` alone does the right thing: set up, or show status."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -21,8 +22,20 @@ from rich.text import Text
 from . import __version__
 
 AMBER, MOSS, ROSE, SLATE, INK = "#d9a441", "#8fb39a", "#d08c8c", "#7d8b96", "#e6ecef"
-console = Console(highlight=False)
-err = Console(stderr=True, highlight=False)
+
+
+class _Console(Console):
+    def on_broken_pipe(self) -> None:
+        """`cairn … | head`: the reader closed the pipe once it had what it wanted, which is not a
+        failure. Rich's default exits 1; keep its quieting, exit 0."""
+        self.quiet = True
+        with contextlib.suppress(OSError, ValueError):
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        raise SystemExit(0)
+
+
+console = _Console(highlight=False)
+err = _Console(stderr=True, highlight=False)
 app = typer.Typer(add_completion=False, no_args_is_help=False, rich_markup_mode="rich",
                   help="Cairn — institutional memory for coding agents. Run [bold]cairn[/] in any repo.")
 trace_app = typer.Typer(help="Explore the code map.")
@@ -500,11 +513,29 @@ def sync_cmd(deep: Optional[bool] = typer.Option(None, "--deep/--no-deep", help=
 
 
 @app.command("redaction-test")
-def redaction_test(file: Path = typer.Argument(..., exists=True, dir_okay=False, help="Text file to check.")):
-    """Show which lines Cairn would mask when recording this text, and why (never the value itself)."""
+def redaction_test(file: Optional[str] = typer.Argument(None, help="Text file to check, or - for standard input."),
+                   text: Optional[str] = typer.Option(None, "--text", help="Check this text instead of a file.")):
+    """Show which lines Cairn would mask when recording a file, `-` (stdin) or --text, and why (never the value)."""
     from .engines.recall.tags import redact_hits
+    if text is not None:
+        body = text
+    elif file == "-":
+        body = sys.stdin.read()
+    elif file:
+        # never echo the argument: people paste the secret itself here by mistake (a long one makes the
+        # path lookup itself fail with "File name too long", whose message would repeat it)
+        try:
+            body = Path(file).read_text(encoding="utf-8", errors="replace") if Path(file).is_file() else None
+        except (OSError, ValueError):
+            body = None
+        if body is None:
+            err.print("That is not a file. To check a string, use --text \"…\" (or pipe it to `-`).")
+            raise typer.Exit(2)
+    else:
+        err.print("Give a file, - for standard input, or --text \"…\".")
+        raise typer.Exit(2)
     found = 0
-    for n, line in enumerate(file.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+    for n, line in enumerate(body.splitlines(), 1):
         ids = redact_hits(line)
         if ids:
             found += 1
@@ -519,7 +550,10 @@ def redaction_scan(as_json: bool = typer.Option(False, "--json")):
     from .engines.recall.redaction_scan import scan_store
     from .engines.recall.schema import store_path
     root = find_store_root(None)
-    if root is None or not store_path(root).exists():
+    if root is not None and not store_path(root).exists():  # set up, nothing captured yet: nothing to scan
+        console.print("No sessions captured yet, so nothing is stored to scan.")
+        return
+    if root is None:
         err.print("No session store found here.")
         raise typer.Exit(3)
     counts = scan_store(store_path(root))
@@ -588,18 +622,23 @@ def _narrate(c, pack, task):
 @app.command()
 def ask(question: str = typer.Argument(...), budget: int = typer.Option(1800),
         no_llm: bool = typer.Option(False, "--no-llm", help="Only the evidence pack."),
+        save: bool = typer.Option(False, "--save", help="Keep the answer as a memory (inferred) for later questions."),
         as_json: bool = typer.Option(False, "--json")):
     """Ask the project memory anything. Evidence first; a narrated answer when a key is set."""
     c = _cairn()
     _need_init(c)
     if as_json:
-        _emit_json(c.ask(question, budget, llm=not no_llm))
+        _emit_json(c.ask(question, budget, llm=not no_llm, save=save))
         return
     with console.status(f"[{AMBER}]gathering…"):
-        res = c.ask(question, budget, llm=not no_llm)
+        res = c.ask(question, budget, llm=not no_llm, save=save)
     if res.get("answer"):
         console.print(Panel(res["answer"], border_style=AMBER, title=f"answer · {res['model']}", title_align="left"))
+        if res.get("saved"):
+            console.print(f"[{MOSS}]✓[/] kept as memory:{res['saved']} (inferred)")
         console.print(Text("evidence", style=f"bold {SLATE}"))
+    elif save and not no_llm:
+        console.print(f"[{SLATE}]No narrated answer, so nothing was kept.[/]")
     render_pack(res["pack"])
 
 
@@ -939,6 +978,11 @@ def timeline(ctx: typer.Context, target: Optional[str] = typer.Option(None, help
     evs = c.brain.events(since=time.time() - days * 86400, ref=_timeline_ref(c, target), limit=limit)
     col = {"commit": INK, "spec": AMBER, "session": MOSS, "memory": AMBER, "fact": MOSS, "fact_end": SLATE,
            "drift": ROSE, "workflow_run": AMBER}
+    if not evs and not c.brain.events(limit=1):
+        console.print(f"[{SLATE}]No events yet: run `cairn sync` to read the history.[/]")
+    elif not evs:
+        console.print(f"[{SLATE}]Nothing in the last {days} days{' for ' + target if target else ''}; "
+                      f"try --days {days * 4}. `cairn timeline --help` lists the fact commands.[/]")
     for e in evs:
         risk = e["meta"].get("risk") if e["kind"] == "commit" else None
         flag = f" [{ROSE}]{','.join(risk)}[/]" if risk else ""
@@ -1419,14 +1463,20 @@ def uninstall(purge: bool = typer.Option(False, "--purge", help="Also delete .ca
     if rec:
         platform.delete_project(rec.id, purge=False)  # unlists it; never deletes the repository
     platform.close()
-    removed = a.uninstall(c.project) + [f".git/hooks/{h}" for h in hooks.remove_git_hooks(c.project)]
+    kept: list[str] = []
+    removed = a.uninstall(c.project, purge=purge, kept=kept) + [f".git/hooks/{h}"
+                                                                 for h in hooks.remove_git_hooks(c.project)]
     for r in removed:
         console.print(f" [{MOSS}]✓[/] removed {r}")
     if purge:
         c.brain.close()
         shutil.rmtree(c.project.dir, ignore_errors=True)
         console.print(f" [{MOSS}]✓[/] deleted .cairn/")
-    console.print(f"[{SLATE}]Spec files and the map folder are left in place; delete them manually if unwanted.[/]")
+    for k in kept:
+        console.print(f" [{SLATE}]–[/] left in place: {k}")
+    console.print(f"[{SLATE}]Your specs/ folder is left in place"
+                  + ("" if purge else ", and so is .cairn/ (the map, the spec workflow and the stores; "
+                     "--purge removes them)") + ".[/]")
 
 
 def main() -> None:
@@ -1437,7 +1487,15 @@ def main() -> None:
                 stream.reconfigure(encoding="utf-8", errors="replace")
             except (AttributeError, ValueError, OSError):
                 pass
-    app()
+    try:
+        app()
+    except SystemExit as exc:
+        # `cairn search x --json | head`: the reader closed the pipe once it had what it wanted. Click (and
+        # typer's bundled copy) report that as exit 1 after swapping stdout for a "PacifyFlushWrapper";
+        # the command did not fail.
+        if exc.code == 1 and "PacifyFlushWrapper" in type(sys.stdout).__name__:
+            raise SystemExit(0) from None
+        raise
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 
 def schema_title(prompt: str) -> str:
-    marker = 'in the following format:\n\n'
+    marker = '(it describes the answer; do not repeat it):\n\n'
     i = prompt.rfind(marker)
     if i < 0:
         return ''

@@ -158,7 +158,7 @@ credentials are masked before they're written: well-known token shapes (cloud, G
 JWTs, private keys, passwords inside URLs, Basic/Bearer headers) and values of credential-named settings such as
 `API_KEY=…`, `"password": "…"` or `--token …`. Wording like `token: bucket algorithm` or `max_tokens=1024` is left
 alone. Memory a model writes from a session (observations, summaries) is masked for token shapes only, so ordinary
-prose is not rewritten; `cairn redaction-test <file>` shows what would be masked. Cairn's
+prose is not rewritten; `cairn redaction-test <file>` (or `-` for stdin, or `--text "…"`) shows what would be masked. Cairn's
 own model calls (which run with `CAIRN_INTERNAL=1`) are never recorded. Everything stays in the
 repository's `.cairn/` folder.
 
