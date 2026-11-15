@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`cairn forget` forgets everywhere.** A forgotten memory also leaves the timeline (and so the daily episodes timeline facts are
+  extracted from) and drops its links to code; the next sync clears timeline rows of memories forgotten before this fix. (#21)
+- **`cairn ask` no longer writes team memory on its own.** Answers were saved as `fact` memories marked EXTRACTED, so a hedged or wrong
+  answer came back in every agent's context. Saving is now opt-in (`cairn ask --save`), the saved answer is marked INFERRED, and the HTTP
+  `/ask` route, which needs only read permission, never saves. (#22)
+- **Timeline fact extraction wastes fewer calls.** Models answered about one `resolve_edge` call in eight with the JSON Schema itself; the
+  prompt now shows an example of the answer before the schema (on spreix-platform: 9 retries in 69 calls before, 0 in 79 after). When a
+  call fails mid-episode the queued calls are cancelled instead of started, which also removes the `coroutine 'resolve_extracted_edge' was
+  never awaited` warning. A retry log line names the validation error, and `sync` says which day it is extracting. (#23)
+- **`cairn_context` and `cairn ask` pick better targets from a task in words.** Paths are scored by the task words they name (folders and
+  camelCase parts too), words that say what kind of change it is ("table", "endpoint", "component") point at the folders such code lives
+  in, code ranks above document headings and tests only lead when the task is about tests. "add a column to the meetings table" now
+  targets `schema/meetings.ts`, not a README heading and a UI `<thead>`. (#24)
+- **`cairn uninstall` leaves less behind.** `.mcp.json` and `.claude/settings.json` are deleted when only Cairn's entries were in them,
+  directories it emptied are removed, and `--purge` also removes the spec workflow's agent files (skills, commands); files you edited are
+  kept and listed. (#25)
+- **An empty `cairn timeline search` explains itself:** how many facts are in the store, how many days are still waiting for extraction, and the
+  commits, memories or tasks that do match. (#26)
+- `cairn timeline` alone lists recent events and exits 0; `cairn … | head` exits 0 instead of 1; `cairn trace path` shows a path that
+  follows edges either way when there is no directed one; `cairn redaction-test` takes `-` (stdin) or `--text` and never echoes an
+  argument that is not a file; `cairn redaction-scan` before the first captured session is not an error; the session worker log no longer
+  lists faiss CPU-feature probes. (#27)
+
 ## 0.3.1 — 2026-10-23
 
 ### Fixed

@@ -6,6 +6,7 @@ budget. Everything here is deterministic; a model only narrates on top (``ask``,
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import re
 import sqlite3
@@ -37,6 +38,34 @@ def in_repo(path: str) -> bool:
     """A repository-relative path (not absolute, home-relative or climbing out of the repository)."""
     p = (path or "").replace("\\", "/")
     return bool(p) and not p.startswith(("/", "~")) and not re.match(r"^[A-Za-z]:", p) and ".." not in p.split("/")
+
+
+# Words that say what KIND of change a task is ("add a column to the meetings table"), mapped to the
+# folders such code usually lives in. They steer target ranking; they are not the subject.
+_CHANGE_KIND: dict[str, tuple[str, ...]] = {
+    "table": ("schema", "schemas", "models", "migrations", "entities", "tables"),
+    "column": ("schema", "schemas", "models", "migrations", "entities", "tables"),
+    "field": ("schema", "schemas", "models", "entities", "types"),
+    "migration": ("migrations", "migrate", "schema"),
+    "endpoint": ("routes", "routers", "router", "api", "handlers", "controllers"),
+    "route": ("routes", "routers", "router", "api", "handlers", "controllers", "pages"),
+    "component": ("components", "ui", "views", "widgets"),
+    "page": ("pages", "app", "views", "screens"),
+    "button": ("components", "ui"),
+}
+_TEST_DIRS = frozenset(("test", "tests", "spec", "specs", "__tests__", "e2e"))
+_CAMEL = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
+
+
+@functools.lru_cache(maxsize=200_000)
+def _path_tokens(path: str) -> frozenset[str]:
+    """Lower-case words of a path: separators and camelCase split (``BrainScopeSwitcher.tsx`` →
+    brain, scope, switcher, tsx); a ``.test``/``.spec`` part marks a test file. Cached: the ambient
+    prompt hook ranks every mapped path on each prompt."""
+    out = set()
+    for part in re.split(r"[^A-Za-z0-9]+", path):
+        out.update(t.lower() for t in _CAMEL.findall(part))
+    return frozenset(out)
 
 
 # Question and filler words that must never become context targets on their own ("what owns dispatch"
@@ -592,14 +621,77 @@ class Cairn:
                 if tok not in found:
                     found.append(tok)
         if len(found) < limit:
-            for h in self.brain.search(text, kinds=["symbol", "file"], limit=limit):
-                cand = h["title"] if h["kind"] == "file" else h["id"]
-                # a heading anchor named "what" (or any content-free label) is not a target, even
-                # when full-text search surfaced it for a question built out of question words
-                label_toks = set(re.findall(r"[a-z0-9]+", h["title"].lower()))
-                if cand not in found and (label_toks - _QUESTION_STOP - GENERIC):
+            for cand in self._ranked_text_targets(text, limit):
+                if cand not in found:
                     found.append(cand)
+                if len(found) >= limit:
+                    break
         return found[:limit]
+
+    def _ranked_text_targets(self, text: str, limit: int) -> list[str]:
+        """Targets for a task written in words ("add a column to the meetings table"), best first.
+
+        Full-text rank alone lets any node that shares a common word win — a README heading, or a UI
+        ``<thead>`` for "table". So files are scored by the words of the task their path names
+        (directories and camelCase parts too: ``BrainScopeSwitcher`` names "brain" and "switcher"),
+        words that describe the kind of change ("table", "endpoint", "component") point at the
+        folders such code lives in instead of matching files named after them, code ranks above
+        document headings, and tests only lead when the task is about tests."""
+        idx = self.map
+        words = [w for w in re.findall(r"[a-z0-9]+", text.lower())
+                 if len(w) >= 4 and w not in _QUESTION_STOP and w not in GENERIC]
+
+        def forms(w: str) -> set[str]:
+            return {w, w[:-1] if w.endswith("s") else w + "s"}
+        descriptors = [w for w in words if w in _CHANGE_KIND or w.rstrip("s") in _CHANGE_KIND]
+        subject = {f for w in words if w not in descriptors for f in forms(w)}
+        hint_dirs = {d for w in descriptors for d in _CHANGE_KIND.get(w, _CHANGE_KIND.get(w.rstrip("s"), ()))}
+        about_tests = any(w.startswith("test") for w in re.findall(r"[a-z]+", text.lower()))  # before the stoplist
+        scores: dict[str, float] = {}
+
+        def add(cand: str, score: float) -> None:
+            scores[cand] = scores.get(cand, 0.0) + score
+
+        def path_score(path: str) -> float:
+            toks = _path_tokens(path)
+            named = {w for w in words if w not in descriptors and forms(w) & toks}
+            if not named:
+                return 0.0
+            score = 0.75 * len(named)
+            stem_words = _path_tokens(Path(path).name.split(".")[0]) - _TEST_DIRS
+            if stem_words and stem_words <= subject:
+                score += 1.5  # "meetings" → meetings.ts, test_meetings.py, meetings.test.ts: named after it
+            if hint_dirs & toks:
+                score += 1.0  # "…table" → the schema/models folder, "…endpoint" → routers
+            if toks & _TEST_DIRS:  # tests lead for a task about tests, and trail otherwise
+                score += 1.0 if about_tests else -1.0
+            return score
+
+        if subject:
+            for path, nodes in idx.by_file.items():
+                if any(idx.is_code(n) for n in nodes):
+                    sc = path_score(path)
+                    if sc > 0:
+                        degree = max((idx.degree(n) for n in nodes), default=0)
+                        add(path, sc + min(0.2, degree / 500))  # a used file wins a tie
+        for rank, h in enumerate(self.brain.search(text, kinds=["symbol", "file"], limit=max(limit * 6, 12))):
+            # a heading anchor named "what" (or any content-free label) is not a target, even
+            # when full-text search surfaced it for a question built out of question words
+            label_toks = set(re.findall(r"[a-z0-9]+", h["title"].lower()))
+            if not label_toks - _QUESTION_STOP - GENERIC:
+                continue
+            score = 1.0 - 0.04 * rank
+            if h["kind"] == "file":
+                cand = h["title"]
+                nodes = idx.by_file.get(cand, [])
+            else:
+                cand = h["id"]
+                nid = cand.removeprefix("symbol:")
+                nodes = [nid] if nid in idx.nodes else []
+            if nodes and not any(idx.is_code(n) for n in nodes):
+                score -= 1.5  # a document heading: still a target, but after the code
+            add(cand, score)
+        return [c for c, _ in sorted(scores.items(), key=lambda kv: -kv[1])][:limit]
 
     def context(self, task: str, targets: list[str] | None = None, budget: int | None = None) -> Pack:
         budget = budget or self.budget_default
@@ -648,16 +740,26 @@ class Cairn:
                     data={"targets": targets, "evidence_files": list(dict.fromkeys(evidence))},
                     on_render=self._logger("context", task, evidence))
 
-    def _remember_qa(self, question: str, answer: str) -> None:
-        """Compound: every answered question becomes recallable knowledge for the next one."""
-        with contextlib.suppress(Exception):
-            if self.brain.q("SELECT 1 FROM memories WHERE text LIKE ? LIMIT 1", (f"Q: {question}%",)):
-                return  # the same question already compounded
-            self.memory.remember(f"Q: {question}\nA: {' '.join(str(answer).split())[:600]}",
-                                 kind="fact", source="ask", provenance="EXTRACTED",
-                                 reconcile=False, metadata={"qa": question})
+    def _remember_qa(self, question: str, answer: str) -> str | None:
+        """Keep an answer as recallable knowledge — only when someone asks to (``cairn ask --save``).
 
-    def ask(self, question: str, budget: int | None = None, llm: bool = True) -> dict:
+        A narrated answer is the model's reading of the evidence, not something the team decided, so
+        it is stored as INFERRED and never by default: an unasked-for answer (hedged, or wrong) would
+        otherwise come back in every agent's context as if it were team knowledge."""
+        with contextlib.suppress(Exception):
+            # exact prefix (stored text is whitespace-collapsed): % and _ in a question are not wildcards
+            head = " ".join(f"Q: {question} A: ".split()) + " "
+            same = self.brain.q("SELECT id FROM memories WHERE substr(text, 1, ?) = ? AND source='ask' "
+                                "AND forgotten=0 LIMIT 1", (len(head), head))
+            if same:
+                return same[0]["id"]  # the same question is already kept
+            res = self.memory.remember(f"Q: {question}\nA: {' '.join(str(answer).split())[:600]}",
+                                       kind="fact", source="ask", provenance="INFERRED",
+                                       reconcile=False, metadata={"qa": question})
+            return res.get("id") if isinstance(res, dict) else None
+        return None
+
+    def ask(self, question: str, budget: int | None = None, llm: bool = True, save: bool = False) -> dict:
         pack = self.context(question, budget=budget)
         text = pack.render()
         text += cited_docs(self.project.root, text, question)
@@ -670,8 +772,8 @@ class Cairn:
                 out["answer"] = self.router.complete("ask", ask_prompt(question, text), system=ASK_SYSTEM,
                                                      cached_context=self.brief(), max_tokens=900)
                 out["model"] = self.router.model(self.router.tier_for("ask"))
-                if out["answer"]:
-                    self._remember_qa(question, out["answer"])
+                if out["answer"] and save:
+                    out["saved"] = self._remember_qa(question, out["answer"])
             except Exception as exc:
                 out["answer"] = None
                 out["error"] = f"{type(exc).__name__}: {exc}"[:200]

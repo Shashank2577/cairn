@@ -96,6 +96,19 @@ def test_cli_reports_lines_not_values(tmp_path):
     assert tok not in res.output
 
 
+def test_cli_checks_text_and_stdin_and_never_echoes_a_mistaken_argument():
+    tok = CASES["github-token"][0]
+    for args, stdin in ((["redaction-test", "--text", f"X={tok}"], None), (["redaction-test", "-"], f"X={tok}\n")):
+        res = CliRunner().invoke(app, args, input=stdin)
+        assert res.exit_code == 0 and "line 1" in res.output and "github-token" in res.output
+        assert tok not in res.output
+    res = CliRunner().invoke(app, ["redaction-test", f"X={tok}"])  # the secret passed where a file goes
+    assert res.exit_code == 2 and "--text" in res.output and tok not in res.output
+    jwt = "eyJhbGciOiJIUzI1NiJ9." + "a" * 300 + ".sig"           # longer than a file name may be
+    res = CliRunner().invoke(app, ["redaction-test", f"TOKEN={jwt}"])
+    assert res.exit_code == 2 and jwt[:40] not in res.output and jwt[:40] not in str(res.exception or "")
+
+
 # ---- write paths: every place captured or derived text is stored or sent --------------------------------------
 import subprocess  # noqa: E402
 

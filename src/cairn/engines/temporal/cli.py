@@ -8,10 +8,10 @@ from typing import Any, Optional
 
 import typer
 
-from .service import ModelUnavailableError, TemporalService, run_sync
+from .service import ModelUnavailableError, StoreBusyError, TemporalService, run_sync
 
-timeline_app = typer.Typer(help="Timeline facts: the temporal fact graph (what was true, and when).",
-                           no_args_is_help=True)
+# no_args_is_help stays off: `cairn timeline` alone lists recent events (the callback in cairn.cli)
+timeline_app = typer.Typer(help="Timeline facts: the temporal fact graph (what was true, and when).")
 
 
 def _context() -> tuple[Any, Any, Any]:
@@ -46,6 +46,11 @@ def _call(coro: Any) -> Any:
     except ModelUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from None
+    except StoreBusyError:
+        # one process writes the embedded fact store at a time; a sync (often the post-commit one) holds it
+        typer.echo('The timeline store is busy: a sync is writing facts. Try again when it finishes '
+                   '(`cairn status`); `cairn search` reads commits and memories meanwhile.', err=True)
+        raise typer.Exit(1) from None
 
 
 @timeline_app.command('add')
@@ -80,8 +85,38 @@ def search(query: str,
     else:
         facts = _call(svc.search_facts(query, group_ids=group, max_facts=limit, current_only=current,
                                        edge_types=types.split(',') if types else None))
+    if not facts and not as_json:
+        scope = 'still-true ' if current else (f'true at {at} ' if at else '')
+        typer.echo('\n'.join(_no_facts(svc, query, scope)))
+        return
     _out(facts, as_json, [f"{'•' if f['current'] else '×'} {f['fact']} {_window(f)}  {f['uuid'][:8]}"
                           for f in facts])
+
+
+def _no_facts(svc: TemporalService, query: str, scope: str = '') -> list[str]:
+    """An empty fact search, explained: how much was searched, whether extraction is still behind,
+    and the repository activity that does match — so "nothing" never reads as "this never happened"."""
+    from cairn.engines.chronicle import Chronicle
+
+    brain = svc.brain
+    try:  # the fact store's own count: facts added by hand are not in the read model
+        stored = int(run_sync(svc.status()).get('counts', {}).get('facts', 0))
+    except Exception:  # noqa: BLE001 — the explanation is best effort
+        stored = brain.one("SELECT COUNT(*) n FROM entities WHERE kind='fact'")["n"]
+    try:
+        behind = len(Chronicle(svc.project, brain, svc.router).pending_episodes(limit=10_000))
+    except Exception:  # noqa: BLE001
+        behind = 0
+    lines = [f'No {scope}timeline fact matches "{query}" ({stored} fact{"s" if stored != 1 else ""} in the store).']
+    if behind:
+        lines.append(f"{behind} day{'s' if behind != 1 else ''} of activity {'are' if behind != 1 else 'is'} "
+                     "not turned into facts yet; they fill in on later syncs (`cairn sync --deep`).")
+    hits = brain.search(query, kinds=["commit", "memory", "spec", "task", "req"], limit=5)
+    if hits:
+        lines.append('Matching activity:')
+        lines += [f"  {h['kind']:<7} {h['title'][:100]}" for h in hits]
+    lines.append(f'Every layer: cairn search "{query}"')
+    return lines
 
 
 @timeline_app.command('entities')

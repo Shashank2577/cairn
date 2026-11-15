@@ -94,6 +94,9 @@ def link_text(brain: Brain, idx: MapIndex, entity_id: str, text: str, source: st
 def relink_memories(brain: Brain, idx: MapIndex) -> int:
     mentions = mention_index(idx)
     brain.drop_source("memory-links")
+    with brain.tx() as db:  # memories forgotten before `forget` cleared the timeline still had a row there
+        db.execute("DELETE FROM events WHERE kind='memory' AND id IN "
+                   "(SELECT 'memory:' || id FROM memories WHERE forgotten=1)")
     n = 0
     for m in brain.memories():
         n += link_text(brain, idx, f"memory:{m['id']}", m["text"], "memory-links", mentions)
