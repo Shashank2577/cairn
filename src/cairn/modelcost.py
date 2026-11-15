@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import time
 from typing import Any
 
 from .project import Project
@@ -26,6 +27,7 @@ LIST_PRICES: dict[str, tuple[float, float]] = {
     "claude-fable-5-1": (10.0, 50.0), "claude-fable-5": (10.0, 50.0),
 }
 READ, WRITE_5M, WRITE_1H = 0.1, 1.25, 2.0
+RECENT_DAYS = 30  # the receipt shows this window beside the lifetime total, so an old fixed cost does not dominate
 # A call with no cache write only counts as "cache writes off" when its input was big enough that the old behaviour would have
 # written an entry (Haiku 4.5's cache minimum is 4,096 tokens); smaller calls never wrote one and say nothing either way.
 CACHE_MINIMUM = 4096
@@ -160,3 +162,37 @@ def _group(rows: list[dict], keys: tuple[str, ...]) -> dict[tuple, list[dict]]:
     for r in rows:
         out.setdefault(tuple(r[k] for k in keys), []).append(r)
     return out
+
+
+def net_value(brain: Brain, project: Project) -> dict:
+    """What Cairn handed to agents next to what its own model calls cost, for one repository. Pure reads.
+
+    ``kept_out`` is an upper bound, not a measurement of saving: it is the size of the source files behind each pack
+    minus the pack, which assumes the agent would otherwise have read every one of those files in full. Spend is
+    measured (provider usage reports); dollars are estimated at list price and are None when a model has no price.
+    """
+    q = dict(brain.q("SELECT COUNT(*) n, COALESCE(SUM(sent_tokens),0) sent, COALESCE(SUM(source_tokens),0) source, "
+                     "COALESCE(SUM(CASE WHEN source_tokens IS NULL OR source_tokens=0 THEN 0 ELSE 1 END),0) with_source, "
+                     "COALESCE(SUM(CASE WHEN source_tokens IS NULL OR source_tokens=0 THEN 0 ELSE sent_tokens END),0) "
+                     "sent_with_source, MIN(ts) first, MAX(ts) last FROM queries")[0])
+    kept_out = max(0, q["source"] - q["sent_with_source"])
+    cost = summary(brain, project)
+    spend = cost["totals"]
+    tasks = [{"task": t["task"], "calls": t["calls"], "tokens": t["tokens"], "usd": t["usd"]} for t in cost["tasks"]]
+    tasks.sort(key=lambda t: -(t["usd"] if t["usd"] is not None else t["tokens"] / 1e12))
+    recent = summary(brain, project, since=time.time() - RECENT_DAYS * 86_400)["totals"]
+    deep = str(project.cfg("models.deep", "") or "")
+    ref = price(deep, project) if deep else None
+    kept_usd = None if ref is None else kept_out * ref[0] / 1_000_000
+    spans = [r for r in (brain.q("SELECT MIN(ts) a, MAX(ts) b FROM events")[0],
+                         brain.q("SELECT MIN(ts) a, MAX(ts) b FROM ledger")[0])]
+    firsts = [x for x in [q["first"], *(r["a"] for r in spans)] if x]
+    lasts = [x for x in [q["last"], *(r["b"] for r in spans)] if x]
+    return {"packs": {"n": q["n"], "with_source": q["with_source"], "sent": q["sent"], "source": q["source"],
+                      "kept_out": kept_out, "kept_out_usd": kept_usd, "reference_model": deep if ref else None},
+            "spend": {"calls": spend["calls"], "tokens": spend["tokens"], "usd": spend["usd"], "tasks": tasks[:3],
+                      "recent": {"days": RECENT_DAYS, "calls": recent["calls"], "tokens": recent["tokens"],
+                                 "usd": recent["usd"]}},
+            "first": min(firsts, default=None), "last": max(lasts, default=None),
+            "labels": {"kept_out": "upper bound: assumes every source file behind a pack would have been read in full",
+                       "spend_tokens": "measured", "dollars": "estimated at list price"}}

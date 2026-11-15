@@ -1411,10 +1411,20 @@ def hook(event: str, scope: str = typer.Option("project", "--scope", help="user:
 
 
 @app.command()
-def recap():
-    """What cairn has done for this repo: memories learned, commits watched, queries answered and saved."""
+def recap(all_repos: bool = typer.Option(False, "--all", help="Every repository registered on this machine.")):
+    """What cairn has done for this repo: memories learned, commits watched, queries answered and saved, and
+    what its own model calls cost."""
     from . import hooks
-    console.print(hooks.recap(_cairn()))
+    if all_repos:
+        from .platform import Platform, ServerConfig
+        platform = Platform(config=ServerConfig.load())
+        try:
+            roots = [p.root for p in platform.list_projects() if p.root]
+        finally:
+            platform.close()
+        console.print(hooks.recap_all(roots), markup=False, highlight=False, soft_wrap=True)
+        return
+    console.print(hooks.recap(_cairn()), markup=False, highlight=False)
 
 
 @app.command("global")
