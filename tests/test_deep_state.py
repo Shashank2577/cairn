@@ -82,3 +82,47 @@ def test_deep_enabled_agrees_with_deep_state(tmp_path, monkeypatch):
     r = _router(tmp_path)
     assert r.deep_enabled() is r.deep_state()["enabled"] is True
     assert r.available is True and exe.exists()
+
+
+# ---- timeline facts are opt-in (spec 015) -----------------------------------------------------------------------
+def _timeline_runs(cairn, monkeypatch, **kw):
+    """Run a sync with a model 'available' and report whether the timeline-facts step ran."""
+    from cairn import sync
+    from cairn.router import Router
+    monkeypatch.setattr(Router, "deep_enabled", lambda self: True)
+    monkeypatch.setattr(Router, "available", property(lambda self: True))
+    ran = []
+
+    class FakeChronicle:
+        def __init__(self, *a, **k):
+            pass
+
+        async def ingest(self, budget, **k):
+            ran.append(True)
+            return {"facts": 0}
+    monkeypatch.setattr(sync, "Chronicle", FakeChronicle)
+    said = []
+    sync.run(cairn, rebuild_map=False, progress=lambda *a: said.append(a), **kw)
+    return bool(ran), said
+
+
+def test_a_plain_sync_does_not_build_timeline_facts_even_with_a_model(cairn, monkeypatch):
+    ran, said = _timeline_runs(cairn, monkeypatch)
+    assert not ran
+    assert any("opt-in" in str(s) for s in said)  # and it says how to turn them on
+
+
+def test_timeline_facts_run_when_the_repository_opts_in(cairn, monkeypatch):
+    cairn.project.config = {**cairn.project.config, "deep": {**cairn.project.config.get("deep", {}), "timeline_facts": True}}
+    ran, _ = _timeline_runs(cairn, monkeypatch)
+    assert ran
+
+
+def test_sync_deep_builds_timeline_facts_once_without_opting_in(cairn, monkeypatch):
+    ran, _ = _timeline_runs(cairn, monkeypatch, deep=True)
+    assert ran
+
+
+def test_timeline_facts_default_is_off():
+    from cairn.project import DEFAULTS
+    assert DEFAULTS["deep"]["timeline_facts"] is False

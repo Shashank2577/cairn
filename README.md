@@ -88,13 +88,14 @@ With a model, Cairn adds:
 - document, paper and image extraction into the map (`cairn graph extract`)
 
 Each job goes to the cheapest model tier that does it well. Every call is recorded in a ledger
-(`cairn models --ledger`). Model work runs on its own when a model is available, and it spends that
+(`cairn models --ledger`). Session notes are written on their own when a model is available, and that spends the
 provider's quota (or your Claude Code plan):
 
 - After each agent turn, observations and summaries are written. To only queue the events, set
   `[recall] worker_spawn = false`. You can process them later with `cairn sessions worker`.
-- Every sync builds timeline facts, capped at 150,000 tokens per sync by default. Change the cap
-  with `[deep] budget_tokens`, or turn this off with `[deep] enabled = false`.
+- Timeline facts are off by default, because they are the costliest background job. Build them once
+  with `cairn sync --deep`, or on every sync with `[deep] timeline_facts = true`. They are capped at
+  150,000 tokens per sync; change the cap with `[deep] budget_tokens`.
 
 See [models and cost](docs/models-and-cost.md).
 

@@ -39,7 +39,8 @@ When you use `openai` or a local endpoint, set every tier to a model that endpoi
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `"auto"` | `auto` builds timeline facts on every sync when a model is available. `false` never builds them. |
+| `enabled` | `"auto"` | `auto` turns model features on when a model is available. `false` turns them all off, timeline facts included. |
+| `timeline_facts` | `false` | `true` builds timeline facts with the model on every sync. Off by default: it is the costliest background job. `cairn sync --deep` builds them once without this. |
 | `budget_tokens` | `150000` | Token ceiling per sync for timeline facts. Semantic drift checks use a third of it. |
 | `graph_url` | `""` | Older name for `[temporal] url`, still read when `url` is empty |
 
