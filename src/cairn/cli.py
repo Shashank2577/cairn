@@ -611,8 +611,14 @@ def context(task: str = typer.Argument(..., help="The task in a sentence, as you
     """The context pack an agent should read before a task: targets, dependents, files that change together,
     past fixes, the owning spec, conventions and earlier agent work. No model calls. For orchestrators and
     scripts that build an agent's prompt (agents inside a session use the cairn_context tool)."""
+    from .core import Cairn
+    from .project import agent_project
     from .router import estimate_tokens
-    c = _cairn()
+    proj = agent_project()  # this checkout's store, or the main checkout's from a linked worktree; creates nothing
+    if proj is None:
+        err.print(f"[{AMBER}]Cairn is not set up here.[/] Run [bold]cairn init --no-deep[/] in the repository first.")
+        raise typer.Exit(1)
+    c = Cairn(proj)
     _need_init(c)
     pack = c.context(task, [t.strip() for t in targets.split(",") if t.strip()] if targets else None, budget)
     text = pack.render()

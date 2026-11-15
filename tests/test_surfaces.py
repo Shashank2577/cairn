@@ -1138,3 +1138,14 @@ def test_context_command_prints_the_pack_for_an_orchestrator(cairn):
     assert as_json["task"] == "refund flow" and as_json["tokens"] > 0 and "PaymentService" in as_json["text"]
     rows = cairn.brain.q("SELECT surface, kind, source_tokens FROM queries WHERE kind='context'")
     assert len(rows) == 2 and all(r["surface"] == "cli" for r in rows)  # each call lands once in the audit trail
+
+
+def test_context_command_creates_nothing_where_cairn_is_not_set_up(tmp_path, monkeypatch):
+    import subprocess
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=bare, check=True)
+    monkeypatch.chdir(bare)
+    out = CliRunner().invoke(app, ["context", "anything"])
+    assert out.exit_code == 1 and not out.stdout.startswith("## Context")
+    assert not (bare / ".cairn").exists()  # an orchestrator calling this in every repo must not litter them
