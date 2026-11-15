@@ -369,30 +369,105 @@ def global_session_hint(payload: str = "") -> dict | None:
             "up in ~15s, entirely local — do not run it without their go-ahead."}}
 
 
+def _usd(v: float | None) -> str:
+    return "" if v is None else ("$0" if v == 0 else f"~${v:,.2f}" if v >= 0.01 else "under $0.01")
+
+
+def value_lines(nv: dict) -> list[str]:
+    """The value receipt: what was handed to agents, what Cairn's own model calls cost, and how the two compare.
+    The saving is an upper bound and is labelled as one; the spend is measured."""
+    p, s = nv["packs"], nv["spend"]
+    out = []
+    if p["n"]:
+        pct = round(p["kept_out"] * 100 / p["source"]) if p["source"] else 0
+        usd = f", {_usd(p['kept_out_usd'])} at {p['reference_model']} input price" if p["kept_out_usd"] is not None else ""
+        out.append(f"  answered    {p['n']:,} queries ({p['with_source']:,} with a file baseline) — saved up to "
+                   f"~{p['kept_out']:,} tokens ({pct}% vs reading the files{usd})")
+        out.append("              upper bound: assumes the agent would have read every source file in full")
+    else:
+        out.append("  answered    no queries yet — the savings meter starts with your first impact/why/ask")
+    if s["calls"]:
+        usd = f", {_usd(s['usd'])} est." if s["usd"] is not None else ""
+        top = ", ".join(f"{t['task']} {_usd(t['usd']) or format(t['tokens'], ',') + ' tok'}" for t in s["tasks"])
+        out.append(f"  spent       {s['calls']:,} model calls of its own — {s['tokens']:,} tokens{usd} (measured)")
+        out.append(f"              most on: {top}")
+        if p["kept_out_usd"] is not None and s["usd"] is not None:
+            diff = p["kept_out_usd"] - s["usd"]
+            out.append(f"  net         spend exceeds the upper-bound saving by {_usd(-diff)}" if diff < 0 else
+                       f"  net         upper-bound saving exceeds spend by {_usd(diff)}")
+        elif p["n"]:
+            out.append("  net         " + ("its own calls used more tokens than the upper-bound saving"
+                                           if s["tokens"] > p["kept_out"] else
+                                           "the upper-bound saving is larger than its own token use"))
+    else:
+        out.append("  spent       no model calls of its own (deterministic only)")
+    return out
+
+
+def recap_all(roots: list) -> str:
+    """The value receipt for every repository on this machine that has a Cairn store. Pure reads."""
+    from . import modelcost
+    from .project import Project
+    from .store import Brain
+    rows, tot = [], {"n": 0, "kept": 0, "kept_usd": 0.0, "calls": 0, "tokens": 0, "usd": 0.0, "priced": True}
+    for root in roots:
+        db = Path(root) / ".cairn" / "brain.db"
+        project = Project.discover(Path(root)) if db.exists() else None
+        if project is None:
+            continue
+        brain = Brain(db)
+        try:
+            nv = modelcost.net_value(brain, project)
+        finally:
+            brain.close()
+        p, s = nv["packs"], nv["spend"]
+        rows.append((s["tokens"], f"  {Path(root).name[:26]:<26} {p['n']:>5,} packs  saved up to {p['kept_out']:>11,} tok"
+                     f" {_usd(p['kept_out_usd']) if p['kept_out_usd'] is not None else '':>11}  |  "
+                     f"spent {s['tokens']:>12,} tok {_usd(s['usd']) if s['usd'] is not None else '':>11}"))
+        tot["n"] += p["n"]
+        tot["kept"] += p["kept_out"]
+        tot["calls"] += s["calls"]
+        tot["tokens"] += s["tokens"]
+        if (p["n"] and p["kept_out_usd"] is None) or (s["calls"] and s["usd"] is None):
+            tot["priced"] = False
+        tot["kept_usd"] += p["kept_out_usd"] or 0.0
+        tot["usd"] += s["usd"] or 0.0
+    if not rows:
+        return "▲ cairn  recap — no repositories with a Cairn store are registered on this machine"
+    rows = [text for _, text in sorted(rows, key=lambda r: -r[0])]  # biggest spender first
+    lines = [f"▲ cairn  recap — {len(rows)} repositories on this machine", *rows, "",
+             f"  total       {tot['n']:,} packs, saved up to ~{tot['kept']:,} tokens; "
+             f"Cairn's own model calls: {tot['calls']:,}, {tot['tokens']:,} tokens"]
+    if tot["priced"]:
+        diff = tot["kept_usd"] - tot["usd"]
+        lines.append(f"  dollars     up to {_usd(tot['kept_usd'])} saved vs {_usd(tot['usd'])} spent (est., list price) — "
+                     + (f"spend exceeds the upper-bound saving by {_usd(-diff)}" if diff < 0 else
+                        f"upper-bound saving exceeds spend by {_usd(diff)}"))
+    lines.append("  saved = upper bound (assumes every source file behind a pack would have been read in full); "
+                 "spent = measured")
+    return "\n".join(lines)
+
+
 def recap(cairn) -> str:
     """What cairn has done for this repo so far — the visible receipt. Pure reads, no model calls."""
     import time as _t
 
     from .core import ago
     b = cairn.brain
+    from . import modelcost
     n_mem = b.q("SELECT COUNT(*) FROM memories")[0]["COUNT(*)"]
     n_commits = b.q("SELECT COUNT(*) FROM events WHERE kind='commit'")[0]["COUNT(*)"]
-    n_sessions = b.q("SELECT COUNT(*) FROM events WHERE kind='session'")[0]["COUNT(*)"]
-    first = b.q("SELECT MIN(ts) AS t FROM events")[0]["t"]
-    q = b.q("SELECT COUNT(*) AS n, COALESCE(SUM(sent_tokens),0) AS sent, "
-            "COALESCE(SUM(source_tokens),0) AS src FROM queries")[0]
+    n_obs = b.q("SELECT COUNT(*) FROM events WHERE kind='session'")[0]["COUNT(*)"]  # one event per observation
+    nv = modelcost.net_value(b, cairn.project)
+    first = nv["first"]
     drift = len(json.loads(b.get_kv("drift.last", "[]") or "[]"))
     lines = [f"▲ cairn  recap — tracking since {ago(first)}" if first else "▲ cairn  recap",
              f"  learned     {n_mem} memories from this repo's history",
-             f"  watched     {n_commits:,} commits, {n_sessions} agent sessions",
+             f"  watched     {n_commits:,} commits, {n_obs:,} agent observations",
              f"  watching    {drift} drift findings right now"]
-    if q["n"]:
-        saved = max(0, q["src"] - q["sent"])
-        pct = round(saved * 100 / q["src"]) if q["src"] else 0
-        lines.append(f"  answered    {q['n']} queries — saved ~{saved:,} tokens ({pct}% vs reading the files)")
-    else:
-        lines.append("  answered    no queries yet — the savings meter starts with your first impact/why/ask")
-    lines.append(f"  last activity {_t.strftime('%b %d', _t.localtime(first))}" if first else "")
+    lines += value_lines(nv)
+    if nv["last"]:
+        lines.append(f"  last activity {_t.strftime('%b %d', _t.localtime(nv['last']))}")
 
     def _clip(text: str, n: int = 96) -> str:
         one = " ".join(str(text).split())

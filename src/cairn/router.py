@@ -256,7 +256,7 @@ class Router:
             try:  # a busy ledger must never throw away an answer the model already gave
                 self.brain.log_call(task, tier, model, usage, ok)
             except sqlite3.Error as exc:
-                log.warning("model call not recorded in the ledger: %s", exc)
+                log.warning("model call not recorded in the ledger yet (kept, written with the next call): %s", exc)
 
     def complete(self, task: str, prompt: str, *, system: str = "", cached_context: str = "",
                  max_tokens: int = 1200, budget: Budget | None = None, tier: str | None = None) -> str:

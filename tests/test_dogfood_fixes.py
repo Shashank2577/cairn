@@ -337,3 +337,57 @@ def test_ask_system_addresses_a_human_and_never_punts():
     from cairn.core import ASK_SYSTEM
     assert "HUMAN" in ASK_SYSTEM and "Never tell the human to call tools" in ASK_SYSTEM
     assert "CLOSE those gaps" in ASK_SYSTEM
+
+
+# ---- the value receipt: spend next to the saving, and no lost ledger rows ---------------------------------------
+def test_recap_shows_own_spend_next_to_the_saving(cairn):
+    from cairn import hooks
+    cairn.brain.log_query("mcp", "impact", "shop/payments.py", 500, 5000, 2)
+    cairn.brain.log_query("hook", "brief", "", 300, None, 0)  # no file baseline: counted, never "saved"
+    cairn.brain.log_call("recall_observe", "fast", "claude-haiku-5-5", {"input": 2_000_000, "output": 100_000}, True)
+    out = hooks.recap(cairn)
+    assert "2 queries (1 with a file baseline)" in out and "saved up to ~4,500 tokens" in out
+    assert "upper bound" in out
+    assert "spent       1 model calls of its own — 2,100,000 tokens, ~$0.25 est. (measured)" in out
+    assert "recall_observe" in out and "net " in out
+
+
+def test_recap_without_model_calls_says_so(cairn):
+    from cairn import hooks
+    assert "no model calls of its own" in hooks.recap(cairn)
+
+
+def test_net_value_last_activity_is_the_newest_record(cairn):
+    from cairn import modelcost
+    cairn.brain.log_query("mcp", "context", "x", 100, 1000, 1)
+    nv = modelcost.net_value(cairn.brain, cairn.project)
+    assert nv["last"] >= nv["first"] and nv["packs"]["kept_out"] == 900
+
+
+def test_recap_all_sums_every_repository(cairn):
+    from cairn import hooks
+    cairn.brain.log_query("mcp", "impact", "a.py", 500, 5000, 2)
+    cairn.brain.log_call("memory", "fast", "claude-haiku-5-5", {"input": 1000, "output": 10}, True)
+    cairn.brain.db.commit()
+    out = hooks.recap_all([cairn.project.root, cairn.project.root / "nope"])
+    assert "1 repositories on this machine" in out and "saved up to ~4,500 tokens" in out and "1,010 tokens" in out
+
+
+def test_a_ledger_row_that_hits_a_locked_store_is_written_later(cairn, tmp_path):
+    import sqlite3
+
+    import pytest
+    b = cairn.brain
+    before = b.q("SELECT COUNT(*) n FROM ledger")[0]["n"]
+    b.db.execute("PRAGMA busy_timeout=50")
+    other = sqlite3.connect(str(b.path), timeout=0.05)
+    other.execute("BEGIN IMMEDIATE")  # a sync holding the write lock
+    try:
+        with pytest.raises(sqlite3.Error):
+            b.log_call("recall_observe", "fast", "claude-haiku-5-5", {"input": 10, "output": 1}, True)
+    finally:
+        other.rollback()
+        other.close()
+    assert b.q("SELECT COUNT(*) n FROM ledger")[0]["n"] == before
+    b.log_call("recall_observe", "fast", "claude-haiku-5-5", {"input": 20, "output": 2}, True)
+    assert b.q("SELECT COUNT(*) n FROM ledger")[0]["n"] == before + 2  # both rows, the held one included

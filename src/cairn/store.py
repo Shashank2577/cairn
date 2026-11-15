@@ -134,6 +134,7 @@ def migrate(db: sqlite3.Connection, current: int) -> int:
 AGING_SINCE = "memory.aging_since"
 TOUCH_WAIT_MS = 300  # a hook never waits on a sync's write: a use that can't be noted right now is dropped
 LOCK_WAIT_MS = 30_000
+LEDGER_BACKLOG_MAX = 5_000  # ledger rows held in memory while the store is locked (oldest dropped beyond this)
 
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _WORD = re.compile(r"[A-Za-z0-9_]{2,}")
@@ -201,6 +202,10 @@ class Brain:
 
     def close(self) -> None:
         with self._lock:
+            try:
+                self.flush_calls()
+            except sqlite3.Error:
+                pass
             self.db.close()
 
     # ---- kv ------------------------------------------------------------------------------------
@@ -427,13 +432,31 @@ class Brain:
 
     # ---- ledger --------------------------------------------------------------------------------
     def log_call(self, task: str, tier: str, model: str, usage: dict, ok: bool) -> None:
+        """Record one model call. A row that cannot be written now (the store is locked by a sync) is kept in memory
+        and written with the next call or at ``close``, so spend is not under-reported; the error is still raised."""
+        row = (time.time(), task, tier, model, usage.get("input", 0), usage.get("output", 0),
+               usage.get("cache_read", 0), usage.get("cache_write", 0), int(ok),
+               usage.get("thinking", 0), usage.get("cache_write_1h", 0))
         with self._lock:
-            self.db.execute("INSERT INTO ledger(ts,task,tier,model,input_tokens,output_tokens,cache_read,cache_write,ok,"
-                            "thinking_tokens,cache_write_1h) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                            (time.time(), task, tier, model, usage.get("input", 0), usage.get("output", 0),
-                             usage.get("cache_read", 0), usage.get("cache_write", 0), int(ok),
-                             usage.get("thinking", 0), usage.get("cache_write_1h", 0)))
-            self.db.commit()
+            self._unlogged_calls = [*getattr(self, "_unlogged_calls", []), row][-LEDGER_BACKLOG_MAX:]
+            self.flush_calls()
+
+    def flush_calls(self) -> int:
+        """Write the ledger rows still held in memory; returns how many were written. Raises when still locked."""
+        with self._lock:
+            rows = getattr(self, "_unlogged_calls", [])
+            if not rows:
+                return 0
+            try:
+                self.db.executemany(
+                    "INSERT INTO ledger(ts,task,tier,model,input_tokens,output_tokens,cache_read,cache_write,ok,"
+                    "thinking_tokens,cache_write_1h) VALUES(?,?,?,?,?,?,?,?,?,?,?)", rows)
+                self.db.commit()
+            except sqlite3.Error:
+                self.db.rollback()
+                raise
+            self._unlogged_calls = []
+            return len(rows)
 
     def ledger(self, since: float = 0) -> list[dict]:
         return [dict(r) for r in self.q(
