@@ -391,6 +391,10 @@ def value_lines(nv: dict) -> list[str]:
         top = ", ".join(f"{t['task']} {_usd(t['usd']) or format(t['tokens'], ',') + ' tok'}" for t in s["tasks"])
         out.append(f"  spent       {s['calls']:,} model calls of its own — {s['tokens']:,} tokens{usd} (measured)")
         out.append(f"              most on: {top}")
+        r = s["recent"]
+        if r["calls"] != s["calls"]:
+            usd = f", {_usd(r['usd'])} est." if r["usd"] is not None else ""
+            out.append(f"              last {r['days']} days: {r['calls']:,} calls, {r['tokens']:,} tokens{usd}")
         if p["kept_out_usd"] is not None and s["usd"] is not None:
             diff = p["kept_out_usd"] - s["usd"]
             out.append(f"  net         spend exceeds the upper-bound saving by {_usd(-diff)}" if diff < 0 else
