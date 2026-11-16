@@ -417,3 +417,29 @@ def test_a_ledger_row_that_hits_a_locked_store_is_written_later(cairn, tmp_path)
     assert b.q("SELECT COUNT(*) n FROM ledger")[0]["n"] == before
     b.log_call("recall_observe", "fast", "claude-haiku-5-5", {"input": 20, "output": 2}, True)
     assert b.q("SELECT COUNT(*) n FROM ledger")[0]["n"] == before + 2  # both rows, the held one included
+
+
+def test_a_process_that_closes_while_the_store_is_locked_hands_its_ledger_rows_to_the_next(tmp_path):
+    import sqlite3
+
+    from cairn.store import LEDGER_SPILL, Brain
+    path = tmp_path / "brain.db"
+    first = Brain(path)
+    first.db.execute("PRAGMA busy_timeout=50")
+    other = sqlite3.connect(str(path), timeout=0.05)
+    other.execute("BEGIN IMMEDIATE")  # a sync holding the write lock for longer than this process lives
+    try:
+        with pytest.raises(sqlite3.Error):
+            first.log_call("recall_observe", "fast", "claude-haiku-5-5", {"input": 10, "output": 1}, True)
+        first.close()
+    finally:
+        other.rollback()
+        other.close()
+    spill = path.with_name(LEDGER_SPILL)
+    assert spill.exists()  # the row waits beside the store
+    spill.write_text(spill.read_text() + "not json\n[1, 2]\n")  # a damaged line is skipped, the rest is kept
+    second = Brain(path)
+    second.log_call("recall_summary", "fast", "claude-haiku-5-5", {"input": 20, "output": 2}, True)
+    assert [r["task"] for r in second.q("SELECT task FROM ledger ORDER BY ts")] == ["recall_observe", "recall_summary"]
+    assert not spill.exists() and not list(tmp_path.glob(f"{LEDGER_SPILL}.*"))  # taken once, nothing left behind
+    second.close()

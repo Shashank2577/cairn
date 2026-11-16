@@ -6,6 +6,7 @@ fast (<10 ms lookups), uniform across layers and available offline.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -135,6 +136,7 @@ AGING_SINCE = "memory.aging_since"
 TOUCH_WAIT_MS = 300  # a hook never waits on a sync's write: a use that can't be noted right now is dropped
 LOCK_WAIT_MS = 30_000
 LEDGER_BACKLOG_MAX = 5_000  # ledger rows held in memory while the store is locked (oldest dropped beyond this)
+LEDGER_SPILL = "ledger.pending"  # ledger rows a process could not write before it exited, one JSON row per line
 
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _WORD = re.compile(r"[A-Za-z0-9_]{2,}")
@@ -205,7 +207,7 @@ class Brain:
             try:
                 self.flush_calls()
             except sqlite3.Error:
-                pass
+                self._spill_calls()
             self.db.close()
 
     # ---- kv ------------------------------------------------------------------------------------
@@ -449,7 +451,7 @@ class Brain:
     def flush_calls(self) -> int:
         """Write the ledger rows still held in memory; returns how many were written. Raises when still locked."""
         with self._lock:
-            rows = getattr(self, "_unlogged_calls", [])
+            rows = self._unlogged_calls = [*self._spilled_calls(), *getattr(self, "_unlogged_calls", [])][-LEDGER_BACKLOG_MAX:]
             if not rows:
                 return 0
             try:
@@ -462,6 +464,41 @@ class Brain:
                 raise
             self._unlogged_calls = []
             return len(rows)
+
+    def _spill_calls(self) -> None:
+        """This process is ending with the store still locked: leave its unwritten ledger rows in a file beside the
+        store, where the next process to record a call picks them up."""
+        rows = getattr(self, "_unlogged_calls", [])
+        if not rows:
+            return
+        try:
+            with self.path.with_name(LEDGER_SPILL).open("a", encoding="utf-8") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+            self._unlogged_calls = []
+        except OSError:
+            pass
+
+    def _spilled_calls(self) -> list[tuple]:
+        """Rows an earlier process left behind, taken so that no other process writes them too."""
+        spill = self.path.with_name(LEDGER_SPILL)
+        if not spill.exists():
+            return []
+        mine = spill.with_name(f"{LEDGER_SPILL}.{os.getpid()}.{time.time_ns()}")
+        try:
+            os.replace(spill, mine)  # atomic: only one process gets the file
+            lines = mine.read_text(encoding="utf-8").splitlines()
+            mine.unlink()
+        except OSError:
+            return []
+        rows = []
+        for line in lines:
+            try:
+                row = tuple(json.loads(line))
+            except ValueError:
+                continue
+            if len(row) == 11:
+                rows.append(row)
+        return rows
 
     def ledger(self, since: float = 0) -> list[dict]:
         return [dict(r) for r in self.q(
