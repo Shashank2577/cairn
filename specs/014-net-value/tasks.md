@@ -5,5 +5,5 @@
 - [x] T004 `cairn recap --all` (src/cairn/cli.py)
 - [x] T005 Tests (tests/test_dogfood_fixes.py)
 - [x] T006 Run against the real stores on this machine and record the totals in spec.md
-- [ ] T007 Overview page shows the same spend and net lines
-- [ ] T008 Document `recap --all` in docs/cli.md and docs/models-and-cost.md
+- [x] T007 Overview page shows the same spend and net lines
+- [x] T008 Document `recap --all` in docs/cli.md and docs/models-and-cost.md

@@ -67,7 +67,8 @@ None of this needs a model:
   It's on for Claude Code by default. For other agents, run `cairn sessions integrate install <agent>`.
   Without a model, the events are turned into deterministic observations.
 - Measured savings: every context pack an agent receives is logged with its size and the size of the
-  files behind it. The Overview page shows the totals.
+  files behind it. The Overview page and `cairn recap` show the totals next to what Cairn's own model
+  calls cost. The saving is an upper bound; the cost is measured.
 - `cairn ui`: one page with the map, specs, timeline, memory and sessions.
 
 ## Model features
