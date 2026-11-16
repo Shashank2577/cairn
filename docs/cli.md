@@ -163,6 +163,7 @@ To point at another repository, put `--root <path>` before the subcommand:
 | `cairn agents connect --server URL --project ID [--env-var CAIRN_TOKEN]` | Point this repository's agents at a team server's MCP endpoint, and send captured sessions there (`[team]` in `.cairn/config.toml`). |
 | `cairn agents list` | Detected agents. |
 | `cairn models [--ledger]` | Which model does which job, and the calls and tokens per tier. |
+| `cairn recap [--all]` | What Cairn did for this repository: packs handed to agents and the most they can have saved, next to what Cairn's own model calls cost. `--all` covers every repository registered on this machine. |
 
 ## Docs export
 

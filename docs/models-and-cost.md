@@ -111,3 +111,8 @@ Cairn records what its answers cost agents and what they replace.
 
 The Overview page compares the tokens agents were sent with the size of the code those answers cite,
 and breaks the totals down by surface and kind. The same data is at `GET /api/p/<id>/savings`.
+
+It shows that saving next to what Cairn's own model calls cost, and says which is larger. The saving
+is an upper bound: it assumes every file behind a pack would have been read in full. The cost is
+measured from the ledger. `cairn recap` prints the same comparison for one repository, and
+`cairn recap --all` for every repository registered on the machine.
