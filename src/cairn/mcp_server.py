@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextvars
 import inspect
 import json
+import os
 import re
 from collections.abc import Callable
 from functools import lru_cache
@@ -71,16 +72,50 @@ def _cairn() -> Cairn:
 _cairn.cache_clear = _open.cache_clear  # the opened Cairn is cached per root; tests and reloads reset it
 
 
+UPGRADED = ("\n\n(Cairn was updated on this machine after this session started. These Cairn tools are still the "
+            "old version until the session is restarted; tell the user once.)")
+
+
+def _install_stamp() -> tuple[int, int] | None:
+    """When Cairn was last installed: the time and size of its package record, which every install rewrites (the
+    version number can stay the same across reinstalls)."""
+    try:
+        from importlib.metadata import distribution
+        record = next(f for f in distribution("cairn-brain").files or [] if f.name == "RECORD")
+        st = os.stat(record.locate())
+        return st.st_mtime_ns, st.st_size
+    except Exception:  # noqa: BLE001 — not installed as a package, or mid-install: say nothing
+        return None
+
+
+_STARTED = _install_stamp()
+_told = False
+
+
+def _upgrade_note() -> str:
+    """Once per server: the note that this long-lived process runs an older Cairn than the one now installed."""
+    global _told
+    if _told or _STARTED is None:
+        return ""
+    now = _install_stamp()
+    if now is None or now == _STARTED:
+        return ""
+    _told = True
+    return UPGRADED
+
+
 def _guard(fn: Callable[..., str]) -> Callable[..., str]:
-    """A tool that answers with the setup line, instead of failing, where Cairn is not set up."""
+    """A tool that answers with the setup line, instead of failing, where Cairn is not set up; and that says once
+    when Cairn was upgraded under this running server."""
     import functools
 
     @functools.wraps(fn)
     def guarded(*args, **kwargs):
         try:
-            return fn(*args, **kwargs)
+            out = fn(*args, **kwargs)
         except NotInitialized as exc:
-            return str(exc)
+            out = str(exc)
+        return out + _upgrade_note() if isinstance(out, str) else out
     return guarded
 
 
