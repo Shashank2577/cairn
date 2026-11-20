@@ -355,6 +355,11 @@ def agent_project(start: Path | None = None) -> Project | None:
         return None
     if proj is not None and proj.db_path.exists():
         return proj
+    return main_checkout_project(root)
+
+
+def main_checkout_project(root: Path) -> Project | None:
+    """In a linked git worktree, the main checkout's project when Cairn is set up there; otherwise None."""
     from .engines.recall.projects import detect_worktree
     wt = detect_worktree(root)
     if wt.is_worktree and wt.parent_repo_path:

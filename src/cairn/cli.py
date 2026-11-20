@@ -63,10 +63,23 @@ LAYERS = [("map", "Map", "what the code is"), ("specs", "Specs", "what we intend
 
 
 # ---- helpers -----------------------------------------------------------------------------------------
+def _discover():
+    """This checkout's project. In a linked git worktree that has no store of its own, the main checkout's:
+    same repository, same memory, so a command run in a worktree never grows a second, separate store."""
+    from .project import Project, main_checkout_project
+    proj = Project.discover()
+    if proj is None or proj.db_path.exists():
+        return proj
+    shared = main_checkout_project(proj.root)
+    if shared is None or shared.root == proj.root:
+        return proj
+    err.print(f"[{SLATE}]Git worktree of {shared.root}: using that checkout's Cairn store.[/]")
+    return shared
+
+
 def _cairn():
     from .core import Cairn
-    from .project import Project
-    proj = Project.discover()
+    proj = _discover()
     if proj is None:
         err.print("[bold red]Not inside a project folder.[/]")
         raise typer.Exit(3)
@@ -169,8 +182,7 @@ def main_cb(ctx: typer.Context,
         console.print(f"cairn {__version__}")
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
-        from .project import Project
-        proj = Project.discover()
+        proj = _discover()
         if proj is not None and proj.initialized and (proj.dir / "brain.db").exists():
             from .core import Cairn
             if Cairn(proj).brain.get_kv("sync.last"):
@@ -199,10 +211,14 @@ def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = Fa
     from .engines import journal, specs
     from .project import Project
 
-    proj = Project.discover()
+    proj = _discover()
     if proj is None:
         err.print("[bold red]Run this inside a project folder.[/]")
         raise typer.Exit(3)
+    if proj.root != Project.discover().root:
+        console.print(f"This worktree shares Cairn with [bold]{proj.root}[/]: memory, sessions and context come from "
+                      "that checkout, so there is nothing to set up here.")
+        return
     if not proj.is_git:
         console.print(f"[{AMBER}]No git repository here.[/] History and hooks need one: [bold]git init[/]. "
                       "Continuing with map, specs and memory.")
