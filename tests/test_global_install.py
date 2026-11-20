@@ -162,6 +162,28 @@ def test_capture_never_records_into_the_home_folder(home):
     assert not (home / ".cairn" / "sessions.db").exists() and not (repo / ".cairn").exists()
 
 
+@pytest.mark.parametrize("args", [["status"], ["sync", "--no-deep"], ["impact", "shop/payments.py"], [],
+                                  ["init", "--no-ui", "--no-hooks", "--no-capture", "--no-deep", "--agents", ""]])
+def test_a_command_in_a_worktree_never_builds_a_second_store(cairn, monkeypatch, args):
+    wt = _worktree(cairn)
+    monkeypatch.chdir(wt)
+    out = CliRunner().invoke(app, args)
+    assert out.exit_code == 0, out.output
+    assert not (wt / ".cairn" / "brain.db").exists() and not (wt / ".cairn" / "sessions.db").exists()
+    assert str(cairn.project.root) in out.output.replace("\n", "")  # says whose store it used
+
+
+def test_a_worktree_with_a_store_of_its_own_keeps_it(cairn, monkeypatch):
+    from cairn.core import Cairn
+    from cairn.project import Project
+    wt = _worktree(cairn)
+    Cairn(Project.discover(wt)).brain.set_kv("sync.last", "1")  # set up before this change: its data stays its own
+    monkeypatch.chdir(wt)
+    out = CliRunner().invoke(app, ["status", "--json"])
+    assert out.exit_code == 0 and "using that checkout" not in out.output
+    assert json.loads(out.stdout[out.stdout.index("{"):])["root"] == str(wt.resolve())
+
+
 def test_a_worktree_ignores_stores_above_the_repository(cairn):
     from cairn.engines.recall.projects import find_store_root
     wt = _worktree(cairn)

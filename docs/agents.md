@@ -200,6 +200,14 @@ antigravity hooks). For copilot-cli, roo-code, warp and goose it adds the MCP se
 [configuration](configuration.md#recall)). To turn it off, set `[recall] capture = false` or
 `[sessions] capture = false`, or run `cairn init --no-capture`.
 
+## Git worktrees
+
+A linked git worktree shares its main checkout's Cairn store: memory, captured sessions and context come
+from one place, whichever checkout an agent works in. Agents, hooks and every `cairn` command run in a
+worktree use the main checkout's store when the worktree has none of its own, and `cairn init` there
+says so instead of setting up a second store. A worktree that already has its own store (set up before
+this) keeps it.
+
 ## Spec workflow commands
 
 `cairn init` adds the spec workflow for the first agent it detects, using the workflow's
