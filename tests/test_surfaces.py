@@ -1256,3 +1256,29 @@ def test_a_closed_pipe_on_plain_writes_is_not_a_failure_either(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 1
+
+
+def test_a_running_mcp_server_says_once_that_cairn_was_upgraded_under_it(cairn, monkeypatch):
+    from cairn import mcp_server
+    monkeypatch.chdir(cairn.project.root)
+    mcp_server._cairn.cache_clear()
+    monkeypatch.setattr(mcp_server, "_told", False)
+    monkeypatch.setattr(mcp_server, "_STARTED", (1, 10))
+    stamp = [(1, 10)]
+    monkeypatch.setattr(mcp_server, "_install_stamp", lambda: stamp[0])
+    tool = mcp_server._guard(mcp_server.cairn_status)
+    assert "was updated" not in tool()                      # same install: nothing to say
+    stamp[0] = None
+    assert "was updated" not in tool()                      # mid-install, the record is missing: say nothing yet
+    stamp[0] = (2, 11)
+    first, second = tool(), tool()
+    assert first.endswith(mcp_server.UPGRADED) and "was updated" not in second  # said once, not on every call
+    monkeypatch.setattr(mcp_server, "_told", False)
+    monkeypatch.setattr(mcp_server, "_STARTED", None)        # not installed as a package (a source checkout)
+    assert "was updated" not in tool()
+
+
+def test_the_install_stamp_reads_this_package_record():
+    from cairn import mcp_server
+    stamp = mcp_server._install_stamp()
+    assert stamp is None or (isinstance(stamp[0], int) and stamp[1] > 0)
