@@ -1,6 +1,6 @@
 # Feature Specification: Cairn Cloud v0 (paid hosted team memory)
 
-**Feature Branch**: `ccr-0ece36a3-n5yyrt` (spec directory `013-cairn-cloud-v0`)
+**Feature Branch**: `ccr-0ece36a3-n5yyrt` (spec directory `021-cairn-cloud-v0`)
 
 **Created**: 2026-11-05
 
