@@ -7,16 +7,16 @@ project (`/mcp/<project id>`, bearer token), see `server.py`.
 """
 from __future__ import annotations
 
-import contextlib
 import contextvars
 import inspect
 import json
+import os
 import re
 from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
 
-from .core import estimate_tokens, Cairn, ago
+from .core import Cairn, ago
 from .engines import mapper
 
 INSTRUCTIONS = ("Project memory for this repository — route by trigger: cairn_context FIRST, before reading or editing "
@@ -72,16 +72,50 @@ def _cairn() -> Cairn:
 _cairn.cache_clear = _open.cache_clear  # the opened Cairn is cached per root; tests and reloads reset it
 
 
+UPGRADED = ("\n\n(Cairn was updated on this machine after this session started. These Cairn tools are still the "
+            "old version until the session is restarted; tell the user once.)")
+
+
+def _install_stamp() -> tuple[int, int] | None:
+    """When Cairn was last installed: the time and size of its package record, which every install rewrites (the
+    version number can stay the same across reinstalls)."""
+    try:
+        from importlib.metadata import distribution
+        record = next(f for f in distribution("cairn-brain").files or [] if f.name == "RECORD")
+        st = os.stat(record.locate())
+        return st.st_mtime_ns, st.st_size
+    except Exception:  # noqa: BLE001 — not installed as a package, or mid-install: say nothing
+        return None
+
+
+_STARTED = _install_stamp()
+_told = False
+
+
+def _upgrade_note() -> str:
+    """Once per server: the note that this long-lived process runs an older Cairn than the one now installed."""
+    global _told
+    if _told or _STARTED is None:
+        return ""
+    now = _install_stamp()
+    if now is None or now == _STARTED:
+        return ""
+    _told = True
+    return UPGRADED
+
+
 def _guard(fn: Callable[..., str]) -> Callable[..., str]:
-    """A tool that answers with the setup line, instead of failing, where Cairn is not set up."""
+    """A tool that answers with the setup line, instead of failing, where Cairn is not set up; and that says once
+    when Cairn was upgraded under this running server."""
     import functools
 
     @functools.wraps(fn)
     def guarded(*args, **kwargs):
         try:
-            return fn(*args, **kwargs)
+            out = fn(*args, **kwargs)
         except NotInitialized as exc:
-            return str(exc)
+            out = str(exc)
+        return out + _upgrade_note() if isinstance(out, str) else out
     return guarded
 
 
@@ -100,11 +134,7 @@ def cairn_context(task: str, targets: list[str] | None = None, budget: int = 180
     co-change partners, past incidents, owning spec, conventions and prior agent work in one cited pack
     (~1-2k tokens — cheaper than grepping). targets: optional paths/symbols to bias the pack."""
     c = _project()
-    pack = c.context(task, targets, budget)
-    with contextlib.suppress(Exception):  # every surface lands in the audit trail, MCP included
-        c.brain.log_query("mcp", "context", task,
-                          sum(estimate_tokens(ln) for ln in pack.render().splitlines()), None)
-    return pack.render()
+    return c.context(task, targets, budget).render()  # rendering records the pack in the audit trail, once
 
 
 def cairn_status() -> str:

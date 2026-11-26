@@ -67,7 +67,8 @@ None of this needs a model:
   It's on for Claude Code by default. For other agents, run `cairn sessions integrate install <agent>`.
   Without a model, the events are turned into deterministic observations.
 - Measured savings: every context pack an agent receives is logged with its size and the size of the
-  files behind it. The Overview page shows the totals.
+  files behind it. The Overview page and `cairn recap` show the totals next to what Cairn's own model
+  calls cost. The saving is an upper bound; the cost is measured.
 - `cairn ui`: one page with the map, specs, timeline, memory and sessions.
 
 ## Model features
@@ -88,13 +89,14 @@ With a model, Cairn adds:
 - document, paper and image extraction into the map (`cairn graph extract`)
 
 Each job goes to the cheapest model tier that does it well. Every call is recorded in a ledger
-(`cairn models --ledger`). Model work runs on its own when a model is available, and it spends that
+(`cairn models --ledger`). Session notes are written on their own when a model is available, and that spends the
 provider's quota (or your Claude Code plan):
 
 - After each agent turn, observations and summaries are written. To only queue the events, set
   `[recall] worker_spawn = false`. You can process them later with `cairn sessions worker`.
-- Every sync builds timeline facts, capped at 150,000 tokens per sync by default. Change the cap
-  with `[deep] budget_tokens`, or turn this off with `[deep] enabled = false`.
+- Timeline facts are off by default, because they are the costliest background job. Build them once
+  with `cairn sync --deep`, or on every sync with `[deep] timeline_facts = true`. They are capped at
+  150,000 tokens per sync; change the cap with `[deep] budget_tokens`.
 
 See [models and cost](docs/models-and-cost.md).
 

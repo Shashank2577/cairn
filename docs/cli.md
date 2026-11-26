@@ -15,7 +15,7 @@ Wherever a command takes a **target**, it accepts a path (`src/pay/service.py`),
 | `cairn init [--agents claude,codex,cursor,gemini,vscode] [--no-hooks] [--no-ui] [--no-capture] [--no-specs]` | Idempotent setup that never prompts. Without `--agents`, it wires the agents it detects. |
 | `cairn status [--json]` | Every layer, the active spec, drift findings and the page's address. |
 | `cairn doctor` | Every capability, its state and the exact command that enables it. |
-| `cairn sync [--deep/--no-deep] [--budget N] [--no-map-rebuild] [-q] [--json]` | Incremental refresh of every layer. `--deep` forces timeline facts on (it needs a model) and `--no-deep` skips them. `--budget` caps their tokens. |
+| `cairn sync [--deep/--no-deep] [--budget N] [--no-map-rebuild] [-q] [--json]` | Incremental refresh of every layer. Timeline facts are off unless `[deep] timeline_facts = true`: `--deep` builds them for this run (it needs a model) and `--no-deep` skips them. `--budget` caps their tokens. |
 | `cairn uninstall [--purge]` | Removes agent wiring, session skills, git hooks and the project's registration with the local server, and deletes config files (`.mcp.json`, `.claude/settings.json`) and directories it leaves empty. `--purge` also deletes `.cairn/` and the spec workflow's agent files (skills, commands); files you edited are kept and listed. `specs/` is kept. |
 
 ## Questions
@@ -24,6 +24,7 @@ Wherever a command takes a **target**, it accepts a path (`src/pay/service.py`),
 |---|---|
 | `cairn impact <target> [--depth 2] [--budget 1800] [--explain] [--json]` | What breaks if this changes. `--explain` adds a model-written summary. |
 | `cairn why <target> [--budget 1800] [--explain] [--json]` | Why the code is the way it is. |
+| `cairn context "<task>" [--targets a,b] [--budget N] [--json]` | The context pack an agent should read before a task, as plain text. No model calls. For orchestrators and scripts that build an agent's prompt. |
 | `cairn ask "<question>" [--budget 1800] [--no-llm] [--save] [--json]` | An evidence pack, plus a narrated answer when a model is available. Answers are not stored unless you pass `--save`, which keeps the answer as an inferred memory. |
 | `cairn search <query> [--kinds symbol,file,spec,task,req,commit,memory,obs,fact] [--limit 20] [--json]` | Search every layer. |
 | `cairn brief` | The compact briefing agents receive at session start. |
@@ -162,6 +163,7 @@ To point at another repository, put `--root <path>` before the subcommand:
 | `cairn agents connect --server URL --project ID [--env-var CAIRN_TOKEN]` | Point this repository's agents at a team server's MCP endpoint, and send captured sessions there (`[team]` in `.cairn/config.toml`). |
 | `cairn agents list` | Detected agents. |
 | `cairn models [--ledger]` | Which model does which job, and the calls and tokens per tier. |
+| `cairn recap [--all]` | What Cairn did for this repository: packs handed to agents and the most they can have saved, next to what Cairn's own model calls cost. `--all` covers every repository registered on this machine. |
 
 ## Docs export
 

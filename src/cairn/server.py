@@ -1443,7 +1443,7 @@ def memory_result(cairn: Cairn, res: dict, previous: dict | None) -> dict:
 
 SETTINGS: dict[str, type | tuple] = {
     "models.provider": str, "models.fast": str, "models.balanced": str, "models.deep": str, "models.frontier": str,
-    "models.base_url": str, "sessions.capture": bool, "deep.enabled": (bool, str), "deep.budget_tokens": int,
+    "models.base_url": str, "sessions.capture": bool, "deep.enabled": (bool, str), "deep.timeline_facts": bool, "deep.budget_tokens": int,
     "context.budget": int, "context.ambient": bool, "deep.wall_seconds": int, "memory.seed": bool, "memory.rerank": bool,
     "memory.wall_seconds": int, "recall.worker_spawn": bool, "recall.observe_batch": int, "recall.context_observations": int}
 PROVIDERS = ("auto", "anthropic", "openai", "claude-code")

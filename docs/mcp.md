@@ -94,6 +94,13 @@ session brief carries one line naming this repository's container and its neighb
 The map and timeline tools are generated from the engines' own tool specs, so their arguments match
 the engines' schemas.
 
+## After an upgrade
+
+An agent starts `cairn mcp` once per session, and that process keeps the code it started with. When Cairn
+is reinstalled while a session is open, the session's next Cairn tool result ends with one note saying
+the tools are still the old version until the session restarts. It is said once per session. Restarting
+the agent session picks up the new build.
+
 ## HTTP endpoint
 
 A server serves the tools per project at `/mcp/<project id>/` over streamable HTTP (stateless,

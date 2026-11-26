@@ -37,3 +37,8 @@ def test_savings_totals_carry_what_the_overview_bars_read(cairn, tmp_path):
     row = s["totals"][0]
     assert (row["sent_with_source"], row["source"], row["n"]) == (300, 30_000, 1)
     assert s["pricing"] is None or {"model", "input", "cache_read", "as_of"} <= set(s["pricing"])
+    assert s["net"]["packs"]["kept_out"] == 29_700 and s["net"]["spend"]["calls"] == 0  # the saving never ships without the cost
+    cairn.brain.log_call("recall_observe", "fast", "claude-haiku-5-5", {"input": 40_000, "output": 2_000}, True)
+    net = c.get(f"{p}/savings").json()["net"]
+    assert net["spend"]["tokens"] == 42_000 and net["spend"]["tasks"][0]["task"] == "recall_observe"
+    assert "upper bound" in net["labels"]["kept_out"]

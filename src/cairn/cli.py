@@ -63,10 +63,23 @@ LAYERS = [("map", "Map", "what the code is"), ("specs", "Specs", "what we intend
 
 
 # ---- helpers -----------------------------------------------------------------------------------------
+def _discover():
+    """This checkout's project. In a linked git worktree that has no store of its own, the main checkout's:
+    same repository, same memory, so a command run in a worktree never grows a second, separate store."""
+    from .project import Project, main_checkout_project
+    proj = Project.discover()
+    if proj is None or proj.db_path.exists():
+        return proj
+    shared = main_checkout_project(proj.root)
+    if shared is None or shared.root == proj.root:
+        return proj
+    err.print(f"[{SLATE}]Git worktree of {shared.root}: using that checkout's Cairn store.[/]")
+    return shared
+
+
 def _cairn():
     from .core import Cairn
-    from .project import Project
-    proj = Project.discover()
+    proj = _discover()
     if proj is None:
         err.print("[bold red]Not inside a project folder.[/]")
         raise typer.Exit(3)
@@ -169,8 +182,7 @@ def main_cb(ctx: typer.Context,
         console.print(f"cairn {__version__}")
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
-        from .project import Project
-        proj = Project.discover()
+        proj = _discover()
         if proj is not None and proj.initialized and (proj.dir / "brain.db").exists():
             from .core import Cairn
             if Cairn(proj).brain.get_kv("sync.last"):
@@ -199,10 +211,14 @@ def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = Fa
     from .engines import journal, specs
     from .project import Project
 
-    proj = Project.discover()
+    proj = _discover()
     if proj is None:
         err.print("[bold red]Run this inside a project folder.[/]")
         raise typer.Exit(3)
+    if proj.root != Project.discover().root:
+        console.print(f"This worktree shares Cairn with [bold]{proj.root}[/]: memory, sessions and context come from "
+                      "that checkout, so there is nothing to set up here.")
+        return
     if not proj.is_git:
         console.print(f"[{AMBER}]No git repository here.[/] History and hooks need one: [bold]git init[/]. "
                       "Continuing with map, specs and memory.")
@@ -640,6 +656,32 @@ def ask(question: str = typer.Argument(...), budget: int = typer.Option(1800),
     elif save and not no_llm:
         console.print(f"[{SLATE}]No narrated answer, so nothing was kept.[/]")
     render_pack(res["pack"])
+
+
+@app.command()
+def context(task: str = typer.Argument(..., help="The task in a sentence, as you would give it to an agent."),
+            targets: Optional[str] = typer.Option(None, help="Comma list of paths or symbols to bias the pack."),
+            budget: int = typer.Option(1800, help="Token budget for the pack."),
+            as_json: bool = typer.Option(False, "--json")):
+    """The context pack an agent should read before a task: targets, dependents, files that change together,
+    past fixes, the owning spec, conventions and earlier agent work. No model calls. For orchestrators and
+    scripts that build an agent's prompt (agents inside a session use the cairn_context tool)."""
+    from .core import Cairn
+    from .project import agent_project
+    from .router import estimate_tokens
+    proj = agent_project()  # this checkout's store, or the main checkout's from a linked worktree; creates nothing
+    if proj is None:
+        err.print(f"[{AMBER}]Cairn is not set up here.[/] Run [bold]cairn init --no-deep[/] in the repository first.")
+        raise typer.Exit(1)
+    c = Cairn(proj)
+    _need_init(c)
+    pack = c.context(task, [t.strip() for t in targets.split(",") if t.strip()] if targets else None, budget)
+    text = pack.render()
+    tokens = sum(estimate_tokens(ln) for ln in text.splitlines())
+    if as_json:
+        _emit_json({"task": task, "tokens": tokens, "text": text})
+    else:
+        sys.stdout.write(text + "\n")  # plain text: this is pasted into prompts
 
 
 @app.command()
@@ -1411,10 +1453,20 @@ def hook(event: str, scope: str = typer.Option("project", "--scope", help="user:
 
 
 @app.command()
-def recap():
-    """What cairn has done for this repo: memories learned, commits watched, queries answered and saved."""
+def recap(all_repos: bool = typer.Option(False, "--all", help="Every repository registered on this machine.")):
+    """What cairn has done for this repo: memories learned, commits watched, queries answered and saved, and
+    what its own model calls cost."""
     from . import hooks
-    console.print(hooks.recap(_cairn()))
+    if all_repos:
+        from .platform import Platform, ServerConfig
+        platform = Platform(config=ServerConfig.load())
+        try:
+            roots = [p.root for p in platform.list_projects() if p.root]
+        finally:
+            platform.close()
+        console.print(hooks.recap_all(roots), markup=False, highlight=False, soft_wrap=True)
+        return
+    console.print(hooks.recap(_cairn()), markup=False, highlight=False)
 
 
 @app.command("global")
