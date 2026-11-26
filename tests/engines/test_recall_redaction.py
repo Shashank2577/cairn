@@ -38,6 +38,7 @@ CASES = {  # id: (secret, look-alike that is not one)
     "aws-secret-key": ("aws_secret_" + "access_key = " + "A1b2C3d4E5f6G7h8I9j0" * 2, "aws_secret_" + "access_key = short"),
     "private-key": ("-----BEGIN " + "RSA PRIVATE KEY-----\nMIIabc\n-----END " + "RSA PRIVATE KEY-----",
                     "-----BEGIN " + "PUBLIC KEY-----\nMIIabc\n-----END " + "PUBLIC KEY-----"),
+    "cairn-token": ("cairn" + "_ab12cd34_" + "A1b2C3d4E5" * 4, "cairn" + "_status_is_fine"),
 }
 
 

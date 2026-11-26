@@ -74,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
     ss.add_argument("--json", action="store_true")
     sd = sub.add_parser("session", help="one session in full")
     sd.add_argument("id", type=int)
+    fs = sub.add_parser("forget-session", help="delete one session and everything recorded for it")
+    fs.add_argument("id", help="the agent's session id, or the row id shown by `sessions`")
+    pg = sub.add_parser("purge", help="delete sessions with no activity for a number of days")
+    pg.add_argument("--older-than", type=float, required=True, metavar="DAYS")
+    pg.add_argument("--dry-run", action="store_true", help="only count what would be deleted")
 
     st = sub.add_parser("settings", help="show or change [recall] settings")
     st.add_argument("assignments", nargs="*", help="key=value ...")
@@ -232,6 +237,18 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "session":
         from . import viewer
         _print(viewer.session_detail(root, args.id) or {"error": "not found"}, True)
+        return 0
+    if cmd == "forget-session":
+        from . import viewer
+        res = viewer.delete_session(root, args.id)
+        _print(res if res["success"] else {"error": f"no session {args.id}"}, True)
+        return 0 if res["success"] else 1
+    if cmd == "purge":
+        from . import viewer
+        if args.older_than <= 0:
+            print("--older-than must be a positive number of days", file=sys.stderr)
+            return 2
+        _print(viewer.purge(root, args.older_than, dry_run=args.dry_run), True)
         return 0
     if cmd == "settings":
         from . import viewer

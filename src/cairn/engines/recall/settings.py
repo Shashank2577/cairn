@@ -21,6 +21,7 @@ DEFAULTS: dict[str, Any] = {
     "capture": True,                     # record agent sessions at all
     "skip_tools": "ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion",
     "excluded_projects": "",             # comma-separated globs of project paths never recorded
+    "retention_days": 0,                 # delete captured sessions idle this many days (0 = keep everything)
     "mode": "code",                      # observation vocabulary (modes/<id>.json; parent--override inherits)
     "runtime": "local",                  # local | server (team server: advertises server-only tools)
     # worker / model

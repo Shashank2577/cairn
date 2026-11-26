@@ -216,6 +216,86 @@ def delete(root: Path | str, kind: str, row_id: int) -> dict:
     return {"success": ok, "id": int(row_id), "kind": kind}
 
 
+_VECTOR_KINDS = {"observation": "observation", "summary": "session_summary", "prompt": "user_prompt"}
+
+
+def _delete_sessions(root: Path | str, st: Store, db_ids: list[int]) -> dict:
+    """Delete these sessions and their vector documents; returns counts."""
+    counts = {"sessions": 0, "observations": 0, "summaries": 0, "prompts": 0}
+    gone_all: dict[str, list[int]] = {k: [] for k in _VECTOR_KINDS}
+    for db_id in db_ids:
+        gone = st.delete_session(db_id)
+        if gone is None:
+            continue
+        counts["sessions"] += 1
+        for kind, ids in gone.items():
+            gone_all[kind] += ids
+            counts[{"observation": "observations", "summary": "summaries", "prompt": "prompts"}[kind]] += len(ids)
+    if any(gone_all.values()):
+        try:
+            from .vectorsync import VectorSync
+            vs = VectorSync(root, st)
+            for kind, ids in gone_all.items():
+                if ids:
+                    vs.delete(_VECTOR_KINDS[kind], ids)
+        except Exception as exc:  # noqa: BLE001 - the rows are gone; a stale vector only fails to resolve
+            log.debug("vector cleanup skipped: %s", exc)
+    return counts
+
+
+def resolve_session(st: Store, sid: str | int) -> int | None:
+    """A session's row id from the agent's session id (newest match) or the numeric row id."""
+    if isinstance(sid, int) or str(sid).isdigit():
+        if st.db.execute("SELECT 1 FROM sdk_sessions WHERE id=?", (int(sid),)).fetchone():
+            return int(sid)
+    r = st.db.execute("SELECT id FROM sdk_sessions WHERE content_session_id=? ORDER BY id DESC LIMIT 1",
+                      (str(sid),)).fetchone()
+    return int(r[0]) if r else None
+
+
+def delete_session(root: Path | str, sid: str | int) -> dict:
+    """Delete one captured session (agent session id or row id) and everything recorded for it."""
+    with _open(root) as st:
+        db_id = resolve_session(st, sid)
+        if db_id is None:
+            return {"success": False, "sessions": 0}
+        return {"success": True, **_delete_sessions(root, st, [db_id])}
+
+
+def purge(root: Path | str, older_than_days: float, dry_run: bool = False) -> dict:
+    """Delete captured sessions with no activity in the last ``older_than_days`` days (retention)."""
+    days = float(older_than_days)
+    if days <= 0:
+        raise ValueError("older_than_days must be positive")
+    cutoff = schema.now_ms() - int(days * 86_400_000)
+    with _open(root) as st:
+        ids = st.session_ids_idle_since(cutoff)
+        if dry_run:
+            return {"dry_run": True, "sessions": len(ids)}
+        return _delete_sessions(root, st, ids)
+
+
+def delete_pushed_by(root: Path | str, user_id: str | None) -> dict:
+    """Delete every session a team-server caller pushed (``None``: every session captured on this machine)."""
+    with _open(root) as st:
+        return _delete_sessions(root, st, st.session_ids_pushed_by(user_id))
+
+
+def apply_retention(root: Path | str, settings: dict | None) -> dict | None:
+    """Purge by ``[recall] retention_days`` when it is set above 0; never raises."""
+    try:
+        days = float((settings or {}).get("retention_days") or 0)
+    except (TypeError, ValueError):
+        return None
+    if days <= 0:
+        return None
+    try:
+        return purge(root, days)
+    except Exception as exc:  # noqa: BLE001 - retention must never break the worker
+        log.warning("session retention skipped: %s", exc)
+        return None
+
+
 # ---- sessions ---------------------------------------------------------------------------------------------
 def sessions(root: Path | str, offset: Any = 0, limit: Any = 20, project: str | None = None,
              platform_source: str | None = None) -> dict:

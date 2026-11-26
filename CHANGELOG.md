@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- **Captured sessions can be deleted and expired.** `cairn sessions forget-session <id>` and `DELETE /api/p/<id>/sessions/<sid>`
+  remove one session with everything recorded for it (on a team server: the member who pushed it, or a project admin);
+  `DELETE /api/p/<id>/sessions/mine` deletes the caller's own sessions; `[recall] retention_days` expires idle sessions each worker
+  run, and `cairn sessions purge --older-than N [--dry-run]` does it by hand. Hand-saved memories are never expired. Server
+  deletions are audited.
+
+### Changed
+
+- **Generating documentation is local-mode only.** The run starts a Claude Code agent that edits files and runs Python with the
+  sign-in of the machine the server is on, so a team server refuses it (403) and the Docs page says why.
+- Cairn's own team-server API tokens (`cairn_<8>_<40>`) are masked in captured text like other credentials.
+
 ### Fixed
 
 - **`cairn forget` forgets everywhere.** A forgotten memory also leaves the timeline (and so the daily episodes timeline facts are
