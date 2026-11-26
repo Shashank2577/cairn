@@ -66,7 +66,7 @@ def test_every_document_has_a_diagram_and_an_evidence_table(tmp_path):
     root = _product(tmp_path)
     out = tmp_path / "docs" / "architecture"
     export(root, out)
-    mds = [f for f in out.glob("*.md") if f.name != "README.md"]
+    mds = [f for f in out.glob("*.md") if f.name not in ("README.md", "flows.md")]  # the flows index is a table
     assert mds
     for md in mds:
         stem = md.stem
@@ -150,3 +150,62 @@ def test_configuration_table_lists_names_not_values(tmp_path):
         for line in table.splitlines()[2:]:
             name = line.split("|")[1].strip().strip("`")
             assert "://" not in name and "password" not in name.lower()
+
+
+# --------------------------------------------------------------------------- flows: one index, no duplicates
+def _flow_desc(title, messages, ids=("a", "b")):
+    return {"diagram": "flow", "title": title, "scope": "s", "description": "d",
+            "elements": [{"id": i, "name": i, "type": "container", "evidence": [f"r/{i}.py:1"]} for i in ids],
+            "flow": {"participants": list(ids), "fragments": [],
+                     "messages": [{"from": ids[0], "to": ids[1], "what": w, "how": "HTTP", "style": "sync",
+                                   "provenance": "inferred", "evidence": [f"r/{ids[0]}.py:2"]} for w in messages]}}
+
+
+def test_identical_flows_collapse_to_one_shape():
+    from cairn.system.export import _shapes
+    same = [_flow_desc(f"Flow of cairn GET /x{i}", ["Calls b"]) for i in range(5)]
+    other = _flow_desc("Flow of cairn POST /y", ["Calls b", "Writes b"])
+    groups = _shapes(same + [other])
+    assert [len(g) for g in groups] == [5, 1]
+
+
+def test_export_collapses_flows_into_an_index(tmp_path):
+    """No per-endpoint duplicates: every flow document differs in elements or steps, the index lists them all."""
+    from cairn.system.export import MAX_FLOW_DOCS, _shapes
+    from cairn.system.flows import flows
+    root = _product(tmp_path)
+    out = tmp_path / "docs" / "architecture"
+    export(root, out)
+    pm = link(root)
+    descs = flows(root, pm)
+    flow_docs = [f for f in out.glob("flow-*.md")]
+    assert len(flow_docs) <= min(MAX_FLOW_DOCS, len(_shapes(descs)))
+    assert (out / "flows.md").exists() or not descs
+    if descs:
+        index = (out / "flows.md").read_text(encoding="utf-8")
+        for d in descs:   # every entry point is still listed
+            from cairn.system.diagram.alt import md
+            assert md(d["title"].removeprefix("Flow of ")) in index
+        assert not (out / "flows.mmd").exists() and not (out / "flows.svg").exists()
+        assert "Records commit" in index
+
+
+def test_flow_cap_leaves_the_rest_in_the_index(monkeypatch, tmp_path):
+    import cairn.system.export as ex
+    root = _product(tmp_path)
+    monkeypatch.setattr(ex, "MAX_FLOW_DOCS", 1)
+    out = tmp_path / "capped"
+    ex.export(root, out)
+    assert len(list(out.glob("flow-*.md"))) <= 1
+
+
+def test_bundle_matches_export(tmp_path):
+    from cairn.system.export import bundle
+    root = _product(tmp_path)
+    b = bundle(root)
+    out = tmp_path / "x"
+    written = set(export(root, out)["written"])
+    expected = {"README.md"}
+    for d in b.docs:
+        expected |= {f"{d.slug}.md"} | ({f"{d.slug}.mmd", f"{d.slug}.svg"} if d.desc else set())
+    assert written == expected

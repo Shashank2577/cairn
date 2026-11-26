@@ -165,7 +165,7 @@ def test_calls_charge_measured_usage_until_the_budget_stops_mid_episode():
 
     def payload_charge(router):
         call = router.calls[0]
-        return (len(call['system'] + call['prompt']) + len(answer)) // 4
+        return len(call['system'] + call['prompt']) // 4 + len(answer) // 4  # each side measured, as charged
 
     router = ScriptRouter(answer)
     probe = Budget(1_000_000)

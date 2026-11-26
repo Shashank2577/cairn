@@ -22,7 +22,7 @@ export function useDiagram(pid, level, scope) {
     const q = new URLSearchParams({ level });
     if (scope) q.set("scope", scope);
     const url = `/api/p/${encodeURIComponent(pid)}/system/svg?${q}`;
-    Promise.all([fetch(url).then(r => (r.ok ? r.text() : Promise.reject(new Error(detailOf(r))))),
+    Promise.all([fetch(url).then(r => (r.ok ? r.text() : detailOf(r).then(m => Promise.reject(new Error(m))))),
                  fetch(`/api/p/${encodeURIComponent(pid)}/system/view?${q}`).then(r => r.json())])
       .then(([svg, desc]) => { if (!dead) setState({ svg, desc, error: null, loading: false }); })
       .catch(e => { if (!dead) setState({ svg: "", desc: null, error: e, loading: false }); });
@@ -32,9 +32,12 @@ export function useDiagram(pid, level, scope) {
   return { ...state, reload };
 }
 
-function detailOf(r) {
-  return r.status === 404 ? "Nothing to draw at this level yet. Run a sync so the model is current."
-                          : `The server answered ${r.status}.`;
+/** The server says why there is nothing to draw (an empty model, or a view that would say nothing): show that. */
+async function detailOf(r) {
+  let said = "";
+  try { said = (await r.json()).detail || ""; } catch (e) { /* not JSON */ }
+  if (r.status === 404) return said ? said.charAt(0).toUpperCase() + said.slice(1) : "Nothing to draw at this level yet. Run a sync so the model is current.";
+  return `The server answered ${r.status}.`;
 }
 
 export function SystemDiagram({ pid, level, scope }) {

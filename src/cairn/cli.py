@@ -1,6 +1,7 @@
 """The terminal experience. `cairn` alone does the right thing: set up, or show status."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -21,8 +22,20 @@ from rich.text import Text
 from . import __version__
 
 AMBER, MOSS, ROSE, SLATE, INK = "#d9a441", "#8fb39a", "#d08c8c", "#7d8b96", "#e6ecef"
-console = Console(highlight=False)
-err = Console(stderr=True, highlight=False)
+
+
+class _Console(Console):
+    def on_broken_pipe(self) -> None:
+        """`cairn … | head`: the reader closed the pipe once it had what it wanted, which is not a
+        failure. Rich's default exits 1; keep its quieting, exit 0."""
+        self.quiet = True
+        with contextlib.suppress(OSError, ValueError):
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        raise SystemExit(0)
+
+
+console = _Console(highlight=False)
+err = _Console(stderr=True, highlight=False)
 app = typer.Typer(add_completion=False, no_args_is_help=False, rich_markup_mode="rich",
                   help="Cairn — institutional memory for coding agents. Run [bold]cairn[/] in any repo.")
 trace_app = typer.Typer(help="Explore the code map.")
@@ -53,10 +66,23 @@ LAYERS = [("map", "Map", "what the code is"), ("specs", "Specs", "what we intend
 
 
 # ---- helpers -----------------------------------------------------------------------------------------
+def _discover():
+    """This checkout's project. In a linked git worktree that has no store of its own, the main checkout's:
+    same repository, same memory, so a command run in a worktree never grows a second, separate store."""
+    from .project import Project, main_checkout_project
+    proj = Project.discover()
+    if proj is None or proj.db_path.exists():
+        return proj
+    shared = main_checkout_project(proj.root)
+    if shared is None or shared.root == proj.root:
+        return proj
+    err.print(f"[{SLATE}]Git worktree of {shared.root}: using that checkout's Cairn store.[/]")
+    return shared
+
+
 def _cairn():
     from .core import Cairn
-    from .project import Project
-    proj = Project.discover()
+    proj = _discover()
     if proj is None:
         err.print("[bold red]Not inside a project folder.[/]")
         raise typer.Exit(3)
@@ -159,8 +185,7 @@ def main_cb(ctx: typer.Context,
         console.print(f"cairn {__version__}")
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
-        from .project import Project
-        proj = Project.discover()
+        proj = _discover()
         if proj is not None and proj.initialized and (proj.dir / "brain.db").exists():
             from .core import Cairn
             if Cairn(proj).brain.get_kv("sync.last"):
@@ -189,10 +214,14 @@ def run_init(agents: str | None = None, no_hooks: bool = False, no_ui: bool = Fa
     from .engines import journal, specs
     from .project import Project
 
-    proj = Project.discover()
+    proj = _discover()
     if proj is None:
         err.print("[bold red]Run this inside a project folder.[/]")
         raise typer.Exit(3)
+    if proj.root != Project.discover().root:
+        console.print(f"This worktree shares Cairn with [bold]{proj.root}[/]: memory, sessions and context come from "
+                      "that checkout, so there is nothing to set up here.")
+        return
     if not proj.is_git:
         console.print(f"[{AMBER}]No git repository here.[/] History and hooks need one: [bold]git init[/]. "
                       "Continuing with map, specs and memory.")
@@ -403,6 +432,10 @@ def doctor():
         row(False, "Session capture", "off (config)", "set [sessions] capture = true in .cairn/config.toml")
     row(c.router.available, "Model", c.router.provider if c.router.available else "none (model features off)",
         "sign in to Claude Code (claude), or set ANTHROPIC_API_KEY / an OpenAI-compatible endpoint")
+    from .modelpins import stale_pins
+    pins = stale_pins(c.project)
+    row(not pins, "Model pins", "current" if not pins else "; ".join(
+        f"{p['tier']} is pinned to {p['pinned']} (the default is now {p['default']})" for p in pins), "cairn models --upgrade")
     deep = c.router.deep_state()  # the same answer the API and the UI show
     row(deep["enabled"], "Deep", ("on · " if deep["enabled"] else "off · ") + deep["reason"], deep["fix"])
     from .engines import vectors
@@ -499,11 +532,29 @@ def sync_cmd(deep: Optional[bool] = typer.Option(None, "--deep/--no-deep", help=
 
 
 @app.command("redaction-test")
-def redaction_test(file: Path = typer.Argument(..., exists=True, dir_okay=False, help="Text file to check.")):
-    """Show which lines Cairn would mask when recording this text, and why (never the value itself)."""
+def redaction_test(file: Optional[str] = typer.Argument(None, help="Text file to check, or - for standard input."),
+                   text: Optional[str] = typer.Option(None, "--text", help="Check this text instead of a file.")):
+    """Show which lines Cairn would mask when recording a file, `-` (stdin) or --text, and why (never the value)."""
     from .engines.recall.tags import redact_hits
+    if text is not None:
+        body = text
+    elif file == "-":
+        body = sys.stdin.read()
+    elif file:
+        # never echo the argument: people paste the secret itself here by mistake (a long one makes the
+        # path lookup itself fail with "File name too long", whose message would repeat it)
+        try:
+            body = Path(file).read_text(encoding="utf-8", errors="replace") if Path(file).is_file() else None
+        except (OSError, ValueError):
+            body = None
+        if body is None:
+            err.print("That is not a file. To check a string, use --text \"…\" (or pipe it to `-`).")
+            raise typer.Exit(2)
+    else:
+        err.print("Give a file, - for standard input, or --text \"…\".")
+        raise typer.Exit(2)
     found = 0
-    for n, line in enumerate(file.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+    for n, line in enumerate(body.splitlines(), 1):
         ids = redact_hits(line)
         if ids:
             found += 1
@@ -518,7 +569,10 @@ def redaction_scan(as_json: bool = typer.Option(False, "--json")):
     from .engines.recall.redaction_scan import scan_store
     from .engines.recall.schema import store_path
     root = find_store_root(None)
-    if root is None or not store_path(root).exists():
+    if root is not None and not store_path(root).exists():  # set up, nothing captured yet: nothing to scan
+        console.print("No sessions captured yet, so nothing is stored to scan.")
+        return
+    if root is None:
         err.print("No session store found here.")
         raise typer.Exit(3)
     counts = scan_store(store_path(root))
@@ -587,19 +641,50 @@ def _narrate(c, pack, task):
 @app.command()
 def ask(question: str = typer.Argument(...), budget: int = typer.Option(1800),
         no_llm: bool = typer.Option(False, "--no-llm", help="Only the evidence pack."),
+        save: bool = typer.Option(False, "--save", help="Keep the answer as a memory (inferred) for later questions."),
         as_json: bool = typer.Option(False, "--json")):
     """Ask the project memory anything. Evidence first; a narrated answer when a key is set."""
     c = _cairn()
     _need_init(c)
     if as_json:
-        _emit_json(c.ask(question, budget, llm=not no_llm))
+        _emit_json(c.ask(question, budget, llm=not no_llm, save=save))
         return
     with console.status(f"[{AMBER}]gathering…"):
-        res = c.ask(question, budget, llm=not no_llm)
+        res = c.ask(question, budget, llm=not no_llm, save=save)
     if res.get("answer"):
         console.print(Panel(res["answer"], border_style=AMBER, title=f"answer · {res['model']}", title_align="left"))
+        if res.get("saved"):
+            console.print(f"[{MOSS}]✓[/] kept as memory:{res['saved']} (inferred)")
         console.print(Text("evidence", style=f"bold {SLATE}"))
+    elif save and not no_llm:
+        console.print(f"[{SLATE}]No narrated answer, so nothing was kept.[/]")
     render_pack(res["pack"])
+
+
+@app.command()
+def context(task: str = typer.Argument(..., help="The task in a sentence, as you would give it to an agent."),
+            targets: Optional[str] = typer.Option(None, help="Comma list of paths or symbols to bias the pack."),
+            budget: int = typer.Option(1800, help="Token budget for the pack."),
+            as_json: bool = typer.Option(False, "--json")):
+    """The context pack an agent should read before a task: targets, dependents, files that change together,
+    past fixes, the owning spec, conventions and earlier agent work. No model calls. For orchestrators and
+    scripts that build an agent's prompt (agents inside a session use the cairn_context tool)."""
+    from .core import Cairn
+    from .project import agent_project
+    from .router import estimate_tokens
+    proj = agent_project()  # this checkout's store, or the main checkout's from a linked worktree; creates nothing
+    if proj is None:
+        err.print(f"[{AMBER}]Cairn is not set up here.[/] Run [bold]cairn init --no-deep[/] in the repository first.")
+        raise typer.Exit(1)
+    c = Cairn(proj)
+    _need_init(c)
+    pack = c.context(task, [t.strip() for t in targets.split(",") if t.strip()] if targets else None, budget)
+    text = pack.render()
+    tokens = sum(estimate_tokens(ln) for ln in text.splitlines())
+    if as_json:
+        _emit_json({"task": task, "tokens": tokens, "text": text})
+    else:
+        sys.stdout.write(text + "\n")  # plain text: this is pasted into prompts
 
 
 @app.command()
@@ -938,6 +1023,11 @@ def timeline(ctx: typer.Context, target: Optional[str] = typer.Option(None, help
     evs = c.brain.events(since=time.time() - days * 86400, ref=_timeline_ref(c, target), limit=limit)
     col = {"commit": INK, "spec": AMBER, "session": MOSS, "memory": AMBER, "fact": MOSS, "fact_end": SLATE,
            "drift": ROSE, "workflow_run": AMBER}
+    if not evs and not c.brain.events(limit=1):
+        console.print(f"[{SLATE}]No events yet: run `cairn sync` to read the history.[/]")
+    elif not evs:
+        console.print(f"[{SLATE}]Nothing in the last {days} days{' for ' + target if target else ''}; "
+                      f"try --days {days * 4}. `cairn timeline --help` lists the fact commands.[/]")
     for e in evs:
         risk = e["meta"].get("risk") if e["kind"] == "commit" else None
         flag = f" [{ROSE}]{','.join(risk)}[/]" if risk else ""
@@ -1099,6 +1189,36 @@ def review_context(files: str = typer.Option(..., "--files", help="Changed files
     sys.stdout.write(pack["text"] + "\n")
 
 
+@app.command()
+def handoff(session: Optional[str] = typer.Argument(None, help="Session id (default: the latest captured session)."),
+            to: Optional[str] = typer.Option(None, "--to", help="Agent that picks it up: claude, codex, gemini, "
+                                             "opencode, cline, cursor. Prints the command that starts it."),
+            write: bool = typer.Option(False, "--write", help="Save under .cairn/handoffs/ instead of printing."),
+            as_json: bool = typer.Option(False, "--json")):
+    """A resume briefing for the next agent: what was asked, where it stopped, files touched and conventions."""
+    from rich.markup import escape
+
+    from .handoff import HandoffError, build_handoff, launch_line, write_handoff
+    c = _cairn()
+    _need_init(c)
+    try:
+        text, meta = build_handoff(c, c.project.root, session, to)
+    except HandoffError as exc:
+        err.print(f"[{ROSE}]{escape(str(exc))}[/]")
+        raise typer.Exit(2)
+    path = write_handoff(c.project.root, text, meta["session"]) if (write or to) else None
+    if as_json:
+        _emit_json({**meta, "path": str(path) if path else None, "markdown": text,
+                    "launch": launch_line(to, path) if to and path else None})
+        return
+    if path is None:
+        sys.stdout.write(text + "\n")
+        return
+    console.print(Text(f"Saved {path}", style=f"bold {INK}"))
+    if to:
+        console.print(Text(launch_line(to, path)))
+
+
 @app.command("sessions", add_help_option=False,
              context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def sessions(ctx: typer.Context):
@@ -1227,9 +1347,18 @@ def agents_list():
 
 
 @app.command()
-def models(ledger: bool = typer.Option(False, "--ledger", help="Show calls and tokens per tier.")):
+def models(ledger: bool = typer.Option(False, "--ledger", help="Show calls, tokens and estimated dollars per tier."),
+           upgrade: bool = typer.Option(False, "--upgrade", help="Replace a model pin left over from an older default.")):
     """Which model does which job, and what it cost."""
     c = _cairn()
+    if upgrade:
+        from .modelpins import upgrade_pins
+        done = upgrade_pins(c.project)
+        for d in done:
+            console.print(f"[{MOSS}]✓[/] {d['tier']}: {escape(d['pinned'])} → {escape(d['default'])}")
+        if not done:
+            console.print(Text("No model pin from an older default; nothing to change.", style=SLATE))
+        c = _cairn()
     t = Table(box=None, padding=(0, 2), header_style=f"bold {SLATE}")
     t.add_column("Tier", style=f"bold {AMBER}")
     t.add_column("Model", style=INK)
@@ -1239,14 +1368,27 @@ def models(ledger: bool = typer.Option(False, "--ledger", help="Show calls and t
     console.print(brand("models" + ("" if c.router.available else "  (no key: deterministic tier only)")))
     console.print(t)
     if ledger:
-        rows = c.brain.ledger()
+        from . import modelcost
+        cost = modelcost.summary(c.brain, c.project, provider=c.router.provider)
         lt = Table(box=None, padding=(0, 2), header_style=f"bold {SLATE}")
-        for col in ("tier", "model", "calls", "input", "output", "cache_read"):
-            lt.add_column(col)
-        for r in rows:
-            lt.add_row(*(f"{r[k]:,}" if isinstance(r[k], int) else str(r[k] or 0) for k in
-                         ("tier", "model", "calls", "input", "output", "cache_read")))
-        console.print(lt if rows else Text("No model calls yet.", style=SLATE))
+        for col, right in (("tier", False), ("model", False), ("calls", True), ("input", True), ("output", True),
+                           ("thinking", True), ("cache read", True), ("cache write 1h", True), ("cache write", True),
+                           ("est. $", True)):
+            lt.add_column(col, justify="right" if right else "left")
+        for t in cost["tiers"]:
+            lt.add_row(t["tier"], t["model"], *(f"{t[k]:,}" for k in ("calls", "input", "output", "thinking", "cache_read",
+                       "cache_write_1h", "cache_write")), "n/a" if t["usd"] is None else f"${t['usd']:.4f}")
+        console.print(lt if cost["tiers"] else Text("No model calls yet.", style=SLATE))
+        if cost["tiers"]:
+            console.print(Text("tokens: measured (provider usage reports) · dollars: estimated from list price "
+                               "(override in [models.prices]); thinking is included in output", style=SLATE))
+        obs = cost["observer"]
+        for name, key in (("before (cache writes on)", "before"), ("after (cache writes off)", "after")):
+            o = obs[key]
+            if o:
+                per = f"{o['tokens_per_event']:,.0f} tokens/event" if o["tokens_per_event"] else f"{o['tokens_per_call']:,} tokens/call"
+                usd = f", ~${o['usd_per_event']:.5f}/event" if o["usd_per_event"] else ""
+                console.print(f"observer {name}: {o['calls']:,} calls, {per}{usd}")
 
 
 # ---- hook entry points -------------------------------------------------------------------------------
@@ -1314,10 +1456,20 @@ def hook(event: str, scope: str = typer.Option("project", "--scope", help="user:
 
 
 @app.command()
-def recap():
-    """What cairn has done for this repo: memories learned, commits watched, queries answered and saved."""
+def recap(all_repos: bool = typer.Option(False, "--all", help="Every repository registered on this machine.")):
+    """What cairn has done for this repo: memories learned, commits watched, queries answered and saved, and
+    what its own model calls cost."""
     from . import hooks
-    console.print(hooks.recap(_cairn()))
+    if all_repos:
+        from .platform import Platform, ServerConfig
+        platform = Platform(config=ServerConfig.load())
+        try:
+            roots = [p.root for p in platform.list_projects() if p.root]
+        finally:
+            platform.close()
+        console.print(hooks.recap_all(roots), markup=False, highlight=False, soft_wrap=True)
+        return
+    console.print(hooks.recap(_cairn()), markup=False, highlight=False)
 
 
 @app.command("global")
@@ -1366,14 +1518,20 @@ def uninstall(purge: bool = typer.Option(False, "--purge", help="Also delete .ca
     if rec:
         platform.delete_project(rec.id, purge=False)  # unlists it; never deletes the repository
     platform.close()
-    removed = a.uninstall(c.project) + [f".git/hooks/{h}" for h in hooks.remove_git_hooks(c.project)]
+    kept: list[str] = []
+    removed = a.uninstall(c.project, purge=purge, kept=kept) + [f".git/hooks/{h}"
+                                                                 for h in hooks.remove_git_hooks(c.project)]
     for r in removed:
         console.print(f" [{MOSS}]✓[/] removed {r}")
     if purge:
         c.brain.close()
         shutil.rmtree(c.project.dir, ignore_errors=True)
         console.print(f" [{MOSS}]✓[/] deleted .cairn/")
-    console.print(f"[{SLATE}]Spec files and the map folder are left in place; delete them manually if unwanted.[/]")
+    for k in kept:
+        console.print(f" [{SLATE}]–[/] left in place: {k}")
+    console.print(f"[{SLATE}]Your specs/ folder is left in place"
+                  + ("" if purge else ", and so is .cairn/ (the map, the spec workflow and the stores; "
+                     "--purge removes them)") + ".[/]")
 
 
 def main() -> None:
@@ -1384,7 +1542,15 @@ def main() -> None:
                 stream.reconfigure(encoding="utf-8", errors="replace")
             except (AttributeError, ValueError, OSError):
                 pass
-    app()
+    try:
+        app()
+    except SystemExit as exc:
+        # `cairn search x --json | head`: the reader closed the pipe once it had what it wanted. Click (and
+        # typer's bundled copy) report that as exit 1 after swapping stdout for a "PacifyFlushWrapper";
+        # the command did not fail.
+        if exc.code == 1 and "PacifyFlushWrapper" in type(sys.stdout).__name__:
+            raise SystemExit(0) from None
+        raise
 
 
 if __name__ == "__main__":

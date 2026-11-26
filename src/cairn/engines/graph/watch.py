@@ -400,6 +400,11 @@ class _StoredSourcePaths:
         self.project_root = project_root
         self.watch_root = watch_root
         self._normalize_source = normalize_source
+        # A graph has thousands of nodes and edges but only hundreds of distinct source files, and the roots
+        # this class resolves against are fixed once __init__ returns: remember each file's answer.
+        self._identity_cache: dict[str, str | None] = {}
+        self._rebase_cache: dict[str, str | None] = {}
+        self._in_root_cache: dict[str, bool] = {}
         self.existing_source_root = project_root
         relative_marker_prefix: str | None = None
 
@@ -500,32 +505,56 @@ class _StoredSourcePaths:
         return Path(os.path.abspath(source_path)).as_posix()
 
     def identity(self, source_file: str | None) -> str | None:
+        cacheable = isinstance(source_file, str)
+        if cacheable and source_file in self._identity_cache:
+            return self._identity_cache[source_file]
         normalized = self._normalize_source(source_file)
         if normalized and not Path(normalized).is_absolute() and self.legacy_watch_relative:
-            return self.absolute_identity(normalized, self.watch_root)
-        return self.absolute_identity(normalized, self.existing_source_root)
+            result = self.absolute_identity(normalized, self.watch_root)
+        else:
+            result = self.absolute_identity(normalized, self.existing_source_root)
+        if cacheable:
+            self._identity_cache[source_file] = result
+        return result
 
     def in_watch_root(self, source_file: str | None) -> bool:
         identity = self.identity(source_file)
-        return bool(identity) and _is_relative_to(Path(identity), self.watch_root)
+        if not identity:
+            return False
+        inside = self._in_root_cache.get(identity)
+        if inside is None:
+            inside = self._in_root_cache[identity] = _is_relative_to(Path(identity), self.watch_root)
+        return inside
 
     def is_evicted(self, item: dict, identities: set[str]) -> bool:
         return self.identity(item.get("source_file")) in identities
 
     def rebase_preserved(self, item: dict) -> None:
-        identity = self.identity(item.get("source_file"))
-        if not identity:
+        source_file = item.get("source_file")
+        cacheable = isinstance(source_file, str)
+        if cacheable and source_file in self._rebase_cache:
+            rebased = self._rebase_cache[source_file]
+            if rebased is not None:
+                item["source_file"] = rebased
             return
+        rebased = self._rebased_source(source_file)
+        if cacheable:
+            self._rebase_cache[source_file] = rebased
+        if rebased is not None:
+            item["source_file"] = rebased
+
+    def _rebased_source(self, source_file) -> str | None:
+        """The source_file a preserved item is stored under now, or None to leave it as it is."""
+        identity = self.identity(source_file)
+        if not identity:
+            return None
         identity_path = Path(identity)
         if not _is_relative_to(identity_path, self.watch_root):
-            normalized = self.normalize(item.get("source_file"))
-            if normalized:
-                item["source_file"] = normalized
-            return
+            return self.normalize(source_file) or None
         try:
-            item["source_file"] = identity_path.relative_to(self.project_root).as_posix()
+            return identity_path.relative_to(self.project_root).as_posix()
         except ValueError:
-            item["source_file"] = identity
+            return identity
 
 
 # A source_file that is a URL/virtual scheme (gdoc://, s3://, http://, ...) rather

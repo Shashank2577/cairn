@@ -42,9 +42,48 @@ def test_uninstall_removes_only_ours(repo):
     agents.uninstall(proj)
     hooks.remove_git_hooks(proj)
     assert (repo / "CLAUDE.md").read_text(encoding="utf-8").strip() == "# House rules"
-    assert "cairn" not in (repo / ".mcp.json").read_text(encoding="utf-8")
+    assert not (repo / ".mcp.json").exists()               # Cairn created it and it only held Cairn
     assert not (repo / ".claude" / "agents" / "cairn-scout.md").exists()
-    assert "cairn" not in json.dumps(json.loads((repo / ".claude" / "settings.json").read_text(encoding="utf-8")).get("hooks", {}))
+    assert not (repo / ".claude" / "settings.json").exists()
+
+
+def test_uninstall_keeps_the_users_own_settings_and_servers(repo):
+    (repo / ".claude").mkdir()
+    (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"db": {"command": "dbmcp"}}}), encoding="utf-8")
+    (repo / ".claude" / "settings.json").write_text(json.dumps({"permissions": {"allow": ["Bash(ls)"]},
+                                                               "model": "opus"}), encoding="utf-8")
+    proj = Project.discover(repo)
+    proj.ensure_dir()
+    agents.install(proj, ["claude"])
+    agents.uninstall(proj)
+    assert json.loads((repo / ".mcp.json").read_text(encoding="utf-8")) == {"mcpServers": {"db": {"command": "dbmcp"}}}
+    assert json.loads((repo / ".claude" / "settings.json").read_text(encoding="utf-8")) == {
+        "permissions": {"allow": ["Bash(ls)"]}, "model": "opus"}
+
+
+def test_uninstall_purge_removes_the_workflow_agent_files_but_keeps_edited_ones(repo):
+    from cairn.engines import specs
+    proj = Project.discover(repo)
+    proj.ensure_dir()
+    ok, msg = specs.bootstrap(proj)
+    assert ok, msg
+    agents.install(proj, ["claude"])
+    skills = sorted((repo / ".claude" / "skills").glob("cairn-*/SKILL.md"))
+    workflow_skills = [p for p in skills if p.parent.name in ("cairn-specify", "cairn-plan", "cairn-tasks")]
+    assert workflow_skills, [p.parent.name for p in skills]
+    edited = workflow_skills[0]
+    edited.write_text(edited.read_text(encoding="utf-8") + "\nOur team's extra step.\n", encoding="utf-8")
+
+    kept: list[str] = []
+    agents.uninstall(proj, kept=kept)                      # without --purge the workflow stays usable
+    assert workflow_skills[-1].exists() and any("spec workflow file" in k for k in kept)
+
+    kept = []
+    agents.uninstall(proj, purge=True, kept=kept)
+    assert not workflow_skills[-1].exists()
+    assert edited.exists() and any(edited.relative_to(repo).as_posix() in k for k in kept)  # reported as posix
+    assert sorted(p.parent.name for p in (repo / ".claude" / "skills").glob("*/SKILL.md")) == [edited.parent.name]
+    assert not (repo / ".mcp.json").exists() and not (repo / ".claude" / "settings.json").exists()
 
 
 def test_status_and_questions_via_cli(cairn):
@@ -228,7 +267,7 @@ def test_claude_wiring_includes_the_ambient_prompt_hook(repo):
     agents.install(proj, ["claude"], capture=False)  # the ambient hook rides on its own, not on capture
     assert len(ambient_entries()) == 1
     agents.uninstall(proj)
-    assert "cairn hook ambient" not in json.dumps(json.loads(settings_path.read_text(encoding="utf-8")).get("hooks", {}))
+    assert not settings_path.exists()  # only Cairn's entries were in it, so the emptied file is gone
 
 
 def test_doctor_reports_capture_that_never_becomes_memory(cairn, monkeypatch):
@@ -287,6 +326,24 @@ def test_http_api(cairn, tmp_path):
     assert c.get("/api/p/p_missing/overview").status_code == 404
     assert c.get("/api/session", headers={"host": "evil.example"}).status_code == 400  # DNS-rebinding defence
     assert "<title>" in c.get("/").text
+
+
+def test_http_api_reports_tool_output_and_memory_aging(cairn, tmp_path):
+    from cairn.engines.recall import hooks as recall_hooks
+    c, p = _client(cairn, tmp_path)
+    assert c.get(f"{p}/overview").json()["tool_output"] == {"calls": 0, "bytes": 0, "tools": []}
+    root = str(cairn.project.root)
+    recall_hooks.run("session-init", {"session_id": "w1", "cwd": root, "prompt": "Read the payments module"})
+    recall_hooks.run("observation", {"session_id": "w1", "cwd": root, "tool_name": "Read", "tool_input": {"file_path": "a"},
+                                     "tool_response": {"content": "x" * 3000}, "tool_use_id": "u1"})
+    out = c.get(f"{p}/overview").json()["tool_output"]
+    assert out["calls"] == 1 and out["bytes"] > 3000 and out["tools"][0]["tool"] == "Read"
+    assert c.get(f"{p}/savings").status_code == 200  # the savings meter is unchanged
+    mid = c.post(f"{p}/memories", json={"text": "Ledger rows are append-only", "kind": "fact"}).json()["id"]
+    row = next(m for m in c.get(f"{p}/memories").json() if m["id"] == mid)
+    assert row["stale"] is False and row["last_used"] is None
+    c.get(f"{p}/memories", params={"q": "ledger"})
+    assert cairn.brain.memory_use() == {}  # a person searching the Memory page is not an agent being told
 
 
 def test_mcp_tools(cairn, monkeypatch):
@@ -832,6 +889,20 @@ def test_settings_reject_values_that_make_no_sense(cairn, tmp_path):
     assert got["locked"] == [] and "models.provider" in got["rules"]  # a local project can change everything
 
 
+def test_settings_expose_defaults_and_the_recall_and_deep_keys(cairn, tmp_path):
+    c, p = _client(cairn, tmp_path)
+    got = c.get(f"{p}/settings").json()
+    assert got["defaults"]["deep.budget_tokens"] == 150000 and got["defaults"]["recall.observe_batch"] == 5
+    assert got["defaults"]["context.ambient"] is True
+    ok = c.patch(f"{p}/settings", json={"recall.observe_batch": 10, "recall.worker_spawn": False, "context.ambient": False,
+                                        "deep.wall_seconds": 120, "memory.seed": False})
+    assert ok.status_code == 200
+    now = c.get(f"{p}/settings").json()
+    assert now["recall"]["observe_batch"] == 10 and now["recall"]["worker_spawn"] is False and now["context"]["ambient"] is False
+    for body in ({"recall.observe_batch": 0}, {"deep.wall_seconds": 1}, {"recall.worker_spawn": "yes"}):
+        assert c.patch(f"{p}/settings", json=body).status_code == 400, body
+
+
 def test_a_failed_sync_step_is_reported_as_failed(cairn, monkeypatch):
     from cairn import sync
     from cairn.engines import mapper
@@ -1046,3 +1117,168 @@ def test_handle_with_care_lists_source_files_not_tests(cairn):
     panel = hooks.session_panel(cairn)
     care = panel[panel.index("Handle with care"):]
     assert "shop/payments.py" in care and "test_payments.py" not in care and "test_utils.py" not in care
+
+
+# ---- map rework: Browse, Neighbourhood, stale flow scope ------------------------------------------------------
+def test_browse_opens_one_level_at_a_time_and_says_what_is_in_it(cairn, tmp_path):
+    c, p = _client(cairn, tmp_path)
+    top = c.get(f"{p}/graph/browse").json()
+    names = {r["name"]: r for r in top["rows"]}
+    assert "shop" in names and names["shop"]["kind"] == "folder" and names["shop"]["files"] >= 2
+    assert names["shop"]["symbols"] > 0 and names["shop"]["top"]  # best-connected symbols, not a bare name
+    inside = c.get(f"{p}/graph/browse", params={"path": "shop"}).json()
+    assert [x["name"] for x in inside["crumbs"]] == ["shop"]
+    assert all(r["path"].startswith("shop/") and r["kind"] == "file" for r in inside["rows"] if "/" not in r["name"])
+    risky = c.get(f"{p}/graph/browse", params={"path": "shop", "sort": "risk"}).json()["rows"]
+    assert [r["heat"] for r in risky] == sorted((r["heat"] for r in risky), reverse=True)
+
+
+def test_browse_never_hands_back_more_than_a_page(cairn):
+    from cairn import graphviews
+    idx = cairn.map
+    for i in range(graphviews.ROW_CAP + 50):  # a folder with far more entries than a page
+        idx.by_file[f"wide/f{i:04}.py"] = []
+    out = graphviews.browse(idx, "wide", limit=10_000)
+    assert len(out["rows"]) == graphviews.ROW_CAP and out["total"] == graphviews.ROW_CAP + 50
+    rest = graphviews.browse(idx, "wide", offset=graphviews.ROW_CAP, limit=10_000)
+    assert len(rest["rows"]) == 50
+
+
+def test_find_and_focus_are_capped_and_count_what_they_leave_out(cairn, tmp_path):
+    c, p = _client(cairn, tmp_path)
+    found = c.get(f"{p}/graph/find", params={"q": "payments"}).json()
+    assert any(f["path"] == "shop/payments.py" for f in found["files"])
+    assert c.get(f"{p}/graph/find", params={"q": "p"}).json() == {"folders": [], "files": [], "symbols": []}  # too short to mean anything
+    sym = c.get(f"{p}/graph/find", params={"q": "checkout"}).json()["symbols"]
+    assert sym
+    full = c.get(f"{p}/graph/focus", params={"id": sym[0]["id"], "depth": 3, "limit": 10}).json()
+    assert full["shown"] <= 10 and full["total"] >= full["shown"] and full["center"] == sym[0]["id"]
+    assert {l["source"] for l in full["links"]} | {l["target"] for l in full["links"]} <= {n["id"] for n in full["nodes"]}
+    assert full["nodes"][0]["hop"] == 0  # nearest first
+    assert c.get(f"{p}/graph/focus", params={"id": "shop/payments.py"}).json()["file"] == "shop/payments.py"
+    assert c.get(f"{p}/graph/focus", params={"id": "nope-not-a-node"}).status_code == 404
+
+
+def test_a_stale_scope_draws_the_current_model_instead_of_nothing(cairn, tmp_path):
+    c, p = _client(cairn, tmp_path)
+    ok = c.get(f"{p}/system/view", params={"level": "containers"})
+    assert ok.status_code == 200 and "stale_scope" not in ok.json()
+    r = c.get(f"{p}/system/view", params={"level": "containers", "scope": "entry:deadbeef0123"})
+    assert r.status_code == 200, r.text  # was a 404 the page showed as "Nothing to draw"
+    assert r.json()["stale_scope"] == "entry:deadbeef0123" and r.json()["elements"]
+    assert c.get(f"{p}/system/svg", params={"level": "containers", "scope": "entry:deadbeef0123"}).status_code == 200
+
+
+def test_context_command_prints_the_pack_for_an_orchestrator(cairn):
+    runner = CliRunner()
+    out = runner.invoke(app, ["context", "change how PaymentService charges a card"])
+    assert out.exit_code == 0 and out.output.startswith("## Context:") and "PaymentService" in out.output
+    as_json = json.loads(runner.invoke(app, ["context", "refund flow", "--targets", "PaymentService", "--json"]).output)
+    assert as_json["task"] == "refund flow" and as_json["tokens"] > 0 and "PaymentService" in as_json["text"]
+    rows = cairn.brain.q("SELECT surface, kind, source_tokens FROM queries WHERE kind='context'")
+    assert len(rows) == 2 and all(r["surface"] == "cli" for r in rows)  # each call lands once in the audit trail
+
+
+def test_context_command_creates_nothing_where_cairn_is_not_set_up(tmp_path, monkeypatch):
+    import subprocess
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=bare, check=True)
+    monkeypatch.chdir(bare)
+    out = CliRunner().invoke(app, ["context", "anything"])
+    assert out.exit_code == 1 and not out.stdout.startswith("## Context")
+    assert not (bare / ".cairn").exists()  # an orchestrator calling this in every repo must not litter them
+
+
+def test_an_empty_timeline_search_explains_itself_and_shows_matching_activity(cairn):
+    import pytest
+    pytest.importorskip("kuzu")
+    out = CliRunner().invoke(app, ["timeline", "search", "double charge"])
+    assert out.exit_code == 0, out.output
+    assert 'No timeline fact matches "double charge" (0 facts in the store)' in out.output
+    assert "not turned into facts yet" in out.output        # extraction has not run (no model here)
+    assert "Fix double charge on retry" in out.output      # the commit that does match
+    assert 'cairn search "double charge"' in out.output
+    assert CliRunner().invoke(app, ["timeline", "search", "double charge", "--json"]).output.strip() == "[]"
+
+
+def test_bare_timeline_lists_events_and_exits_cleanly(cairn):
+    out = CliRunner().invoke(app, ["timeline", "--days", "36500"])
+    assert out.exit_code == 0 and "Fix double charge on retry" in out.output
+    assert CliRunner().invoke(app, ["timeline"]).exit_code == 0
+
+
+def test_a_closed_pipe_is_not_a_failure(monkeypatch):
+    import pytest
+
+    from cairn import cli
+    monkeypatch.setattr(cli.os, "dup2", lambda *a: None)   # keep the test runner's own stdout
+    monkeypatch.setattr(cli.console, "quiet", False)      # saved now, so teardown restores a loud console
+    with pytest.raises(SystemExit) as exc:
+        cli.console.on_broken_pipe()                      # what rich calls on `cairn … | head`
+    assert exc.value.code == 0
+
+
+def test_redaction_scan_before_any_capture_is_not_an_error(cairn):
+    out = CliRunner().invoke(app, ["redaction-scan"])
+    assert out.exit_code == 0 and "No sessions captured yet" in out.output
+
+
+def test_a_closed_pipe_on_plain_writes_is_not_a_failure_either(monkeypatch):
+    """`cairn search x --json | head`: click (typer's bundled copy) swaps stdout for a PacifyFlushWrapper
+    and exits 1; main() turns that one case into 0 and leaves real failures alone."""
+    import sys
+
+    import pytest
+
+    from cairn import cli
+
+    class PacifyFlushWrapper:  # what typer's click puts on sys.stdout after EPIPE
+        def write(self, *a):
+            return 0
+
+        def flush(self):
+            pass
+
+    def closed_pipe():
+        sys.stdout = PacifyFlushWrapper()
+        raise SystemExit(1)
+    monkeypatch.setattr(sys, "stdout", sys.stdout)       # restored at teardown
+    monkeypatch.setattr(cli, "app", closed_pipe)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+
+    def real_failure():
+        raise SystemExit(1)
+    monkeypatch.setattr(sys, "stdout", sys.__stdout__)
+    monkeypatch.setattr(cli, "app", real_failure)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+
+
+def test_a_running_mcp_server_says_once_that_cairn_was_upgraded_under_it(cairn, monkeypatch):
+    from cairn import mcp_server
+    monkeypatch.chdir(cairn.project.root)
+    mcp_server._cairn.cache_clear()
+    monkeypatch.setattr(mcp_server, "_told", False)
+    monkeypatch.setattr(mcp_server, "_STARTED", (1, 10))
+    stamp = [(1, 10)]
+    monkeypatch.setattr(mcp_server, "_install_stamp", lambda: stamp[0])
+    tool = mcp_server._guard(mcp_server.cairn_status)
+    assert "was updated" not in tool()                      # same install: nothing to say
+    stamp[0] = None
+    assert "was updated" not in tool()                      # mid-install, the record is missing: say nothing yet
+    stamp[0] = (2, 11)
+    first, second = tool(), tool()
+    assert first.endswith(mcp_server.UPGRADED) and "was updated" not in second  # said once, not on every call
+    monkeypatch.setattr(mcp_server, "_told", False)
+    monkeypatch.setattr(mcp_server, "_STARTED", None)        # not installed as a package (a source checkout)
+    assert "was updated" not in tool()
+
+
+def test_the_install_stamp_reads_this_package_record():
+    from cairn import mcp_server
+    stamp = mcp_server._install_stamp()
+    assert stamp is None or (isinstance(stamp[0], int) and stamp[1] > 0)

@@ -1,5 +1,81 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`cairn forget` forgets everywhere.** A forgotten memory also leaves the timeline (and so the daily episodes timeline facts are
+  extracted from) and drops its links to code; the next sync clears timeline rows of memories forgotten before this fix. (#21)
+- **`cairn ask` no longer writes team memory on its own.** Answers were saved as `fact` memories marked EXTRACTED, so a hedged or wrong
+  answer came back in every agent's context. Saving is now opt-in (`cairn ask --save`), the saved answer is marked INFERRED, and the HTTP
+  `/ask` route, which needs only read permission, never saves. (#22)
+- **Timeline fact extraction wastes fewer calls.** Models answered about one `resolve_edge` call in eight with the JSON Schema itself; the
+  prompt now shows an example of the answer before the schema (on spreix-platform: 9 retries in 69 calls before, 0 in 79 after). When a
+  call fails mid-episode the queued calls are cancelled instead of started, which also removes the `coroutine 'resolve_extracted_edge' was
+  never awaited` warning. A retry log line names the validation error, and `sync` says which day it is extracting. (#23)
+- **`cairn_context` and `cairn ask` pick better targets from a task in words.** Paths are scored by the task words they name (folders and
+  camelCase parts too), words that say what kind of change it is ("table", "endpoint", "component") point at the folders such code lives
+  in, code ranks above document headings and tests only lead when the task is about tests. "add a column to the meetings table" now
+  targets `schema/meetings.ts`, not a README heading and a UI `<thead>`. (#24)
+- **`cairn uninstall` leaves less behind.** `.mcp.json` and `.claude/settings.json` are deleted when only Cairn's entries were in them,
+  directories it emptied are removed, and `--purge` also removes the spec workflow's agent files (skills, commands); files you edited are
+  kept and listed. (#25)
+- **An empty `cairn timeline search` explains itself:** how many facts are in the store, how many days are still waiting for extraction, and the
+  commits, memories or tasks that do match. (#26)
+- `cairn timeline` alone lists recent events and exits 0; `cairn … | head` exits 0 instead of 1; `cairn trace path` shows a path that
+  follows edges either way when there is no directed one; `cairn redaction-test` takes `-` (stdin) or `--text` and never echoes an
+  argument that is not a file; `cairn redaction-scan` before the first captured session is not an error; the session worker log no longer
+  lists faiss CPU-feature probes. (#27)
+
+## 0.3.1 — 2026-10-23
+
+### Fixed
+
+- **An incremental map build is about twice as fast.** After a commit, the map looked up every node's source file separately (tens of thousands of
+  lookups for a few hundred files). It now looks each file up once. On a 1,435-file repository a one-file rebuild takes 9.9 s instead of 20.7 s and
+  writes an identical graph.
+
+## 0.3.0 — 2026-10-22
+
+### Added
+
+- **Claude Code keeps its place through a compaction.** A `PreCompact` hook saves a resume snapshot of under 2 KB (last request, files
+  changed, open tasks, decisions and rejected approaches), and the compact session start hands it back as pointers to
+  `cairn_session_search`, `cairn_session_timeline` and `cairn_session_observations`. No model call. `cairn init` adds the hook for Claude Code only
+  and `cairn uninstall` removes it; running `init` again changes nothing.
+- **Richer session events without a model:** rejected approaches (a tool call you refused), error-then-fix pairs, retry loops (the same call
+  three or more times, at least two failing) and user corrections are stored as observations of their own and found by search. Only explicit
+  signals count (an error flag or field, a non-zero exit code, an explicit refusal), so ordinary output that mentions "error" is not an event.
+  Claude Code's `PostToolUseFailure` hook is added so failed and refused calls reach the store.
+- **Bytes pulled raw by tools.** Each tool result's size is recorded per tool, and the Overview page shows it beside what Cairn served
+  (`tool_output` in the overview API). A measurement only: nothing is trimmed, blocked or rerouted.
+- **Memory aging.** A memory no agent has been told for 90 days is marked *stale* in the Memory page and ranks lower in context, recall and the
+  session-start brief. Nothing is deleted; `convention` and `decision` memories never age; being returned to an agent restarts the clock;
+  `[memory] aging = false` turns it off. Existing `brain.db` files migrate in place.
+- **The savings are visible.** Overview has a *Model cost* section and Settings a fuller *Model spend* one: tokens per observation and per tool
+  event, estimated dollars (list price, or `[models.prices]`), cache write vs read, thinking tokens, and before/after the cache-write default,
+  from this project's own ledger (or the spec-002 study when it has no old calls). Tokens are labelled measured, dollars estimated.
+- The ledger keeps thinking tokens and the 1-hour cache write per call (additive columns; older stores upgrade in place). `cairn models --ledger` shows them.
+- `cairn doctor` and Settings warn when a project still pins the old default fast model; `cairn models --upgrade` rewrites only such a pin to Haiku 5.5.
+- **`cairn handoff`** builds a resume briefing for the next agent from a captured session: what was asked, where it stopped, the files touched with
+  their `cairn impact` summary, and the team's conventions. `--to claude|codex|gemini|opencode|cline|cursor` saves it under `.cairn/handoffs/` and
+  prints the command that starts that agent on it.
+- **Cursor agent transcripts** are a built-in watch schema (`schema: "cursor"`, set `workspace` on the watch, since the transcripts carry no cwd), and
+  field specs accept an `extract` regex. `CODEX_HOME` is honoured by the Codex watch.
+- **Gemini CLI, Cline and OpenCode sessions** can be watched with `{"name": "gemini", "source": "gemini"}` (likewise `cline`, `opencode`) in the
+  transcript watch config. These read whole-file JSON and SQLite stores that the JSONL tailer cannot.
+
+### Changed
+
+- **Session observations cost far fewer model tokens.** Replayed on two real repositories (measured tokens, estimated dollars; see
+  `specs/002-observation-token-cost/findings.md`): the Claude Code CLI path no longer writes prompt-cache entries it never read (they were billed at
+  the 1-hour rate), bulk tasks run without extended thinking, oversized tool output is cut head/tail instead of condensed by an extra model call, the
+  closing instructions are sent once per batch, the observer brief is shorter, and the replay is plain prompt text. Estimated cost per tool event fell
+  52–72% on the same model; with the new default fast model `claude-haiku-5-5` it fell about 93–96%. A blind check of 20 notes found none inaccurate;
+  the opt-in *economy* profile (`observe_batch = 10`, `observer_replay_exchanges = 2`, `observer_replay_chars = 6000`) saves more and writes slightly less specific notes.
+- A reply that looks like XML but does not parse is retried once on the balanced tier (`observer_escalate = "parse"`, or `"off"`); a size rule is opt-in
+  (`observer_escalate_chars`). `observer_condense = true` and `models.cli_cache = true` restore the old behaviour.
+
 ## 0.2.2 — 2026-10-08
 
 ### Added

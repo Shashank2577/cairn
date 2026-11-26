@@ -67,6 +67,29 @@ def test_memory_links_to_code(cairn):
     assert any("idempotency" in m["text"] for m in mem)
 
 
+def test_forget_removes_the_memory_from_every_surface(cairn):
+    res = cairn.remember("PaymentService.process must always pass an idempotency key", kind="gotcha")
+    ref = f"memory:{res['id']}"
+    assert ref in [e["id"] for e in cairn.brain.events(kinds=["memory"])]
+    assert cairn.brain.q("SELECT 1 FROM links WHERE src=?", (ref,))
+    assert cairn.memory.forget(res["id"])
+    assert ref not in [e["id"] for e in cairn.brain.events(kinds=["memory"])]  # timeline and its fact episodes
+    assert not cairn.brain.q("SELECT 1 FROM links WHERE src=?", (ref,))
+    assert cairn.memory.recall("idempotency key") == []
+    assert not any(h["id"] == ref for h in cairn.search("idempotency key"))
+    mem = cairn.impact("PaymentService").sections().get("Memory", [])
+    assert not any("idempotency key" in m["text"] for m in mem)
+
+
+
+def test_sync_clears_timeline_rows_of_memories_forgotten_earlier(cairn):
+    from cairn import linker
+    res = cairn.remember("Refunds are idempotent per order id", kind="fact")
+    with cairn.brain.tx() as db:  # forgotten by an older version, which left the timeline row behind
+        db.execute("UPDATE memories SET forgotten=1 WHERE id=?", (res["id"],))
+    linker.relink_memories(cairn.brain, cairn.map)
+    assert f"memory:{res['id']}" not in [e["id"] for e in cairn.brain.events(kinds=["memory"])]
+
 def test_specs_parser_and_drift(cairn, repo):
     f = specs.features(repo)[0]
     assert f["progress"] == {"done": 2, "total": 3}
@@ -412,3 +435,53 @@ def test_remember_links_symbols_and_refreshes_agent_context_files(cairn, monkeyp
     assert cairn.brain.memory(res["id"])["scope"] == "team"
     monkeypatch.setattr(agents, "refresh_context", lambda *a, **k: (_ for _ in ()).throw(OSError("read-only")))
     assert cairn.remember("Refunds are capped at the captured amount")["status"] == "stored"  # never fails a remember
+
+
+def test_context_targets_prefer_the_file_the_task_names_over_shared_words(repo):
+    """'add a column to the meetings table': the meetings schema, not a <thead> or a doc heading."""
+    from cairn import sync
+    from cairn.core import Cairn
+    from tests.conftest import commit
+    commit(repo, {
+        "db/schema/meetings.py": "class Meeting:\n    id: int\n    title: str\n\n\ndef meeting_columns():\n"
+                                 "    return ['id', 'title']\n",
+        "web/table.py": "def thead(columns):\n    return '<thead>' + ''.join(columns) + '</thead>'\n\n\n"
+                        "def table_column(name):\n    return name\n",
+        "NOTES.md": "# Notes\n\n## Column and table additions to the standing list\n\nAdd a column to a table "
+                    "when the standing list grows.\n",
+    }, "Add meetings schema, table helpers and notes")
+    c = Cairn.here(repo)
+    c.project.ensure_dir()
+    sync.run(c)
+    targets = c.infer_targets("add a column to the meetings table")
+    assert targets[0] == "db/schema/meetings.py"
+    docs = [t for t in targets if t.startswith("symbol:") and not c.map.is_code(t.removeprefix("symbol:"))]
+    assert not docs  # code that matches beats a document heading that shares the words
+
+
+def test_context_targets_read_paths_camelcase_and_change_kind(repo):
+    """Words the path names count wherever they are — folders, camelCase parts — and words that say
+    what kind of change it is ('component', 'endpoint') point at folders, not at files named after them."""
+    from cairn import sync
+    from cairn.core import Cairn
+    from tests.conftest import commit
+    commit(repo, {
+        "web/components/BrainScopeSwitcher.py": "def brain_switcher(brains):\n    return brains[0]\n",
+        "db/repos/brains.py": "def list_brains(db):\n    return db.all('brains')\n",
+        "web/component.py": "class Component:\n    pass\n",
+        "api/routers/decisions.py": "def list_decisions():\n    return []\n",
+        "db/repos/decisions.py": "def decisions_repo():\n    return []\n",
+        "workers/calendar_sync/sync.py": "def sync_calendar():\n    return 1\n",
+        "agents/triggers/sync.py": "def sync_triggers():\n    return 1\n",
+        "workers/calendar_sync/test_sync.py": "def test_sync():\n    assert True\n",
+    }, "Add brains, decisions and calendar sync")
+    c = Cairn.here(repo)
+    c.project.ensure_dir()
+    sync.run(c)
+    assert c.infer_targets("rename the brain switcher component")[0] == "web/components/BrainScopeSwitcher.py"
+    assert c.infer_targets("add a decisions endpoint")[0] == "api/routers/decisions.py"
+    cal = c.infer_targets("fix the calendar sync worker retry")
+    assert cal[0] == "workers/calendar_sync/sync.py"
+    assert "agents/triggers/sync.py" not in cal[:1]
+    # "test" is a stopword elsewhere, but a task about tests puts the test file first
+    assert c.infer_targets("fix the failing test for calendar sync")[0] == "workers/calendar_sync/test_sync.py"

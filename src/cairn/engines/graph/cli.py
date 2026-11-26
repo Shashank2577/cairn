@@ -1582,12 +1582,15 @@ def dispatch_command(cmd: str) -> None:
         # returned an arbitrary route among equal-length paths that varied per
         # process. Build a sorted, materialized graph so neighbor order — and
         # thus the chosen path — is canonical for a given graph.json.
+        def _undirected_path():
+            _und = _nx.Graph()
+            _und.add_nodes_from(sorted(G.nodes))
+            _und.add_edges_from(sorted((min(u, v), max(u, v)) for u, v in G.edges()))
+            return _nx.shortest_path(_und, src_nid, tgt_nid)
+
         try:
             if undirected:
-                _und = _nx.Graph()
-                _und.add_nodes_from(sorted(G.nodes))
-                _und.add_edges_from(sorted((min(u, v), max(u, v)) for u, v in G.edges()))
-                path_nodes = _nx.shortest_path(_und, src_nid, tgt_nid)
+                path_nodes = _undirected_path()
             else:
                 # Directed by default (#2487). True direction is NOT raw arc
                 # order: legacy canonicalized files persist a flipped arc with
@@ -1600,15 +1603,22 @@ def dispatch_command(cmd: str) -> None:
                 ))
                 path_nodes = _nx.shortest_path(_dg, src_nid, tgt_nid)
         except (_nx.NetworkXNoPath, _nx.NodeNotFound):
-            if undirected:
+            # "How are A and B connected?" rarely means "only along call direction": when no
+            # directed path exists, show the undirected one (arrows below still give each edge's
+            # real direction) instead of a dead end.
+            path_nodes = None
+            if not undirected:
+                try:
+                    path_nodes = _undirected_path()
+                    print(
+                        f"No directed path from '{source_label}' to '{target_label}'; "
+                        "showing a path that follows edges either way."
+                    )
+                except (_nx.NetworkXNoPath, _nx.NodeNotFound):
+                    path_nodes = None
+            if path_nodes is None:
                 print(f"No path found between '{source_label}' and '{target_label}'.")
-            else:
-                print(
-                    f"No directed path found between '{source_label}' and "
-                    f"'{target_label}'. Re-run with --undirected to search "
-                    "ignoring edge direction."
-                )
-            sys.exit(0)
+                sys.exit(0)
         hops = len(path_nodes) - 1
         segments = []
         from cairn.engines.graph.build import edge_datas

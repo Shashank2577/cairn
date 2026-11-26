@@ -322,6 +322,7 @@ export function Rail({ open, onClose }) {
     ["sessions", "Sessions", "var(--agent)", L?.sessions?.observations ? fmt(L.sessions.observations) : null],
     ["timeline", "Timeline", "var(--ink-2)", L?.timeline?.facts ? `${fmt(L.timeline.facts)} facts` : L?.timeline?.commits ? fmt(L.timeline.commits) : null],
     ["memory", "Memory", "var(--memory)", L?.memory?.memories ? fmt(L.memory.memories) : null],
+    ["docs", "Docs", "var(--agent)", null],
   ] : [];
   return html`<nav class=${"rail" + (open ? " open" : "")} aria-label="Views" ref=${nav}>
     ${pid ? html`

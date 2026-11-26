@@ -152,6 +152,7 @@ function MemoryRow({ m, byId, flash, onChanged }) {
         <span>${PROV[m.provenance] || "From"} ${srcLink ? html`<a class="path" href=${srcLink}>${src}</a>` : html`<span>${src || "unknown"}</span>`}</span>
         <span title=${stamp(m.updated_at || m.created_at)}>${m.updated_at && tsOf(m.updated_at) - tsOf(m.created_at) > 5 ? `updated ${ago(m.updated_at)}` : ago(m.created_at)}</span>
         ${m.confidence != null ? html`<span class="conf" title=${`Confidence ${Math.round(m.confidence * 100)}%`}><${Meter} value=${m.confidence} max=${1} tone="memory" label="Confidence"/>${Math.round(m.confidence * 100)}%</span>` : null}
+        ${m.stale && !retired(m) ? html`<span class="stale" title="Not returned to an agent for a long time, so it ranks lower. Nothing is deleted: it counts as used again the next time an agent is told it.">Stale${m.last_used ? `, last used ${ago(m.last_used)}` : ", never used"}</span>` : null}
         ${m.forgotten && !m.superseded_by ? html`<span class="err">Forgotten; agents are no longer told about it</span>` : null}
         ${replacedBy ? html`<span class="err">Replaced by: <a href=${link.project(pid, "memory", [], { focus: replacedBy.id, all: "1" })}>${rich(replacedBy.text, 70)}</a></span>` : null}
       </div>

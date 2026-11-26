@@ -3,7 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { enc } from "./lib/format.js";
 
-export const PROJECT_VIEWS = ["overview", "impact", "map", "specs", "sessions", "timeline", "memory", "settings"];
+export const PROJECT_VIEWS = ["overview", "impact", "map", "specs", "sessions", "timeline", "memory", "docs", "settings"];
 const ALIAS = { graph: "map", why: "impact", code: "map", agents: "sessions", architecture: "map" };
 export const TEAM_TABS = ["members", "tokens", "projects", "audit", "settings"];
 

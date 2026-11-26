@@ -199,10 +199,12 @@ async function discover(page, pid) {
   })()`);
 }
 
+const SETTINGS_TABS = ["models", "recall", "deep", "context", "team"];
+
 function routesFor(d) {
   const e = encodeURIComponent, P = v => `#/p/${e(d.pid)}/${v}`;
-  const r = [P("overview"), P("impact"), P("map"), P("map/architecture"), P("map/views"), P("map/wiki"), P("map/report"),
-    P("specs"), P("sessions"), P("timeline"), P("memory"), P("settings"), "#/account"];
+  const r = [P("overview"), P("impact"), P("map"), P("map/explore"), P("map/graph"), P("map/architecture"), P("map/wiki"), P("map/report"),
+    P("specs"), P("sessions"), P("timeline"), P("memory"), ...SETTINGS_TABS.map(t => P(`settings?tab=${t}`)), "#/account"];
   if (d.target) r.splice(2, 0, P(`impact/${e(d.target)}`));
   if (d.feature) r.splice(r.indexOf(P("specs")) + 1, 0, P(`specs/${e(d.feature)}/tasks`), P(`specs/${e(d.feature)}/docs`));
   if (d.session) r.splice(r.indexOf(P("sessions")) + 1, 0, P(`sessions/${e(d.session)}`));
@@ -260,11 +262,26 @@ async function interactions(page, d, problems, base) {
   })()`);
   for (const f of frames) {
     const issues = [];
+    if (f.status === 413) continue;  // a map too big to draw as one page says so; Browse and Neighbourhood cover it
     if (f.status !== 200 || f.bytes < 500) issues.push(`the page answered ${f.status} with ${f.bytes} bytes`);
     if (!f.libOk) issues.push(`its script ${f.src} does not load as JavaScript`);
     if (issues.length) { const label = `engine view "${f.kind}"`; problems.push({ label, issues }); console.log(`FAIL ${label}`); issues.forEach(x => console.log(`       - ${x}`)); }
   }
-  if (args.verbose) console.log(`ok   ${n} dropdowns opened, ${frames.length} engine views load`);
+  // Settings: every section explains itself, and every control names the config key it writes.
+  for (const tab of SETTINGS_TABS.slice(0, 4)) {
+    await page.eval(`location.hash = ${JSON.stringify(`#/p/${encodeURIComponent(d.pid)}/settings?tab=${tab}`)}`); await settle(page);
+    const r = await page.eval(`({ sections: document.querySelectorAll('.setsec h2').length, controls: document.querySelectorAll('.setsec input:not([type=radio]), .setsec [role=radiogroup]').length,
+      keys: document.querySelectorAll('.setsec .cfgkey code').length })`);
+    const issues = [];
+    if (!r.sections) issues.push("no section drew");
+    if (tab !== "models" && tab !== "context" && r.keys < 2) issues.push("controls do not name their config key");
+    if (issues.length) { const label = `settings tab "${tab}"`; problems.push({ label, issues }); console.log(`FAIL ${label}`); issues.forEach(x => console.log(`       - ${x}`)); }
+  }
+  // Browse: a folder of any size draws one page of rows, never all of them.
+  await page.eval(`location.hash = ${JSON.stringify(`#/p/${encodeURIComponent(d.pid)}/map/graph`)}`); await settle(page);
+  const rows = await page.eval(`document.querySelectorAll('.bw-row').length`);
+  if (rows > 250) { problems.push({ label: "map browse", issues: [`drew ${rows} rows in one folder; it should draw one page`] }); console.log(`FAIL map browse: ${rows} rows`); }
+  if (args.verbose) console.log(`ok   ${n} dropdowns opened, ${frames.length} engine views load, settings tabs and browse paging checked`);
 }
 
 /** Where the run is, so a hang names the page it is stuck on instead of timing out silently. */

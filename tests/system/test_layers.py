@@ -2,6 +2,7 @@
 points, deterministic and model-free. IDs in docstrings map to specs/002-system-model/traceability.md."""
 from __future__ import annotations
 
+import gc
 import json
 import random
 import time
@@ -194,10 +195,15 @@ def _timed(n: int) -> float:
     files, edges = _synthetic(n)
     idx = make_index(files, edges)
     best = 1e9
-    for _ in range(3):
-        t = time.perf_counter()
-        g = idx.file_graph()
-        best = min(best, time.perf_counter() - t)
+    gc.collect()
+    for _ in range(7):  # these are tens of milliseconds: a garbage-collection pause or a busy runner must not decide the result
+        gc.disable()
+        try:
+            t = time.perf_counter()
+            g = idx.file_graph()
+            best = min(best, time.perf_counter() - t)
+        finally:
+            gc.enable()
     assert g["level"] == "folder" and g["scope"]["files"] == n
     return best
 
@@ -206,8 +212,9 @@ def test_performance_on_a_5000_file_repo_and_near_linear_scaling():
     """FR-026 / SC performance: 5,000 files in under 1.5 s (typically ~0.1 s); 1x/2x/4x grows near-linearly."""
     t1, t2, t4 = _timed(1250), _timed(2500), _timed(5000)
     assert t4 < 1.5, f"5,000 files took {t4:.2f}s"
-    # near-linear: doubling the input costs well under 3x (a quadratic step would cost 4x)
-    assert t2 / max(t1, 1e-3) < 3.2 and t4 / max(t2, 1e-3) < 3.2, (t1, t2, t4)
+    # near-linear: four times the input costs about 4x (a quadratic algorithm would cost 16x), so 10x separates the two
+    # with room for runner noise; one 7 ms-versus-52 ms outlier on a CI runner failed the earlier per-doubling 3.2x check
+    assert t4 / max(t1, 1e-3) < 10 and t2 / max(t1, 1e-3) < 5, (t1, t2, t4)
 
 
 @pytest.mark.parametrize("path", ["src/cairn/ui/app/components/archmap.js"])

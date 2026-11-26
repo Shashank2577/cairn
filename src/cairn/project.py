@@ -25,14 +25,15 @@ ambient = true                   # a short Cairn context nugget on code prompts 
 
 [models]
 provider = "auto"                # auto | anthropic | openai | claude-code  (auto: API key, else your Claude Code login)
-fast = "claude-haiku-4-5-20251001"   # classification, summaries at volume
+fast = "claude-haiku-5-5"           # classification, summaries at volume
 balanced = "claude-sonnet-5"         # extraction, linking tie-breaks
 deep = "claude-opus-5-5"             # why / impact / drift synthesis, ask
 frontier = "claude-fable-5-1"        # opt-in whole-system reviews only
 # base_url = "http://localhost:11434/v1"
 
 [deep]
-enabled = "auto"                 # auto = on when a model key is present
+enabled = "auto"                 # auto = model features on when a model is available; false turns them all off
+timeline_facts = false           # true: every sync also builds timeline facts with the model (the costliest background job)
 budget_tokens = 150000           # hard ceiling per deep sync
 wall_seconds = 300               # stop the deep tier after this many seconds; remaining days fill in on later syncs
 graph_url = ""                   # falkor://host:6379 or bolt://host:7687 ; empty = embedded store
@@ -354,6 +355,11 @@ def agent_project(start: Path | None = None) -> Project | None:
         return None
     if proj is not None and proj.db_path.exists():
         return proj
+    return main_checkout_project(root)
+
+
+def main_checkout_project(root: Path) -> Project | None:
+    """In a linked git worktree, the main checkout's project when Cairn is set up there; otherwise None."""
     from .engines.recall.projects import detect_worktree
     wt = detect_worktree(root)
     if wt.is_worktree and wt.parent_repo_path:

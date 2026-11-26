@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { html, Icon, Empty, Load, ContourField, Tag, Meter, Skeleton } from "../components/ui.js";
 import { ScaleBar, Ratio } from "../components/scalebar.js";
+import { ModelCost } from "../components/modelcost.js";
 import { Stepper } from "../components/stepper.js";
 import { useNarration, useModelReady, NarrationPanel } from "../components/narrate.js";
 import { useApp, useFetch, useLive } from "../state.js";
 import { api } from "../api.js";
 import { link, citeHref } from "../router.js";
-import { ago, fmt, plural, rich, base, dir, stepNames, listOf, failText, STEP_LABEL } from "../lib/format.js";
+import { usd, tokensUsd } from "../lib/cost.js";
+import { ago, fmt, fmtBytes, fmtK, plural, rich, base, dir, stepNames, listOf, failText, STEP_LABEL } from "../lib/format.js";
 
 export const SURFACE = { mcp: "Agent tool call", hook: "Session start", cli: "Terminal", ui: "This page", api: "API token" };
 export const PACK = { impact: "impact", why: "why", context: "context", brief: "briefing", recall: "recall", ask: "answer" };
@@ -18,6 +20,7 @@ export function Overview() {
   const { pid, project, ov, reloadOv, route } = useApp();
   const n = useNarration(pid);
   const sav = useFetch(() => api.p(pid).savings(12), [pid]);
+  const mdl = useFetch(() => api.p(pid).models(), [pid]);
   const feed = useFetch(() => api.p(pid).feed({ limit: 8 }), [pid]);
   const drift = useFetch(() => api.p(pid).drift(), [pid]);
   const wf = useFetch(() => api.p(pid).workflow(), [pid]);
@@ -58,7 +61,7 @@ export function Overview() {
     <div class="ov-grid">
       <section class="sec ov-served" aria-labelledby="h-served">
         <div class="sec-h"><div><h2 id="h-served">Context served</h2><p class="sub">Every impact, why and context answer is a short cited pack instead of the files behind it.</p></div></div>
-        <${Load} res=${sav} rows="4">${s => html`<${Served} s=${s}/>`}</${Load}>
+        <${Load} res=${sav} rows="4">${s => html`<${Served} s=${s} tools=${ov.tool_output}/>`}</${Load}>
       </section>
       <section class="sec ov-attn" aria-labelledby="h-attn">
         <div class="sec-h"><div><h2 id="h-attn">Needs attention</h2></div></div>
@@ -67,6 +70,11 @@ export function Overview() {
         ${specs.data?.features?.length && wf.data ? html`<${ActiveSpec} specs=${specs.data} wf=${wf.data}/>` : null}
       </section>
     </div>
+    <section class="sec" aria-labelledby="h-cost">
+      <div class="sec-h"><div><h2 id="h-cost">Model cost</h2><p class="sub">What Cairn's own model calls (writing session observations, summaries, timeline facts) cost, and what the cheaper defaults saved.</p></div>
+        <a class="small" href=${link.project(pid, "settings")}>Details and models</a></div>
+      <${Load} res=${mdl} rows="4">${r => html`<${ModelCost} r=${r}/>`}</${Load}>
+    </section>
     <section class="sec ruled" aria-labelledby="h-layers">
       <div class="sec-h"><div><h2 id="h-layers">Layers</h2><p class="sub">Where the answers come from. Each layer rebuilds on every sync.</p></div></div>
       <${Layers} L=${L} ov=${ov}/>
@@ -122,7 +130,7 @@ function FirstSync() {
   </${Empty}></div>`;
 }
 
-function Served({ s }) {
+function Served({ s, tools }) {
   const { pid } = useApp();
   const rows = s.totals.filter(r => r.kind !== "brief");
   const agentRows = rows.filter(r => r.surface === "mcp");
@@ -138,12 +146,55 @@ function Served({ s }) {
     <p class="lede" style="margin:0 0 6px">${agentRows.length ? `Agents asked Cairn ${plural(n, "time")}` : `No agent has asked yet. Answers were looked up ${plural(n, "time")}`}, and got a pack a fraction of the size of the code it cites.</p>
     <${ScaleBar} sent=${sent} source=${source} files=${files || null} sentLabel=${agentRows.length ? "Sent to agents" : "Sent"}/>
     <${Ratio} sent=${sent} source=${source} who=${who}/>
+    <${KeptOut} kept=${source - sent} pricing=${s.pricing}/>
+    <${Net} net=${s.net}/>
     <div class="surfaces">
       ${s.totals.sort((a, b) => b.n - a.n).map(r => html`<div class="surf">
         <span class="k">${SURFACE[r.surface] || r.surface}</span><span class="t">${cap(PACK[r.kind] || r.kind)}</span>
         <span class="n num">${fmt(r.n)}×</span><span class="n num">${fmt(r.sent / Math.max(1, r.n))} <small>avg tokens</small></span></div>`)}
     </div>
+    <${RawPulled} t=${tools}/>
     ${briefs.length ? html`<p class="sub" style="margin-top:10px">Session briefings add about ${fmt(sum(briefs, "sent") / Math.max(1, sum(briefs, "n")))} tokens at the start of each agent session. They have no file baseline, so they count as cost, not savings.</p>` : null}
+  </div>`;
+}
+
+// What tools put into the agent's context on their own (file reads, command output, searches). Cairn only
+// measures this: it neither trims nor blocks any of it.
+function RawPulled({ t }) {
+  if (!t || !t.calls) return null;
+  return html`<div class="raw-pulled">
+    <p class="lede" style="margin:18px 0 6px">Bytes pulled raw by tools: <b class="num">${fmtBytes(t.bytes)}</b> <span class="sub">(about ${fmtK(t.bytes / 4)} tokens) across ${plural(t.calls, "tool call")}</span></p>
+    <ul class="list raw-tools">${t.tools.slice(0, 5).map(x => html`<li><code>${x.tool}</code> <span class="num">${fmtBytes(x.bytes)}</span> <span class="sub">${plural(x.calls, "call")}</span></li>`)}</ul>
+    <p class="sub">Measured from the agents' own tool results. Cairn does not trim or block any of it.</p>
+  </div>`;
+}
+
+/** The tokens kept out of context as dollars, at list prices only: never a guess for a model without a known price. */
+function KeptOut({ kept, pricing }) {
+  const { pid } = useApp();
+  if (!(kept > 0)) return null;
+  if (!pricing) return html`<p class="sub">No confirmed price for the models set in <a href=${link.project(pid, "settings")}>Settings</a>, so this is shown in tokens only.</p>`;
+  const fresh = usd(tokensUsd(kept, pricing.input)), cached = usd(tokensUsd(kept, pricing.cache_read));
+  return html`<p class="sub" title="Estimate from Anthropic's published list prices as of ${pricing.as_of}. Subscriptions bill by plan usage, not per token, so this is a size comparison, not an invoice.">
+    Kept out of context <b class="num">${fresh}</b> at <code>${pricing.model}</code> list price ($${pricing.input} per million input tokens). If those files had been read from a warm prompt cache instead, ${cached} (cache reads cost 0.1× the input rate; cache writes cost 2×). List-price estimate, not a bill.</p>`;
+}
+
+/** The saving next to what Cairn's own model calls cost, so the page never shows one without the other. */
+function Net({ net }) {
+  const { pid } = useApp();
+  const sp = net?.spend;
+  if (!sp?.calls) return null;
+  const kept = net.packs.kept_out, saved = net.packs.kept_out_usd, top = sp.tasks[0], r = sp.recent;
+  const both = saved != null && sp.usd != null;
+  const verdict = !both ? (sp.tokens > kept ? `Cairn has used ${fmtK(sp.tokens - kept)} more tokens than it kept out.` : `Cairn has kept ${fmtK(kept - sp.tokens)} more tokens out than it used.`)
+    : sp.usd > saved ? `Cairn has cost ${usd(sp.usd - saved)} more than the most it can have saved.` : `At most ${usd(saved - sp.usd)} ahead of its own cost.`;
+  return html`<div class="net" role="group" aria-label="Saving next to Cairn's own cost">
+    <dl class="net-rows">
+      <div><dt>Kept out of context by every pack, at most</dt><dd class="num">${fmtK(kept)} tokens${saved != null ? ` · ${usd(saved)}` : ""}</dd></div>
+      <div><dt>Used by Cairn's own model calls</dt><dd class="num">${fmtK(sp.tokens)} tokens${sp.usd != null ? ` · ${usd(sp.usd)}` : ""}</dd></div>
+    </dl>
+    <p class="net-verdict ${both && sp.usd > saved || !both && sp.tokens > kept ? "behind" : ""}">${verdict}</p>
+    <p class="sub">The saving is an upper bound: it assumes every file behind a pack would have been read in full. The cost is measured from ${fmt(sp.calls)} model calls${top ? html`, most of it on <code>${top.task}</code>` : ""}${r?.calls ? `; ${fmtK(r.tokens)} tokens${r.usd != null ? ` (${usd(r.usd)})` : ""} in the last ${r.days} days` : ""}. Dollars are list-price estimates. <a href=${link.project(pid, "settings")}>Change what runs on a model</a></p>
   </div>`;
 }
 

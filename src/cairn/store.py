@@ -6,6 +6,7 @@ fast (<10 ms lookups), uniform across layers and available offline.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -17,7 +18,7 @@ from typing import Any, Iterable, Iterator
 
 from .review.store import SCHEMA as review_schema
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ledger(
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, task TEXT NOT NULL, tier TEXT NOT NULL,
   model TEXT NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
-  cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0, ok INTEGER NOT NULL);
+  cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0, ok INTEGER NOT NULL,
+  thinking_tokens INTEGER NOT NULL DEFAULT 0, cache_write_1h INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS queries(
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, surface TEXT NOT NULL, kind TEXT NOT NULL,
   target TEXT NOT NULL DEFAULT '', sent_tokens INTEGER NOT NULL, source_tokens INTEGER,
@@ -99,7 +101,26 @@ CREATE TABLE IF NOT EXISTS sm_flow_step(
   what TEXT, how TEXT, style TEXT NOT NULL DEFAULT 'sync', provenance TEXT NOT NULL DEFAULT 'extracted',
   evidence TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(flow_id, idx));
 """,
+    3: "",  # columns: see _add_ledger_detail
+    # 4: when each memory was last returned to an agent (memory aging). A table of its own, so the memories
+    # keep their shape and dropping it loses nothing but the usage history.
+    4: """
+CREATE TABLE IF NOT EXISTS memory_use(
+  memory_id TEXT PRIMARY KEY, last_used REAL NOT NULL, uses INTEGER NOT NULL DEFAULT 1);
+""",
 }
+
+
+# 3: what the provider reports per call beyond the four counters: thinking tokens (inside output_tokens) and how much of the
+# cache write was the 1-hour entry (2x input price). ALTER has no IF NOT EXISTS, so each column is added only when missing.
+LEDGER_DETAIL = ("thinking_tokens", "cache_write_1h")
+
+
+def _add_ledger_detail(db: sqlite3.Connection) -> None:
+    have = {r[1] for r in db.execute("PRAGMA table_info(ledger)")}
+    for col in LEDGER_DETAIL:
+        if col not in have:
+            db.execute(f"ALTER TABLE ledger ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
 
 
 def migrate(db: sqlite3.Connection, current: int) -> int:
@@ -107,9 +128,17 @@ def migrate(db: sqlite3.Connection, current: int) -> int:
     v = current
     for target in sorted(k for k in MIGRATIONS if k > current):
         db.executescript(MIGRATIONS[target])
+        if target == 3:
+            _add_ledger_detail(db)
         v = target
     return v
 
+
+AGING_SINCE = "memory.aging_since"
+TOUCH_WAIT_MS = 300  # a hook never waits on a sync's write: a use that can't be noted right now is dropped
+LOCK_WAIT_MS = 30_000
+LEDGER_BACKLOG_MAX = 5_000  # ledger rows held in memory while the store is locked (oldest dropped beyond this)
+LEDGER_SPILL = "ledger.pending"  # ledger rows a process could not write before it exited, one JSON row per line
 
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _WORD = re.compile(r"[A-Za-z0-9_]{2,}")
@@ -153,6 +182,8 @@ class Brain:
                 if current < SCHEMA_VERSION:  # a newer store opened by an older build is left as it is
                     migrate(self.db, current)
                     self.set_kv("schema_version", str(SCHEMA_VERSION))
+                    if self.get_kv(AGING_SINCE) is None:  # memories start aging from here, whatever their age
+                        self.set_kv(AGING_SINCE, str(time.time()))
 
     # ---- plumbing -------------------------------------------------------------------------------
     @contextmanager
@@ -176,6 +207,10 @@ class Brain:
 
     def close(self) -> None:
         with self._lock:
+            try:
+                self.flush_calls()
+            except sqlite3.Error:
+                self._spill_calls()
             self.db.close()
 
     # ---- kv ------------------------------------------------------------------------------------
@@ -348,7 +383,43 @@ class Brain:
         with self.tx() as db:
             n = db.execute("UPDATE memories SET forgotten=1 WHERE id=?", (mid,)).rowcount
             db.execute("DELETE FROM fts WHERE id=?", (f"memory:{mid}",))
+            # a forgotten memory leaves the timeline (so fact extraction that has not reached its day
+            # never sees it) and its memory→code links, not only recall. Facts already extracted from
+            # an earlier day stay in the fact graph; `cairn timeline delete` removes one.
+            db.execute("DELETE FROM events WHERE id=? AND kind='memory'", (f"memory:{mid}",))
+            db.execute("DELETE FROM links WHERE src=?", (f"memory:{mid}",))
         return n > 0
+
+    def touch_memories(self, ids: Iterable[str], now: float | None = None) -> int:
+        """Note that these memories were just returned to an agent. Quick to give up (see ``TOUCH_WAIT_MS``)."""
+        ids = list(dict.fromkeys(i for i in ids if i))
+        if not ids:
+            return 0
+        now = time.time() if now is None else now
+        with self._lock:
+            try:
+                self.db.execute(f"PRAGMA busy_timeout={TOUCH_WAIT_MS}")
+                with self.tx() as db:
+                    db.executemany("INSERT INTO memory_use(memory_id,last_used,uses) VALUES(?,?,1) ON CONFLICT(memory_id)"
+                                   " DO UPDATE SET last_used=excluded.last_used, uses=uses+1", [(i, now) for i in ids])
+                return len(ids)
+            except sqlite3.Error:
+                return 0
+            finally:
+                self.db.execute(f"PRAGMA busy_timeout={LOCK_WAIT_MS}")
+
+    def memory_use(self) -> dict[str, dict]:
+        """``{memory id: {last_used, uses}}`` for every memory that was ever returned to an agent."""
+        return {r["memory_id"]: {"last_used": r["last_used"], "uses": r["uses"]}
+                for r in self.q("SELECT memory_id, last_used, uses FROM memory_use")}
+
+    def clear_memory_use(self) -> int:
+        """Forget all usage history: every memory is as fresh as the day aging started (nothing else changes)."""
+        with self.tx() as db:
+            n = db.execute("DELETE FROM memory_use").rowcount
+            db.execute("INSERT INTO kv(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                       (AGING_SINCE, str(time.time())))
+        return n
 
     # ---- history stats -------------------------------------------------------------------------
     def cochanged(self, path: str, limit: int = 8) -> list[dict]:
@@ -371,17 +442,72 @@ class Brain:
 
     # ---- ledger --------------------------------------------------------------------------------
     def log_call(self, task: str, tier: str, model: str, usage: dict, ok: bool) -> None:
+        """Record one model call. A row that cannot be written now (the store is locked by a sync) is kept in memory
+        and written with the next call or at ``close``, so spend is not under-reported; the error is still raised."""
+        row = (time.time(), task, tier, model, usage.get("input", 0), usage.get("output", 0),
+               usage.get("cache_read", 0), usage.get("cache_write", 0), int(ok),
+               usage.get("thinking", 0), usage.get("cache_write_1h", 0))
         with self._lock:
-            self.db.execute("INSERT INTO ledger(ts,task,tier,model,input_tokens,output_tokens,cache_read,cache_write,ok)"
-                            " VALUES(?,?,?,?,?,?,?,?,?)",
-                            (time.time(), task, tier, model, usage.get("input", 0), usage.get("output", 0),
-                             usage.get("cache_read", 0), usage.get("cache_write", 0), int(ok)))
-            self.db.commit()
+            self._unlogged_calls = [*getattr(self, "_unlogged_calls", []), row][-LEDGER_BACKLOG_MAX:]
+            self.flush_calls()
+
+    def flush_calls(self) -> int:
+        """Write the ledger rows still held in memory; returns how many were written. Raises when still locked."""
+        with self._lock:
+            rows = self._unlogged_calls = [*self._spilled_calls(), *getattr(self, "_unlogged_calls", [])][-LEDGER_BACKLOG_MAX:]
+            if not rows:
+                return 0
+            try:
+                self.db.executemany(
+                    "INSERT INTO ledger(ts,task,tier,model,input_tokens,output_tokens,cache_read,cache_write,ok,"
+                    "thinking_tokens,cache_write_1h) VALUES(?,?,?,?,?,?,?,?,?,?,?)", rows)
+                self.db.commit()
+            except sqlite3.Error:
+                self.db.rollback()
+                raise
+            self._unlogged_calls = []
+            return len(rows)
+
+    def _spill_calls(self) -> None:
+        """This process is ending with the store still locked: leave its unwritten ledger rows in a file beside the
+        store, where the next process to record a call picks them up."""
+        rows = getattr(self, "_unlogged_calls", [])
+        if not rows:
+            return
+        try:
+            with self.path.with_name(LEDGER_SPILL).open("a", encoding="utf-8") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+            self._unlogged_calls = []
+        except OSError:
+            pass
+
+    def _spilled_calls(self) -> list[tuple]:
+        """Rows an earlier process left behind, taken so that no other process writes them too."""
+        spill = self.path.with_name(LEDGER_SPILL)
+        if not spill.exists():
+            return []
+        mine = spill.with_name(f"{LEDGER_SPILL}.{os.getpid()}.{time.time_ns()}")
+        try:
+            os.replace(spill, mine)  # atomic: only one process gets the file
+            lines = mine.read_text(encoding="utf-8").splitlines()
+            mine.unlink()
+        except OSError:
+            return []
+        rows = []
+        for line in lines:
+            try:
+                row = tuple(json.loads(line))
+            except ValueError:
+                continue
+            if len(row) == 11:
+                rows.append(row)
+        return rows
 
     def ledger(self, since: float = 0) -> list[dict]:
         return [dict(r) for r in self.q(
             "SELECT tier, model, COUNT(*) calls, SUM(input_tokens) input, SUM(output_tokens) output, "
-            "SUM(cache_read) cache_read, SUM(cache_write) cache_write, "
+            "SUM(cache_read) cache_read, SUM(cache_write) cache_write, SUM(thinking_tokens) thinking, "
+            "SUM(cache_write_1h) cache_write_1h, "
             "SUM(input_tokens + cache_read + cache_write) input_total FROM ledger WHERE ts>=? GROUP BY tier, model "
             "ORDER BY calls DESC", (since,))]
 

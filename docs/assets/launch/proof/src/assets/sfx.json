@@ -1,0 +1,142 @@
+[
+ {
+  "t": 0.2,
+  "scene": "s1",
+  "label": "stone 1"
+ },
+ {
+  "t": 0.55,
+  "scene": "s1",
+  "label": "stone 2"
+ },
+ {
+  "t": 0.9,
+  "scene": "s1",
+  "label": "stone 3"
+ },
+ {
+  "t": 5.562,
+  "scene": "s2",
+  "label": "Overview window"
+ },
+ {
+  "t": 6.557,
+  "scene": "s2",
+  "label": "sample data badge"
+ },
+ {
+  "t": 12.28,
+  "scene": "s2",
+  "label": "19x count-up"
+ },
+ {
+  "t": 13.056,
+  "scene": "s2",
+  "label": "19x chime"
+ },
+ {
+  "t": 18.982,
+  "scene": "s2",
+  "label": "bytes count-up"
+ },
+ {
+  "t": 20.118,
+  "scene": "s2",
+  "label": "bytes chime"
+ },
+ {
+  "t": 27.367,
+  "scene": "s3",
+  "label": "terminal window"
+ },
+ {
+  "t": 31.726,
+  "scene": "s3",
+  "label": "compaction freeze"
+ },
+ {
+  "t": 32.382,
+  "scene": "s3",
+  "label": "PreCompact chip"
+ },
+ {
+  "t": 35.399,
+  "scene": "s3",
+  "label": "snapshot unfold"
+ },
+ {
+  "t": 35.924,
+  "scene": "s3",
+  "label": "snapshot bytes count-up"
+ },
+ {
+  "t": 41.761,
+  "scene": "s3",
+  "label": "722 bytes chime"
+ },
+ {
+  "t": 51.21,
+  "scene": "s4",
+  "label": "rejected approach"
+ },
+ {
+  "t": 51.643,
+  "scene": "s4",
+  "label": "error then fix"
+ },
+ {
+  "t": 52.077,
+  "scene": "s4",
+  "label": "retry loop"
+ },
+ {
+  "t": 52.51,
+  "scene": "s4",
+  "label": "user correction"
+ },
+ {
+  "t": 58.224,
+  "scene": "s4",
+  "label": "no-model pill"
+ },
+ {
+  "t": 61.67,
+  "scene": "s4",
+  "label": "search typing"
+ },
+ {
+  "t": 62.842,
+  "scene": "s4",
+  "label": "search result"
+ },
+ {
+  "t": 64.659,
+  "scene": "s5",
+  "label": "Memory window"
+ },
+ {
+  "t": 65.603,
+  "scene": "s5",
+  "label": "sample data badge"
+ },
+ {
+  "t": 70.656,
+  "scene": "s5",
+  "label": "Stale badge"
+ },
+ {
+  "t": 75.065,
+  "scene": "s5",
+  "label": "conventions ring"
+ },
+ {
+  "t": 80.834,
+  "scene": "s6",
+  "label": "wordmark"
+ },
+ {
+  "t": 83.245,
+  "scene": "s6",
+  "label": "install line"
+ }
+]

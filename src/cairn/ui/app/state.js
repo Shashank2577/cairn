@@ -61,6 +61,9 @@ export function useCountUp(target, ms = 900) {
     if (reducedMotion() || !Number.isFinite(target)) { setV(target); return; }
     const start = performance.now(), a = from.current, b = target;
     let raf = 0;
+    // A page in a background tab or an embedded pane doesn't run animation frames, which left the number at 0 while
+    // the text beside it already showed the real total. The timer lands on the true value either way.
+    const land = setTimeout(() => { cancelAnimationFrame(raf); setV(b); from.current = b; }, ms + 150);
     const tick = t => {
       const k = Math.min(1, (t - start) / ms), e = 1 - Math.pow(1 - k, 3);
       const x = a + (b - a) * e;
@@ -68,7 +71,7 @@ export function useCountUp(target, ms = 900) {
       if (k < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => { cancelAnimationFrame(raf); clearTimeout(land); };
   }, [target]);
   return v;
 }

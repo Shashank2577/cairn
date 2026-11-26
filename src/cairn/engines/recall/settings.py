@@ -28,7 +28,10 @@ DEFAULTS: dict[str, Any] = {
     "worker_model": True,                # False: that worker derives records without a model (a connected
                                          # team server does the model work, so it is not paid for twice)
     "tier_routing": True,                # batches of read-only tools go to the fast tier
-    "observe_batch": 5,                  # tool events per model call (1 = one call per event)
+    "observe_batch": 5,                  # tool events per model call (1 = one call per event); 10 is the measured "economy" profile
+    "observer_condense": False,          # True: spend a model call to condense an oversized tool field (default: cut head and tail)
+    "observer_escalate": "parse",        # parse: a reply that looks like XML but does not parse is retried once on the balanced tier; off: never
+    "observer_escalate_chars": 0,        # > 0: a batch holding an Edit/Write input this long goes to the balanced tier (measured: 2.7-4.2x cost)
     "observe_catch_up": 20,              # up to this many per call while a session is far behind (0 = off)
     "observer_replay_exchanges": 8,      # recent observer exchanges replayed per call (0 = the whole conversation)
     "observer_replay_chars": 24_000,     # at most this much of them is replayed (earlier prompts are cut short)

@@ -66,7 +66,7 @@ export function ArchMap({ g, pid }) {
   const [showV, setShowV] = useState(false);
   const [openLayers, setOpenLayers] = useState(() => new Set());
   const [openCycles, setOpenCycles] = useState(() => new Set());
-  const [sel, setSel] = useState(null);
+  const [sel, setSel] = useState(() => (g.cycles || []).find(c => c.size > 8)?.id || null);   // a big tangle is the first thing to explain
   const [hov, setHov] = useState(null);
   useEffect(() => { const el = host.current; if (!el) return; const ro = new ResizeObserver(([e]) => setHw(Math.round(e.contentRect.width))); ro.observe(el); return () => ro.disconnect(); }, []);
 
@@ -79,7 +79,7 @@ export function ArchMap({ g, pid }) {
     if (act) return E.list.filter(e => e.a === act || e.b === act).sort((x, y) => y.w - x.w).slice(0, 40);
     return E.list.filter(e => !e.internal).sort((x, y) => y.w - x.w || (x.a + x.b < y.a + y.b ? -1 : 1)).slice(0, EDGE_BUDGET);
   }, [E, act]);
-  const near = useMemo(() => { if (!act) return null; const s = new Set([act]); for (const e of drawn) { s.add(e.a); s.add(e.b); } return s; }, [act, drawn]);
+  const near = useMemo(() => { if (!hov) return null; const s = new Set([act]); for (const e of drawn) { s.add(e.a); s.add(e.b); } return s; }, [hov, act, drawn]);
 
   const toggle = (set, setter, key) => setter(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const pick = id => { const b = L.boxes.get(id); if (!b) return; if (b.more) toggle(openLayers, setOpenLayers, b.layer); else if (b.less) toggle(openLayers, setOpenLayers, b.layer); else setSel(s => s === id ? null : id); };
@@ -90,12 +90,12 @@ export function ArchMap({ g, pid }) {
 
   return html`<div class="dl" ref=${host}><style>${STYLE}</style>
     <p class="dl-note">Dependency layers: ${plural(g.scope.units, unit)} of your own code (${plural(g.scope.files, "file")}), each above the ${unit}s it imports.
-      ${cycles.length ? ` ${cycles.map(c => `${c.size} ${unit}s import each other in one cycle, shown as one block`).join("; ")}.` : " There are no large import cycles."}
+      ${cycles.length ? ` ${cycles.map(c => cycleSentence(c, g, unit)).join(" ")}` : " There are no large import cycles."}
       ${" "}Lines are drawn only between visible blocks, and only the heaviest ${EDGE_BUDGET} until you hover or select one; the number on a line is how many imports it stands for.</p>
     <div class="dl-bar">
       ${g.entries?.length ? html`<span class="dl-entries"><span class="lbl">Entry points:</span>${g.entries.slice(0, 6).map(e => html`<button key=${e.id} onClick=${() => setSel(e.id)} title=${e.signals.map(s => s.detail).join("; ")}>${labelOf(T, e.id)}</button>`)}${g.entries.length > 6 ? html`<span class="lbl">+${g.entries.length - 6}</span>` : null}</span>` : html`<span class="lbl" style="color:var(--muted)">No entry points found in pyproject scripts, __main__ modules, server modules or system-model containers.</span>`}
       ${vcount ? html`<button aria-pressed=${showV} onClick=${() => setShowV(v => !v)}>${vcount} vendored ${vcount === 1 ? "folder" : "folders"} ${showV ? "shown" : "hidden"} (${showV ? "hide" : "show"})</button>` : null}
-      ${cycles.map(c => html`<button key=${c.id} aria-pressed=${openCycles.has(c.id)} onClick=${() => toggle(openCycles, setOpenCycles, c.id)}>${openCycles.has(c.id) ? "Collapse" : "Expand"} the cycle of ${c.size} ${unit}s</button>`)}
+      ${cycles.map(c => html`<button key=${c.id} aria-pressed=${openCycles.has(c.id)} onClick=${() => toggle(openCycles, setOpenCycles, c.id)}>${openCycles.has(c.id) ? "Fold the group back up" : `Draw all ${c.size} ${unit}s (dense)`}</button>`)}
     </div>
     <svg width=${L.width} height=${L.height} viewBox=${`0 0 ${L.width} ${L.height}`} role="group" aria-label="Dependency layers">
       <defs>
@@ -140,6 +140,11 @@ export function ArchMap({ g, pid }) {
   </div>`;
 }
 
+/** One plain sentence for an import-cycle group: what it is and why it matters. */
+function cycleSentence(c, g, unit) {
+  const files = (c.members || []).reduce((t, m) => t + (m.files || 0), 0);
+  return `${c.size} ${unit}s${files ? ` (${files} files)` : ""} are tangled together: each one imports another in the group, directly or through other members, so a change to any of them can reach the rest. They are drawn as one block; select it to see who is in it and the heaviest imports between them.`;
+}
 const shortId = id => (id === "." ? "(repo root)" : segs(id, 2));
 
 /* ---------------------------------------------------------------- lookups */
@@ -158,7 +163,7 @@ function tables(g) {
   return { nodes, members, adj, vend, dup, name: id => (dup.get(nm(id)) > 1 ? segs(id, 3) : nm(id)) };
 }
 function labelOf(T, id) {
-  const n = T.nodes.get(id); if (n) return n.kind === "cycle" ? n.label : shorten(T.name(id) + (n.kind === "folder" ? "/" : ""));
+  const n = T.nodes.get(id); if (n) return n.kind === "cycle" ? `Tangled group · ${n.members.length} ${n.members.length === 1 ? "folder" : "folders"}` : shorten(T.name(id) + (n.kind === "folder" ? "/" : ""));
   const m = T.members.get(id); if (m) return shorten(T.name(id) + "/");
   if (id.startsWith("vendor:")) return shorten(segs(id.slice(7), 2) + "/");
   if (id.startsWith("more:")) return "more";
@@ -190,7 +195,7 @@ function layout(g, T, st, MAXW) {
     const ent = (n.entry || []).length > 0;
     return { id, label, w: wOf(label, 58), n: n.files, cycle: n.kind === "cycle", entry: ent, test: n.test, small: n.cycle?.length > 1,
       aria: `${label}: ${plural(n.files, "file")}${ent ? ", entry point" : ""}. Open its evidence.`,
-      tip: `${n.kind === "cycle" ? n.label : n.id}: ${plural(n.files, "file")}, ${plural(n.symbols, "symbol")}${ent ? `; entry point (${n.entry.map(e => e.detail).join("; ")})` : ""}${n.cycle?.length > 1 ? `; import cycle with ${n.cycle.filter(c => c !== n.id).join(", ")}` : ""}` };
+      tip: `${n.kind === "cycle" ? label : n.id}: ${plural(n.files, "file")}, ${plural(n.symbols, "symbol")}${ent ? `; entry point (${n.entry.map(e => e.detail).join("; ")})` : ""}${n.cycle?.length > 1 ? `; import cycle with ${n.cycle.filter(c => c !== n.id).join(", ")}` : ""}` };
   };
   for (const lay of g.layers) {
     const open = st.openLayers.has(lay.layer);
@@ -301,21 +306,45 @@ function Evidence({ g, T, L, E, id, unit, open, pid, pick, toggleCycle, openCycl
   const ev = d?.evidence;
   const entry = d?.entry || [];
   const isFolder = g.level === "folder";
-  const title = n?.kind === "cycle" ? n.label : v ? v.id : id;
+  const title = n?.kind === "cycle" ? labelOf(T, id) : v ? v.id : id;
   return html`<section class="dl-ev" aria-label=${"Evidence for " + title}>
     <h3>${title}</h3>
     <p class="meta">${v ? `Vendored code (${v.reason}); ${plural(v.files, "file")}, ${plural(v.symbols, "symbol")}. Not analysed as part of your own layers.`
-      : n?.kind === "cycle" ? `${plural(n.evidence.members, unit)} that import each other, ${plural(n.files, "file")} in all. ${plural(n.evidence.imports_in, "import")} come in from outside the cycle, ${plural(n.evidence.imports_out, "import")} go out.`
+      : n?.kind === "cycle" ? `${cycleSentence(g.cycles.find(k => k.id === id) || { size: n.evidence.members }, g, unit)} ${plural(n.evidence.imports_in, "import")} come in from outside the group, ${plural(n.evidence.imports_out, "import")} go out.`
       : `${plural(d.files, "file")}, ${plural(d.symbols, "symbol")}${ev ? `; ${plural(ev.imports_out, "import")} out, ${plural(ev.imports_in, "import")} in` : ""}${d.commits ? `; ${plural(d.commits, "commit")}` : ""}${d.fixes ? `, ${d.fixes} fix or revert` : ""}${d.agent_reads || d.agent_edits ? `; agents read ${d.agent_reads || 0}, edited ${d.agent_edits || 0}` : ""}${d.tasks ? `; owned by ${plural(d.tasks, "task")}` : ""}.`}</p>
     ${entry.length ? html`<h4>Why it is an entry point</h4><ul>${entry.map(s => html`<li key=${s.detail + s.file}><span class="p">${s.detail}</span><span class="c">${s.file}</span></li>`)}</ul>` : null}
+    ${n?.kind === "cycle" ? html`<${CycleDetail} c=${g.cycles.find(k => k.id === id)} unit=${unit} pid=${pid} open=${open}/>` : null}
     <div class="cols">
       ${uses.length ? html`<div><h4>Uses (${uses.length})</h4><ul>${uses.slice(0, 8).map(row)}${uses.length > 8 ? html`<li><span class="c">and ${uses.length - 8} more</span></li>` : null}</ul></div>` : null}
       ${usedBy.length ? html`<div><h4>Used by (${usedBy.length})</h4><ul>${usedBy.slice(0, 8).map(row)}${usedBy.length > 8 ? html`<li><span class="c">and ${usedBy.length - 8} more</span></li>` : null}</ul></div>` : null}
       ${ev?.files?.length ? html`<div><h4>Files (${ev.files_total})</h4><ul>${ev.files.map(f => html`<li key=${f.path}><span class="p"><a href=${link.impact(pid, f.path)}>${f.path}</a></span><span class="c">${plural(f.symbols, "symbol")}</span></li>`)}${ev.files_total > ev.files.length ? html`<li><span class="c">and ${ev.files_total - ev.files.length} more</span></li>` : null}</ul></div>` : null}
     </div>
     <div class="dl-open">
-      ${n?.kind === "cycle" ? html`<button onClick=${() => toggleCycle(id)}>${openCycles.has(id) ? "Collapse the cycle" : `Expand the ${n.evidence.members} ${unit}s`}</button>` : null}
+      ${n?.kind === "cycle" ? html`<button onClick=${() => toggleCycle(id)}>${openCycles.has(id) ? "Fold the group back up" : `Draw all ${n.evidence.members} ${unit}s in the diagram (dense)`}</button>` : null}
       ${!v && n?.kind !== "cycle" ? html`<button onClick=${() => open(id)}>${isFolder ? "Explore it in the graph" : "See what breaks if it changes"}</button>` : null}
     </div>
   </section>`;
+}
+
+/** Who is in a tangled group and what binds it: members by area, and the heaviest imports among them. */
+function CycleDetail({ c, unit, pid, open }) {
+  const mine = useMemo(() => new Set(c.members.map(m => m.id)), [c]);
+  const inner = useMemo(() => c.links.filter(l => mine.has(l.source) && mine.has(l.target)).sort((a, b) => b.weight - a.weight || (a.source + a.target < b.source + b.target ? -1 : 1)), [c, mine]);
+  const areas = useMemo(() => {
+    const by = new Map();
+    let k = 2;   // the deepest grouping that still gives about a dozen headings
+    for (let t = 3; t <= 6; t++) if (new Set(c.members.map(m => m.id.split("/").slice(0, t).join("/"))).size <= 14) k = t;
+    for (const m of c.members) { const key = m.id.split("/").slice(0, k).join("/") || m.id; (by.get(key) || by.set(key, []).get(key)).push(m); }
+    return [...by].sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1));
+  }, [c]);
+  const [all, setAll] = useState(false);
+  const total = inner.reduce((t, l) => t + l.weight, 0);
+  return html`<div class="cols" style="margin-top:6px">
+    <div><h4>Heaviest imports inside the group (${inner.length} links, ${plural(total, "import")} in all)</h4>
+      <ul>${inner.slice(0, all ? 40 : 10).map(l => html`<li key=${l.source + ">" + l.target}><span class="p">${l.source} → ${l.target}</span><span class="c">${l.weight}</span></li>`)}
+        ${inner.length > 10 ? html`<li><button class="lk" onClick=${() => setAll(a => !a)}>${all ? "Show fewer" : `Show up to ${Math.min(40, inner.length)}`}</button></li>` : null}</ul></div>
+    <div><h4>Who is in it (${c.members.length} ${unit}s, by area)</h4>
+      ${areas.map(([k, ms]) => html`<details key=${k}><summary style="cursor:pointer;font-size:13px"><span class="p" style="font-family:var(--mono)">${k}</span> <span class="c">${plural(ms.length, unit)}</span></summary>
+        <ul style="margin:2px 0 6px 12px">${ms.sort((a, b) => a.id.localeCompare(b.id)).map(m => html`<li key=${m.id}><span class="p">${m.id}</span><span class="c">${plural(m.files, "file")}</span></li>`)}</ul></details>`)}</div>
+  </div>`;
 }

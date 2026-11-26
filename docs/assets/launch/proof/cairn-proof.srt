@@ -1,0 +1,75 @@
+1
+00:00:00,600 --> 00:00:04,500
+Your agent keeps its place, and gets smarter every session.
+
+2
+00:00:06,000 --> 00:00:10,710
+Cairn's Overview page, with sample data: context served.
+
+3
+00:00:11,010 --> 00:00:15,990
+Agents read 19× fewer tokens than opening the files behind the answers.
+
+4
+00:00:16,090 --> 00:00:23,712
+New beside it: bytes pulled raw by tools. 6.5 MB across 1,284 calls.
+
+5
+00:00:23,732 --> 00:00:27,005
+A measurement only. Nothing is trimmed or blocked.
+
+6
+00:00:27,805 --> 00:00:31,705
+Deep into a long session, Claude Code compacts the conversation.
+
+7
+00:00:31,725 --> 00:00:35,986
+Just before, Cairn's PreCompact hook saves a resume snapshot.
+
+8
+00:00:36,186 --> 00:00:41,887
+Last request, files changed, open tasks, decisions. Under 2 KB.
+
+9
+00:00:41,907 --> 00:00:46,236
+Pointers, not content: each line names the cairn_session_* tool to call.
+
+10
+00:00:46,256 --> 00:00:49,622
+No model call. The agent picks up right where it was.
+
+11
+00:00:50,422 --> 00:00:53,161
+Cairn also records what not to repeat.
+
+12
+00:00:53,181 --> 00:00:58,492
+Rejected approaches, error-then-fix pairs, retry loops, user corrections.
+
+13
+00:00:58,512 --> 00:01:01,893
+Only explicit signals count, and no model is called.
+
+14
+00:01:01,913 --> 00:01:04,296
+Next session, one search finds them.
+
+15
+00:01:05,096 --> 00:01:09,254
+Memory ages. The Memory page, with sample data.
+
+16
+00:01:09,404 --> 00:01:14,114
+A memory no agent was told for 90 days is marked Stale and ranks lower.
+
+17
+00:01:14,134 --> 00:01:16,629
+Conventions and decisions never age.
+
+18
+00:01:16,649 --> 00:01:20,294
+Nothing is deleted. Using it again restarts the clock.
+
+19
+00:01:21,394 --> 00:01:25,926
+Cairn. Install it once, then run cairn in your repository.

@@ -111,9 +111,26 @@ Session memory is built in ([ADR-0006](adr/0006-built-in-session-capture.md)). F
 | `SessionStart` (startup, resume, clear, compact) | `context` | Injects a timeline of recent observations and session summaries (or a first-run hint) |
 | `UserPromptSubmit` | `session-init` | Stores the numbered prompt |
 | `PreToolUse` (Read) | `file-context` | Adds the earlier observations about a file before the agent reads it |
-| `PostToolUse` (all tools) | `observation` | Queues the tool event |
+| `PostToolUse` (all tools) | `observation` | Queues the tool event, and notes how many bytes its result put into the agent's context |
+| `PostToolUseFailure` (all tools) | `observation` | Queues a failed or refused tool call, so rejected approaches and errors are recorded |
+| `PreCompact` | `pre-compact` | Saves a resume snapshot (under 2 KB) before Claude Code compacts the conversation; the `SessionStart` hook for the `compact` start hands it back in place of the timeline |
 | `Stop` | `summarize` | Queues a summary of the prompt that just finished, and starts the worker |
 | `SessionEnd` | `session-end` | Marks the session completed |
+
+**After a compaction.** The resume snapshot is built from `.cairn/sessions.db` by fixed rules, with no model: the last
+request, the files changed, the tasks still open in the agent's task list, and the decisions and rejected
+approaches recorded so far. It is a list of pointers: each line names the `cairn_session_search`,
+`cairn_session_timeline` or `cairn_session_observations` call that returns the detail. Only Claude Code has a
+compaction hook; the other agents are unchanged.
+
+**Events found without a model.** Besides one observation per prompt, the worker records four kinds of event, each as
+an observation of its own that `cairn_session_search` finds: a tool call you refused (*rejected approach*), a call that
+failed and then worked after a change (*error then fix*), the same call tried three or more times with at least two
+failures (*retry loop*), and a prompt that tells the agent it was wrong (*user correction*). Only explicit signals
+count, so ordinary output that contains the word "error" does not.
+
+**Tool output.** Each tool result's size is recorded per tool, and the Overview page shows the bytes the agents pulled
+through tools next to what Cairn served. It is a measurement only: nothing is trimmed, blocked or rerouted.
 
 The hooks use only the standard library, and all they do is write to `.cairn/sessions.db`. A hook
 never fails the agent: bad input or a locked store is ignored. The older event names
@@ -141,7 +158,7 @@ credentials are masked before they're written: well-known token shapes (cloud, G
 JWTs, private keys, passwords inside URLs, Basic/Bearer headers) and values of credential-named settings such as
 `API_KEY=…`, `"password": "…"` or `--token …`. Wording like `token: bucket algorithm` or `max_tokens=1024` is left
 alone. Memory a model writes from a session (observations, summaries) is masked for token shapes only, so ordinary
-prose is not rewritten; `cairn redaction-test <file>` shows what would be masked. Cairn's
+prose is not rewritten; `cairn redaction-test <file>` (or `-` for stdin, or `--text "…"`) shows what would be masked. Cairn's
 own model calls (which run with `CAIRN_INTERNAL=1`) are never recorded. Everything stays in the
 repository's `.cairn/` folder.
 
@@ -182,6 +199,14 @@ antigravity hooks). For copilot-cli, roo-code, warp and goose it adds the MCP se
 **Settings.** Capture is controlled by the `[recall]` section in `.cairn/config.toml` (see
 [configuration](configuration.md#recall)). To turn it off, set `[recall] capture = false` or
 `[sessions] capture = false`, or run `cairn init --no-capture`.
+
+## Git worktrees
+
+A linked git worktree shares its main checkout's Cairn store: memory, captured sessions and context come
+from one place, whichever checkout an agent works in. Agents, hooks and every `cairn` command run in a
+worktree use the main checkout's store when the worktree has none of its own, and `cairn init` there
+says so instead of setting up a second store. A worktree that already has its own store (set up before
+this) keeps it.
 
 ## Spec workflow commands
 

@@ -14,6 +14,7 @@ marked block, and generated files carry a header so `cairn uninstall` removes ex
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import shutil
@@ -501,8 +502,31 @@ def connect(project: Project, server_url: str, project_id: str, env_var: str = "
     return changed
 
 
-def uninstall(project: Project) -> list[str]:
+def _drop_if_empty(path: Path) -> bool:
+    """Delete a JSON config Cairn emptied (``{}`` left after removing its own entries)."""
+    try:
+        if path.is_file() and json.loads(path.read_text(encoding="utf-8")) == {}:
+            path.unlink()
+            return True
+    except (OSError, json.JSONDecodeError):
+        pass
+    return False
+
+
+def _workflow_integrations(root: Path) -> list[str]:
+    """Agent integrations the spec workflow installed (``.cairn/workflow/integrations/<key>.manifest.json``);
+    ``cairn`` itself is the workflow, not agent wiring."""
+    d = root / ".cairn" / "workflow" / "integrations"
+    return sorted(p.name.removesuffix(".manifest.json") for p in d.glob("*.manifest.json")
+                  if p.name != "cairn.manifest.json") if d.is_dir() else []
+
+
+def uninstall(project: Project, purge: bool = False, kept: list[str] | None = None) -> list[str]:
+    """Remove Cairn's agent wiring. With ``purge`` the spec workflow's own agent files (skills,
+    commands) go too, since the workflow they call is being deleted; files the user edited are kept.
+    What is deliberately left in place is appended to ``kept``."""
     root, removed = project.root, []
+    kept = kept if kept is not None else []
     if remove_legacy_memory_block(root / "AGENTS.md"):
         removed.append("AGENTS.md (memory block)")
     for agent in CONTEXT_FILES:
@@ -528,7 +552,7 @@ def uninstall(project: Project) -> list[str]:
     for rel, key in ((".mcp.json", "mcpServers"), (".cursor/mcp.json", "mcpServers"),
                      (".gemini/settings.json", "mcpServers"), (".vscode/mcp.json", "servers")):
         if merge_json(root / rel, lambda d, k=key: drop_server(d, k)):
-            removed.append(rel)
+            removed.append(rel + (" (now empty, deleted)" if _drop_if_empty(root / rel) else ""))
 
     def clean(d):
         from .engines.recall import integrations as recall_hooks
@@ -543,11 +567,17 @@ def uninstall(project: Project) -> list[str]:
             d.pop("hooks", None)
         if _is_ours(d.get("statusLine", {})):
             d.pop("statusLine")
-        allow = d.get("permissions", {}).get("allow", [])
+        perms = d.get("permissions")
+        allow = perms.get("allow", []) if isinstance(perms, dict) else []
         if "mcp__cairn" in allow:
             allow.remove("mcp__cairn")
+            if not allow:  # the list only held Cairn's grant
+                perms.pop("allow")
+            if not perms:
+                d.pop("permissions")
     if merge_json(root / ".claude" / "settings.json", clean):
-        removed.append(".claude/settings.json")
+        removed.append(".claude/settings.json" + (" (now empty, deleted)"
+                                                  if _drop_if_empty(root / ".claude" / "settings.json") else ""))
     from .engines.recall import integrations as recall_hooks
     removed += [f".claude/skills/{name}" for name in recall_hooks.uninstall_skills(root / ".claude" / "skills")]
     for p in [*(root / ".claude" / "commands" / "cairn").glob("*.md"), *(root / ".claude" / "agents").glob("cairn-*.md"),
@@ -555,6 +585,34 @@ def uninstall(project: Project) -> list[str]:
         if p.exists() and GENERATED in p.read_text(encoding="utf-8"):
             p.unlink()
             removed.append(str(p.relative_to(root)))
+    for key in _workflow_integrations(root):
+        from .engines.workflow.integrations.manifest import IntegrationManifest
+        try:
+            manifest = IntegrationManifest.load(key, root)
+        except (OSError, ValueError):
+            continue
+        tracked = sorted(manifest.files)
+        if not purge:
+            if tracked:
+                kept.append(f"{len(tracked)} spec workflow file(s) for {key} (e.g. {tracked[0]}); "
+                            "they go with the workflow under --purge")
+            continue
+        from .engines.workflow.integrations import get_integration
+        integration = get_integration(key)
+        if integration is not None:  # its runtime-event hooks in native configs go too (they call .cairn/)
+            with contextlib.suppress(Exception):
+                integration.remove_events(root, manifest)
+        gone, skipped = manifest.uninstall(remove_manifest=False)
+        real = root.resolve()  # the manifest reports resolved paths (/tmp is /private/tmp on macOS)
+        removed += [p.relative_to(real).as_posix() for p in gone if real in p.parents]
+        kept += [f"{p.relative_to(real).as_posix()} (edited since install)" for p in skipped
+                 if p.is_file() and real in p.parents]
+    for d in (".claude/commands/cairn", ".claude/commands", ".claude/agents", ".claude/skills", ".claude",
+              ".cursor/rules", ".cursor"):
+        with contextlib.suppress(OSError):  # only directories this left empty
+            if (root / d).is_dir() and not any((root / d).iterdir()):
+                (root / d).rmdir()
+                removed.append(f"{d}/ (empty)")
     if shutil.which("codex"):
         subprocess.run(["codex", "mcp", "remove", "cairn"], capture_output=True, timeout=30)
     return removed

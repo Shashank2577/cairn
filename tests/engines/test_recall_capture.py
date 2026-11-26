@@ -247,14 +247,14 @@ def test_settings_round_trip_preserves_the_rest_of_the_file(repo):
 def test_schema_migrations_are_recorded_and_idempotent(tmp_path):
     db_path = tmp_path / "s.db"
     db = schema.connect(db_path)
-    assert schema.schema_versions(db) == [1, 2, 3, 4, 5, 6]
+    assert schema.schema_versions(db) == [1, 2, 3, 4, 5, 6, 7]
     names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type IN ('table','trigger')")}
     assert {"sdk_sessions", "observations", "session_summaries", "user_prompts", "pending_messages", "tool_uses",
             "observations_fts", "session_summaries_fts", "user_prompts_fts", "observations_ai", "vector_docs",
             "observer_conversations", "file_context_injections", "kv", "remote_outbox", "remote_received"} <= names
     db.close()
     db = schema.connect(db_path)  # re-opening applies nothing new
-    assert schema.schema_versions(db) == [1, 2, 3, 4, 5, 6]
+    assert schema.schema_versions(db) == [1, 2, 3, 4, 5, 6, 7]
     ro = schema.connect(db_path, readonly=True)
     with pytest.raises(sqlite3.OperationalError):
         ro.execute("INSERT INTO kv(key, value) VALUES('a', 'b')")
@@ -279,7 +279,7 @@ def test_legacy_capture_log_is_imported(repo):
     db.commit()
     db.close()
     with Store.open(repo, project_name="shop") as st:
-        assert schema.schema_versions(st.db) == [1, 2, 3, 4, 5, 6]
+        assert schema.schema_versions(st.db) == [1, 2, 3, 4, 5, 6, 7]
         prompts = [r[0] for r in st.db.execute("SELECT prompt_text FROM user_prompts ORDER BY prompt_number")]
         assert prompts == ["Fix the ledger", "Just a question"]
         obs = [dict(r) for r in st.db.execute("SELECT title, type, files_modified, project FROM observations ORDER BY id")]

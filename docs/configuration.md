@@ -26,7 +26,7 @@ Some settings can also be changed from the page (Project settings) or with
 | Key | Default | Meaning |
 |---|---|---|
 | `provider` | `"auto"` | `auto`, `anthropic`, `openai` or `claude-code`. `auto` picks an Anthropic key, then an OpenAI-compatible key or endpoint, then the signed-in Claude Code CLI. |
-| `fast` | `"claude-haiku-4-5-20251001"` | Model for the fast tier |
+| `fast` | `"claude-haiku-5-5"` | Model for the fast tier |
 | `balanced` | `"claude-sonnet-5"` | Model for the balanced tier |
 | `deep` | `"claude-opus-5-5"` | Model for the deep tier |
 | `frontier` | `"claude-fable-5-1"` | Model for the frontier tier (opt-in reviews only) |
@@ -39,7 +39,8 @@ When you use `openai` or a local endpoint, set every tier to a model that endpoi
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `"auto"` | `auto` builds timeline facts on every sync when a model is available. `false` never builds them. |
+| `enabled` | `"auto"` | `auto` turns model features on when a model is available. `false` turns them all off, timeline facts included. |
+| `timeline_facts` | `false` | `true` builds timeline facts with the model on every sync. Off by default: it is the costliest background job. `cairn sync --deep` builds them once without this. |
 | `budget_tokens` | `150000` | Token ceiling per sync for timeline facts. Semantic drift checks use a third of it. |
 | `graph_url` | `""` | Older name for `[temporal] url`, still read when `url` is empty |
 
@@ -52,6 +53,9 @@ When you use `openai` or a local endpoint, set every tier to a model that endpoi
 | `rerank` | `false` | Rerank recall results with a model |
 | `graph` | `false` | Also write memories into the timeline fact graph |
 | `instructions` | `""` | Extra guidance for what counts as a memory |
+| `aging` | `true` | A memory that no agent has been told for `stale_days` days is marked *stale* and ranks lower. Nothing is deleted, and a memory counts as used again the moment an agent is told it. `false` turns aging off |
+| `stale_days` | `90` | How long a memory can go unused before it is stale (aging starts when the store is first opened by this version, so old memories are not stale on day one) |
+| `pinned_kinds` | `["convention", "decision"]` | Kinds that never age |
 | `vector_store` | local index in `.cairn/memstore/` | A shared store for a team, for example `{ provider = "qdrant", config = { url = "http://team-server:6333" } }`. `qdrant`, `pgvector` and `chroma` come with the `memory-server` extra. |
 
 Other `[memory]` keys the code reads: `engine` (`"auto"`; `false` turns the memory engine off so

@@ -1733,12 +1733,19 @@ def _shortest_path_text(G: nx.Graph, arguments: dict) -> str:
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         src_label = G.nodes[src_nid].get("label", src_nid)
         tgt_label = G.nodes[tgt_nid].get("label", tgt_nid)
-        if undirected:
+        path_nodes = None
+        if not undirected:  # like `cairn trace path`: a path either way beats a dead end
+            und = nx.Graph()
+            und.add_nodes_from(sorted(G.nodes))
+            und.add_edges_from(sorted((min(u, v), max(u, v)) for u, v in G.edges()))
+            try:
+                path_nodes = nx.shortest_path(und, src_nid, tgt_nid)
+                warnings.append(f"No directed path from '{src_label}' to '{tgt_label}'; "
+                                "this path follows edges either way (arrows show each hop's direction).")
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                path_nodes = None
+        if path_nodes is None:
             return f"No path found between '{src_label}' and '{tgt_label}'."
-        return (
-            f"No directed path found between '{src_label}' and '{tgt_label}'. "
-            "Retry with undirected=true to search ignoring edge direction."
-        )
     hops = len(path_nodes) - 1
     if hops > max_hops:
         return f"Path exceeds max_hops={max_hops} ({hops} hops found)."

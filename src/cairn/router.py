@@ -48,6 +48,11 @@ TASK_TIER: dict[str, str] = {
     # agent session memory
     "recall_observe": "fast", "recall_summarize": "fast", "recall_compress": "fast", "recall_corpus": "balanced",
 }
+# Fast-tier bulk tasks run without extended thinking on the Claude Code CLI, which turns it on by default: measured, thinking was
+# 37-58% of output tokens on observation calls and the quality gate held without it (specs/002-observation-token-cost).
+NO_THINKING_TASKS = frozenset({"recall_observe", "recall_summarize", "recall_compress", "classify", "label", "brief",
+                               "summarize", "temporal.resolve", "temporal.attributes", "temporal.timestamps", "graph-label",
+                               "graph-dedup", "memory_rerank", "memory_instructions"})
 # Input size (tokens) above which a tier is escalated one step for quality.
 COMFORT_WINDOW = {"fast": 24_000, "balanced": 80_000, "deep": 180_000, "frontier": 400_000}
 
@@ -77,8 +82,39 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+# List prices in USD per million tokens, only for models whose price was confirmed (specs/002-observation-token-cost:
+# Haiku 4.5 from Anthropic's published table; Haiku 5.5 and Sonnet 5.5 from the first-party pricing table cached
+# 2026-10-06). Cache reads cost 0.1x the input rate; writes 1.25x (5-minute entry) or 2x (1-hour entry, which the
+# Claude Code CLI writes). A model not listed has no price here and shows tokens only: a price is never guessed.
+# Matched by prefix, longest first, so a dated id such as claude-haiku-4-5-20251001 finds its row.
+PRICES_AS_OF = "2026-10-06"
+PRICES: dict[str, dict[str, float]] = {
+    "claude-haiku-5-5": {"input": 0.10, "output": 0.50},
+    "claude-haiku-4-5": {"input": 1.00, "output": 5.00},
+    "claude-sonnet-5": {"input": 2.00, "output": 10.00},
+}
+CACHE_READ_X, CACHE_WRITE_X = 0.1, 2.0
+
+
+def price_for(model: str) -> dict[str, float] | None:
+    """Per-million-token list rates for ``model`` (input, output, cache_read, cache_write), or None when unknown."""
+    best = max((k for k in PRICES if (model or "").startswith(k)), key=len, default=None)
+    if best is None:
+        return None
+    p = PRICES[best]
+    return {**p, "cache_read": p["input"] * CACHE_READ_X, "cache_write": p["input"] * CACHE_WRITE_X}
+
+
+def cost_usd(model: str, input: int = 0, output: int = 0, cache_read: int = 0, cache_write: int = 0) -> float | None:
+    """List-price estimate of one set of token counts, or None when the model has no known price."""
+    p = price_for(model)
+    if p is None:
+        return None
+    return (input * p["input"] + output * p["output"] + cache_read * p["cache_read"] + cache_write * p["cache_write"]) / 1e6
+
+
 PROVIDERS = ("anthropic", "openai", "claude-code")
-NO_USAGE = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+NO_USAGE = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "thinking": 0, "cache_write_1h": 0}
 
 
 # Where the Claude Code CLI is usually installed. A server started by a hook, an IDE or a service manager often has a
@@ -170,15 +206,25 @@ class Router:
 
     def model(self, tier: str) -> str:
         return str(self.project.cfg(f"models.{tier}", "")) or {
-            "fast": "claude-haiku-4-5-20251001", "balanced": "claude-sonnet-5",
+            "fast": "claude-haiku-5-5", "balanced": "claude-sonnet-5",
             "deep": "claude-opus-5-5", "frontier": "claude-fable-5-1"}[tier]
 
     def table(self) -> list[dict]:
         rows = []
         for tier in TIERS:
             tasks = sorted(t for t, v in TASK_TIER.items() if v == tier)
-            rows.append({"tier": tier, "model": self.model(tier), "tasks": tasks})
+            rows.append({"tier": tier, "model": self.model(tier), "tasks": tasks, "price": price_for(self.model(tier))})
         return rows
+
+    def reference_price(self) -> dict | None:
+        """The rates a dollar figure for tokens kept out of an agent's context is quoted at: the deep tier's model,
+        else the first configured tier with a known price. None when none of them has a confirmed price."""
+        for tier in ("deep", "balanced", "fast", "frontier"):
+            m = self.model(tier)
+            p = price_for(m)
+            if p:
+                return {"model": m, "tier": tier, **p, "as_of": PRICES_AS_OF}
+        return None
 
     def tier_for(self, task: str, input_tokens: int = 0) -> str:
         """The task's tier. A big input moves a judgement task up one step for quality, never to frontier.
@@ -210,7 +256,7 @@ class Router:
             try:  # a busy ledger must never throw away an answer the model already gave
                 self.brain.log_call(task, tier, model, usage, ok)
             except sqlite3.Error as exc:
-                log.warning("model call not recorded in the ledger: %s", exc)
+                log.warning("model call not recorded in the ledger yet (kept, written with the next call): %s", exc)
 
     def complete(self, task: str, prompt: str, *, system: str = "", cached_context: str = "",
                  max_tokens: int = 1200, budget: Budget | None = None, tier: str | None = None) -> str:
@@ -222,7 +268,7 @@ class Router:
             if self.provider == "anthropic":
                 text, usage = self._anthropic(model, system, cached_context, prompt, max_tokens)
             elif self.provider == "claude-code":
-                text, usage = self._claude_code(model, system, cached_context, prompt, max_tokens)
+                text, usage = self._claude_code(model, system, cached_context, prompt, max_tokens, task)
             else:
                 text, usage = self._openai(model, system, cached_context, prompt, max_tokens)
             ok = True
@@ -240,7 +286,8 @@ class Router:
         usage = dict(NO_USAGE)
         provider = {"anthropic": self._anthropic_stream, "claude-code": self._claude_code_stream}.get(
             self.provider or "", self._openai_stream)
-        chunks = provider(model, system, cached_context, prompt, max_tokens, usage, cancel)
+        chunks = provider(model, system, cached_context, prompt, max_tokens, usage, cancel, task) \
+            if self.provider == "claude-code" else provider(model, system, cached_context, prompt, max_tokens, usage, cancel)
         ok, written = False, 0
         try:
             for chunk in chunks:
@@ -280,7 +327,8 @@ class Router:
     def _anthropic_usage(u: Any) -> dict:
         return {"input": u.input_tokens or 0, "output": u.output_tokens or 0,
                 "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0,
-                "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0}
+                "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0,
+                "cache_write_1h": getattr(getattr(u, "cache_creation", None), "ephemeral_1h_input_tokens", 0) or 0}
 
     def _anthropic(self, model: str, system: str, cached: str, prompt: str, max_tokens: int):
         import anthropic
@@ -303,6 +351,17 @@ class Router:
                 yield text
             usage.update(self._anthropic_usage(s.get_final_message().usage))
 
+    def _cli_env(self, task: str | None) -> dict:
+        """Environment of the one-shot CLI process. Each call is a fresh process whose request changes every time, so a prompt-cache
+        entry is written (at the 1-hour rate, 2x input) and never read: caching is off unless the user set it or `models.cli_cache`
+        is true. Thinking is off for the bulk tasks in NO_THINKING_TASKS unless the user set MAX_THINKING_TOKENS."""
+        env = {**os.environ, "CAIRN_INTERNAL": "1"}
+        if not self.project.cfg("models.cli_cache", False):
+            env.setdefault("DISABLE_PROMPT_CACHING", "1")
+        if task in NO_THINKING_TASKS:
+            env.setdefault("MAX_THINKING_TOKENS", "0")
+        return env
+
     # claude-code: one isolated, tool-less turn through the signed-in Claude Code CLI (the user's plan). It runs
     # from an empty temp folder with no user/project settings, MCP servers or tools, so the user's own hooks and
     # plugins (including Cairn's capture) never fire for Cairn's model calls. The CLI manages output length.
@@ -324,14 +383,16 @@ class Router:
             raise RuntimeError(f"model call failed: {str(data.get('result'))[:200]}")
         u = data.get("usage") or {}
         return {"input": u.get("input_tokens", 0), "output": u.get("output_tokens", 0),
-                "cache_read": u.get("cache_read_input_tokens", 0), "cache_write": u.get("cache_creation_input_tokens", 0)}
+                "cache_read": u.get("cache_read_input_tokens", 0), "cache_write": u.get("cache_creation_input_tokens", 0),
+                "thinking": (u.get("output_tokens_details") or {}).get("thinking_tokens", 0),
+                "cache_write_1h": (u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens", 0)}
 
-    def _claude_code(self, model: str, system: str, cached: str, prompt: str, max_tokens: int):
+    def _claude_code(self, model: str, system: str, cached: str, prompt: str, max_tokens: int, task: str | None = None):
         del max_tokens
         with tempfile.TemporaryDirectory(prefix="cairn-model-") as cwd:
             res = subprocess.run(self._claude_code_args(model, system, cached, "json"), input=prompt,
                                  capture_output=True, text=True, timeout=600, cwd=cwd,
-                                 env={**os.environ, "CAIRN_INTERNAL": "1"}, check=False, encoding="utf-8", errors="replace")
+                                 env=self._cli_env(task), check=False, encoding="utf-8", errors="replace")
         try:
             data = json.loads(res.stdout)
         except json.JSONDecodeError as exc:
@@ -339,13 +400,13 @@ class Router:
         return str(data.get("result") or ""), self._claude_code_result(data)
 
     def _claude_code_stream(self, model: str, system: str, cached: str, prompt: str, max_tokens: int, usage: dict,
-                            cancel: threading.Event | None = None):
+                            cancel: threading.Event | None = None, task: str | None = None):
         del max_tokens
         with tempfile.TemporaryDirectory(prefix="cairn-model-") as cwd, \
                 open(os.path.join(cwd, "stderr.log"), "w+", encoding="utf-8") as err:  # a file: a full stderr pipe can't stall the stream
             proc = subprocess.Popen(self._claude_code_args(model, system, cached, "stream-json"), cwd=cwd,
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True,
-                                    env={**os.environ, "CAIRN_INTERNAL": "1"}, encoding="utf-8", errors="replace")
+                                    env=self._cli_env(task), encoding="utf-8", errors="replace")
             lines: queue.Queue = queue.Queue()  # read on a side thread, so a stop is noticed between lines
 
             def pump() -> None:

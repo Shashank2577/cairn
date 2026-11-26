@@ -27,7 +27,7 @@ Models add what can't be computed, and every call goes through one module, `src/
 | Engine | With a model | Without one |
 |---|---|---|
 | Sessions | Observations and session summaries written from raw agent activity | Records derived deterministically from tool events |
-| Timeline | Facts with validity windows, built on each sync (`[deep] enabled = "auto"`) or by `cairn timeline ingest` | Git history, co-change and risk tags only |
+| Timeline | Facts with validity windows, built by `cairn sync --deep` or `cairn timeline ingest`, or on each sync with `[deep] timeline_facts = true` (off by default) | Git history, co-change and risk tags only |
 | Memory | Reconciliation (ADD, UPDATE, DELETE or NONE), optional reranking, extraction from conversations | Exact de-duplication, with local-embedding and full-text recall |
 | Map | Documents, papers and images (`cairn graph extract`), community names, PR triage | Code via tree-sitter ASTs |
 | Answers | `--explain`, `cairn ask`, `cairn drift --deep` | The same evidence packs, without narration |
@@ -38,7 +38,7 @@ Each job maps to a tier in `TASK_TIER`, and each tier maps to a model in `[model
 
 | Tier | Default model | Jobs |
 |---|---|---|
-| fast | `claude-haiku-4-5-20251001` | `classify`, `summarize`, `label`, `brief`; timeline `temporal.resolve`, `temporal.attributes`, `temporal.timestamps`, `temporal.summarize`, `temporal.community`, `temporal.saga`, `temporal.rerank`; memory `memory_rerank`, `memory_instructions`; map `graph-label`, `graph-dedup`; sessions `recall_observe`, `recall_summarize`, `recall_compress` |
+| fast | `claude-haiku-5-5` | `classify`, `summarize`, `label`, `brief`; timeline `temporal.resolve`, `temporal.attributes`, `temporal.timestamps`, `temporal.summarize`, `temporal.community`, `temporal.saga`, `temporal.rerank`; memory `memory_rerank`, `memory_instructions`; map `graph-label`, `graph-dedup`; sessions `recall_observe`, `recall_summarize`, `recall_compress` |
 | balanced | `claude-sonnet-5` | `extract`, `episode`, `memory`, `link`; timeline `temporal.extract`, `temporal.dedupe`; memory `memory_chat`, `memory_procedural`; map `graph-extract`; sessions `recall_corpus` |
 | deep | `claude-opus-5-5` | `why`, `impact`, `drift`, `ask`; map `graph-triage` |
 | frontier | `claude-fable-5-1` | `review` (opt-in only) |
@@ -111,3 +111,8 @@ Cairn records what its answers cost agents and what they replace.
 
 The Overview page compares the tokens agents were sent with the size of the code those answers cite,
 and breaks the totals down by surface and kind. The same data is at `GET /api/p/<id>/savings`.
+
+It shows that saving next to what Cairn's own model calls cost, and says which is larger. The saving
+is an upper bound: it assumes every file behind a pack would have been read in full. The cost is
+measured from the ledger. `cairn recap` prints the same comparison for one repository, and
+`cairn recap --all` for every repository registered on the machine.

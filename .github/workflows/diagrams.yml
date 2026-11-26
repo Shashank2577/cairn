@@ -39,7 +39,11 @@ jobs:
             done
           done
           python scripts/export_fixture_views.py out
-          cp tests/system/fixtures/mermaid/*.mmd out/
+          # Fixtures that deliberately hold syntax Mermaid itself rejects (they test the importer's tolerance) are listed in
+          # NOT_RENDERABLE and are not rendered here.
+          for f in tests/system/fixtures/mermaid/*.mmd; do
+            grep -qx "$(basename "$f")" tests/system/fixtures/mermaid/NOT_RENDERABLE || cp "$f" out/
+          done
           ls out | wc -l
       - name: Render each with the Mermaid CLI (fails on any parse error)
         run: |
