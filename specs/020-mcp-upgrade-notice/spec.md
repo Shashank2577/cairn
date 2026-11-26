@@ -20,3 +20,8 @@ for a few seconds.
 
 ## Not covered
 Servers already running when this ships are the old code and cannot say anything; those sessions need a restart.
+
+## Verified (2026-11-20)
+A real MCP client session against the installed `cairn mcp`: one call answered with no note; Cairn was reinstalled
+while the session stayed open; two parallel calls were both answered and exactly one carried the note; a third
+call carried none.
